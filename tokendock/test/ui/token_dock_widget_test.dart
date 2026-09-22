@@ -94,9 +94,11 @@ void main() {
 
   testWidgets('compact width renders compact rows', (tester) async {
     await tester.pumpWidget(
-      SizedBox(
-        width: 300,
-        child: TokenDockWidget.loaded(accounts: <AccountItem>[_account()]),
+      Center(
+        child: SizedBox(
+          width: 300,
+          child: TokenDockWidget.loaded(accounts: <AccountItem>[_account()]),
+        ),
       ),
     );
 
@@ -109,20 +111,22 @@ void main() {
 
   testWidgets('normal width renders header and primary quota', (tester) async {
     await tester.pumpWidget(
-      SizedBox(
-        width: 400,
-        child: TokenDockWidget.loaded(
-          accounts: <AccountItem>[
-            _account(
-              quotas: <Quota>[
-                _quota(
-                  resetAt:
-                      DateTime.now().add(const Duration(hours: 2, minutes: 15)),
-                ),
-                _quota(id: 'q2', label: 'Requests'),
-              ],
-            ),
-          ],
+      Center(
+        child: SizedBox(
+          width: 400,
+          child: TokenDockWidget.loaded(
+            accounts: <AccountItem>[
+              _account(
+                quotas: <Quota>[
+                  _quota(
+                    resetAt:
+                        DateTime.now().add(const Duration(hours: 2, minutes: 15)),
+                  ),
+                  _quota(id: 'q2', label: 'Requests'),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -139,19 +143,21 @@ void main() {
   testWidgets('expanded width renders all quotas, plan, and error',
       (tester) async {
     await tester.pumpWidget(
-      SizedBox(
-        width: 600,
-        child: TokenDockWidget.loaded(
-          accounts: <AccountItem>[
-            _account(
-              status: ConnectionStatus.error,
-              quotas: <Quota>[
-                _quota(),
-                _quota(id: 'q2', label: 'Requests'),
-              ],
-              error: 'Provider unavailable',
-            ),
-          ],
+      Center(
+        child: SizedBox(
+          width: 600,
+          child: TokenDockWidget.loaded(
+            accounts: <AccountItem>[
+              _account(
+                status: ConnectionStatus.error,
+                quotas: <Quota>[
+                  _quota(),
+                  _quota(id: 'q2', label: 'Requests'),
+                ],
+                error: 'Provider unavailable',
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -167,15 +173,17 @@ void main() {
 
   testWidgets('stale snapshot keeps quotas while showing error', (tester) async {
     await tester.pumpWidget(
-      SizedBox(
-        width: 400,
-        child: TokenDockWidget.loaded(
-          accounts: <AccountItem>[
-            _account(
-              status: ConnectionStatus.error,
-              error: 'Provider unavailable',
-            ),
-          ],
+      Center(
+        child: SizedBox(
+          width: 400,
+          child: TokenDockWidget.loaded(
+            accounts: <AccountItem>[
+              _account(
+                status: ConnectionStatus.error,
+                error: 'Provider unavailable',
+              ),
+            ],
+          ),
         ),
       ),
     );
