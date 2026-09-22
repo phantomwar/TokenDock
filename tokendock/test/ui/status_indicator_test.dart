@@ -7,6 +7,8 @@ import 'package:tokendock/ui/components/status_indicator.dart';
 void main() {
   testWidgets('limited status shows Limited text and semantic label',
       (tester) async {
+    final handle = tester.ensureSemantics();
+    addTearDown(handle.dispose);
     await tester.pumpWidget(
       MaterialApp(
         theme: TokenDockTheme.lightTheme(),
@@ -22,6 +24,8 @@ void main() {
 
   testWidgets('every status exposes its label as text and semantics',
       (tester) async {
+    final handle = tester.ensureSemantics();
+    addTearDown(handle.dispose);
     for (final status in ConnectionStatus.values) {
       final label = StatusIndicator.labelOf(status);
       await tester.pumpWidget(
