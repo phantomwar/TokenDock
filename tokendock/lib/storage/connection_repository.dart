@@ -1,0 +1,87 @@
+import 'package:sqflite_common/sqlite_api.dart';
+import 'package:tokendock/models/connection.dart';
+
+abstract interface class ConnectionRepository {
+  Future<List<Connection>> getAll();
+  Future<void> save(Connection connection);
+  Future<void> delete(String id);
+}
+
+class SqliteConnectionRepository implements ConnectionRepository {
+  SqliteConnectionRepository(this._db);
+
+  final Database _db;
+
+  @override
+  Future<List<Connection>> getAll() async {
+    final rows = await _db.query(
+      'connections',
+      orderBy: 'sort_order ASC, created_at ASC',
+    );
+    return rows.map((row) {
+      return Connection(
+        id: row['id'] as String,
+        provider: row['provider'] as String,
+        displayName: row['display_name'] as String,
+        group: row['group_name'] as String?,
+        plan: row['plan'] as String?,
+        credentialRef: row['secret_ref'] as String,
+        enabled: (row['enabled'] as int? ?? 1) == 1,
+      );
+    }).toList();
+  }
+
+  @override
+  Future<void> save(Connection connection) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final existing = await _db.query(
+      'connections',
+      columns: ['created_at', 'sort_order', 'auth_type'],
+      where: 'id = ?',
+      whereArgs: [connection.id],
+      limit: 1,
+    );
+
+    final createdAt = existing.isNotEmpty
+        ? (existing.first['created_at'] as String? ?? now)
+        : now;
+    final sortOrder =
+        existing.isNotEmpty ? (existing.first['sort_order'] as int? ?? 0) : 0;
+    final authType =
+        existing.isNotEmpty ? existing.first['auth_type'] as String? : null;
+
+    await _db.insert(
+      'connections',
+      {
+        'id': connection.id,
+        'provider': connection.provider,
+        'display_name': connection.displayName,
+        'group_name': connection.group,
+        'plan': connection.plan,
+        'auth_type': authType,
+        'secret_ref': connection.credentialRef,
+        'enabled': connection.enabled ? 1 : 0,
+        'sort_order': sortOrder,
+        'created_at': createdAt,
+        'updated_at': now,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    await _db.transaction((txn) async {
+      await txn.delete(
+        'quota_cache',
+        where: 'connection_id = ?',
+        whereArgs: [id],
+      );
+      await txn.delete(
+        'connections',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+}

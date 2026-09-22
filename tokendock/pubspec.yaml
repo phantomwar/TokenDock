@@ -37,6 +37,7 @@ dependencies:
   window_manager: ^0.5.2
   tray_manager: ^0.7.0
   path_provider: ^2.1.6
+  sqflite_common_ffi: ^2.3.4
 
 dev_dependencies:
   flutter_test:
