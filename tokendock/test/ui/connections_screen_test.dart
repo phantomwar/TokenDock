@@ -101,9 +101,11 @@ void main() {
             Quota(
               id: 'credits',
               label: 'Credits',
+              percent: 50.0,
               remaining: 50.0,
               limit: 100.0,
               unit: 'USD',
+              resetAt: null,
             ),
           ],
         ),
