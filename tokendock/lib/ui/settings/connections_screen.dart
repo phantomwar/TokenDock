@@ -9,6 +9,7 @@ import '../../storage/connection_repository.dart';
 import '../../storage/quota_cache_repository.dart';
 import '../../storage/secret_store.dart';
 import '../components/status_indicator.dart';
+import '../../app/theme.dart';
 
 /// Screen for managing AI provider connections (CRUD operations).
 ///
@@ -139,78 +140,92 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
       );
     }
 
+    final colors = TokenDockTheme.colorsOf(context);
+
     if (accounts.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.cable, size: 48, color: Colors.grey),
-            const SizedBox(height: 16),
-            const Text(
-              'No connections yet',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              key: const Key('addConnectionEmpty'),
-              onPressed: () => _openDialog(context),
-              icon: const Icon(Icons.add),
-              label: const Text('Add Connection'),
-            ),
-          ],
+      return FocusTraversalGroup(
+        policy: ReadingOrderTraversalPolicy(),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.cable, size: 48, color: colors.mutedInk),
+              const SizedBox(height: 16),
+              Text(
+                'No connections yet',
+                style: TokenDockTypography.bodyStyle(color: colors.mutedInk)
+                    .copyWith(fontSize: 16, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                key: const Key('addConnectionEmpty'),
+                onPressed: () => _openDialog(context),
+                icon: const Icon(Icons.add),
+                label: const Text('Add Connection'),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    return ListView.separated(
-      itemCount: accounts.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final account = accounts[index];
-        final conn = account.connection;
+    return FocusTraversalGroup(
+      policy: ReadingOrderTraversalPolicy(),
+      child: ListView.separated(
+        itemCount: accounts.length,
+        separatorBuilder: (_, __) => Divider(color: colors.hairline, height: 1),
+        itemBuilder: (context, index) {
+          final account = accounts[index];
+          final conn = account.connection;
 
-        return ListTile(
-          key: Key('connectionTile_${conn.id}'),
-          leading: const Icon(Icons.hub_outlined),
-          title: Text(conn.displayName),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                conn.group != null && conn.group!.isNotEmpty
-                    ? '${conn.provider} • ${conn.group}'
-                    : conn.provider,
-              ),
-              const SizedBox(height: 4),
-              StatusIndicator(status: account.snapshot.status),
-            ],
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Switch(
-                key: Key('toggleConnection_${conn.id}'),
-                value: conn.enabled,
-                onChanged: (val) {
-                  _state.toggleConnectionEnabled(conn.id, val);
-                },
-              ),
-              IconButton(
-                key: Key('editConnection_${conn.id}'),
-                icon: const Icon(Icons.edit),
-                tooltip: 'Edit',
-                onPressed: () => _openDialog(context, existing: conn),
-              ),
-              IconButton(
-                key: Key('deleteConnection_${conn.id}'),
-                icon: const Icon(Icons.delete),
-                tooltip: 'Remove',
-                onPressed: () => _deleteConnection(context, conn),
-              ),
-            ],
-          ),
-        );
-      },
+          return ListTile(
+            key: Key('connectionTile_${conn.id}'),
+            leading: Icon(Icons.hub_outlined, color: colors.ink),
+            title: Text(
+              conn.displayName,
+              style: TokenDockTypography.bodyStyle(color: colors.ink),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  conn.group != null && conn.group!.isNotEmpty
+                      ? '${conn.provider} • ${conn.group}'
+                      : conn.provider,
+                  style:
+                      TokenDockTypography.captionStyle(color: colors.mutedInk),
+                ),
+                const SizedBox(height: 4),
+                StatusIndicator(status: account.snapshot.status),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Switch(
+                  key: Key('toggleConnection_${conn.id}'),
+                  value: conn.enabled,
+                  onChanged: (val) {
+                    _state.toggleConnectionEnabled(conn.id, val);
+                  },
+                ),
+                IconButton(
+                  key: Key('editConnection_${conn.id}'),
+                  icon: const Icon(Icons.edit),
+                  tooltip: 'Edit',
+                  onPressed: () => _openDialog(context, existing: conn),
+                ),
+                IconButton(
+                  key: Key('deleteConnection_${conn.id}'),
+                  icon: const Icon(Icons.delete),
+                  tooltip: 'Remove',
+                  onPressed: () => _deleteConnection(context, conn),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -446,8 +461,10 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
+        child: FocusTraversalGroup(
+          policy: ReadingOrderTraversalPolicy(),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -618,6 +635,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 }

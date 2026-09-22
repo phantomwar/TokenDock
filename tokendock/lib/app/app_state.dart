@@ -103,6 +103,30 @@ class AppState implements ChangeNotifier {
         providerRegistry = null,
         settingsRepository = null,
         _refreshService = null;
+
+  /// Factory for creating an [AppState] configured for tests with no active timers.
+  factory AppState.test({
+    ConnectionRepository? connectionRepository,
+    QuotaCacheRepository? quotaCacheRepository,
+    SecretStore? secretStore,
+    ProviderRegistry? providerRegistry,
+    SettingsRepository? settingsRepository,
+    RefreshService? refreshService,
+    List<AccountItem> accounts = const [],
+    bool isLoading = false,
+  }) {
+    return AppState(
+      isLoading: isLoading,
+      accounts: accounts,
+      connectionRepository: connectionRepository,
+      quotaCacheRepository: quotaCacheRepository,
+      secretStore: secretStore,
+      providerRegistry: providerRegistry,
+      settingsRepository: settingsRepository,
+      refreshService: refreshService,
+      autoStartRefreshTimer: false,
+    );
+  }
   final bool _staticLoading;
   final List<AccountItem> _staticAccounts;
   final _StateNotifier? _notifier;

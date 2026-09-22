@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tokendock/app/app.dart';
 import 'package:tokendock/app/app_state.dart';
 import 'package:tokendock/models/connection.dart';
 import 'package:tokendock/models/connection_status.dart';
@@ -11,7 +12,8 @@ import 'package:tokendock/storage/connection_repository.dart';
 import 'package:tokendock/storage/quota_cache_repository.dart';
 import 'package:tokendock/storage/secret_store.dart';
 import 'package:tokendock/ui/settings/connections_screen.dart';
-import 'package:tokendock/ui/widget/token_dock_widget.dart';
+
+import 'memory_secret_store.dart';
 
 /// Fake implementation of [ProviderAdapter] for testing.
 class FakeProviderAdapter implements ProviderAdapter {
@@ -53,6 +55,89 @@ class FakeProviderAdapter implements ProviderAdapter {
       error: testResult.error,
     );
   }
+}
+
+/// In-memory implementation of [ConnectionRepository] for testing.
+class MemoryConnectionRepository implements ConnectionRepository {
+  MemoryConnectionRepository([List<Connection>? initialConnections])
+      : _storage = {
+          for (final c in initialConnections ?? <Connection>[]) c.id: c
+        };
+
+  final Map<String, Connection> _storage;
+
+  @override
+  Future<List<Connection>> getAll() async {
+    return _storage.values.toList();
+  }
+
+  @override
+  Future<void> save(Connection connection) async {
+    _storage[connection.id] = connection;
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    _storage.remove(id);
+  }
+
+  void clear() {
+    _storage.clear();
+  }
+}
+
+/// In-memory implementation of [QuotaCacheRepository] for testing.
+class MemoryQuotaCacheRepository implements QuotaCacheRepository {
+  MemoryQuotaCacheRepository();
+
+  final Map<String, List<Quota>> _storage = {};
+
+  @override
+  Future<List<Quota>> getAll(String connectionId) async {
+    return List<Quota>.unmodifiable(_storage[connectionId] ?? const <Quota>[]);
+  }
+
+  @override
+  Future<void> saveAll(String connectionId, List<Quota> quotas) async {
+    _storage[connectionId] = List<Quota>.from(quotas);
+  }
+
+  @override
+  Future<void> deleteForConnection(String connectionId) async {
+    _storage.remove(connectionId);
+  }
+
+  void clear() {
+    _storage.clear();
+  }
+}
+
+/// Creates an in-memory [AppState] test double wired with memory repositories.
+AppState createTestAppState({
+  ConnectionRepository? connectionRepo,
+  QuotaCacheRepository? quotaCacheRepo,
+  SecretStore? secretStore,
+  ProviderRegistry? registry,
+  List<AccountItem> accounts = const [],
+  bool isLoading = false,
+}) {
+  final repo = connectionRepo ?? MemoryConnectionRepository();
+  final cache = quotaCacheRepo ?? MemoryQuotaCacheRepository();
+  final store = secretStore ?? MemorySecretStore();
+  final reg = registry ??
+      (ProviderRegistry(registerDefaults: false)
+        ..register(FakeProviderAdapter(
+          testResult: TestResult.success(quotas: const []),
+        )));
+  return AppState(
+    isLoading: isLoading,
+    accounts: accounts,
+    connectionRepository: repo,
+    quotaCacheRepository: cache,
+    secretStore: store,
+    providerRegistry: reg,
+    autoStartRefreshTimer: false,
+  );
 }
 
 /// Test harness for [ConnectionsScreen].
@@ -119,83 +204,25 @@ class TestConnectionsScreen extends StatelessWidget {
 
 /// Test harness for the overall app or widget surface.
 class TestApp extends StatelessWidget {
-  const TestApp({
+  TestApp({
     super.key,
-    this.state,
+    AppState? state,
     this.child,
-  });
+  })  : state = state ?? createTestAppState(),
+        child = child;
 
-  const TestApp.empty({super.key})
-      : state = const AppState.empty(),
+  TestApp.empty({super.key})
+      : state = createTestAppState(accounts: const [], isLoading: false),
         child = null;
 
-  final AppState? state;
+  final AppState state;
   final Widget? child;
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: child ??
-          Scaffold(
-            body: TokenDockWidget(
-              state: state ?? const AppState.empty(),
-            ),
-          ),
+    return TokenDockApp(
+      appState: state,
+      child: child,
     );
-  }
-}
-
-/// In-memory implementation of [ConnectionRepository] for testing.
-class MemoryConnectionRepository implements ConnectionRepository {
-  MemoryConnectionRepository([List<Connection>? initialConnections])
-      : _storage = {
-          for (final c in initialConnections ?? <Connection>[]) c.id: c
-        };
-
-  final Map<String, Connection> _storage;
-
-  @override
-  Future<List<Connection>> getAll() async {
-    return _storage.values.toList();
-  }
-
-  @override
-  Future<void> save(Connection connection) async {
-    _storage[connection.id] = connection;
-  }
-
-  @override
-  Future<void> delete(String id) async {
-    _storage.remove(id);
-  }
-
-  void clear() {
-    _storage.clear();
-  }
-}
-
-/// In-memory implementation of [QuotaCacheRepository] for testing.
-class MemoryQuotaCacheRepository implements QuotaCacheRepository {
-  MemoryQuotaCacheRepository();
-
-  final Map<String, List<Quota>> _storage = {};
-
-  @override
-  Future<List<Quota>> getAll(String connectionId) async {
-    return List<Quota>.unmodifiable(_storage[connectionId] ?? const <Quota>[]);
-  }
-
-  @override
-  Future<void> saveAll(String connectionId, List<Quota> quotas) async {
-    _storage[connectionId] = List<Quota>.from(quotas);
-  }
-
-  @override
-  Future<void> deleteForConnection(String connectionId) async {
-    _storage.remove(connectionId);
-  }
-
-  void clear() {
-    _storage.clear();
   }
 }
