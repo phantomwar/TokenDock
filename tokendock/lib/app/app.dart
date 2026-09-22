@@ -1,16 +1,20 @@
 import 'package:flutter/material.dart';
 
+import 'app_state.dart';
+import 'theme.dart';
+import '../ui/widget/token_dock_widget.dart';
+
 class TokenDockApp extends StatelessWidget {
   const TokenDockApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
+    return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        body: Center(
-          child: Text('TokenDock'),
-        ),
+      theme: TokenDockTheme.lightTheme(),
+      darkTheme: TokenDockTheme.darkTheme(),
+      home: const Scaffold(
+        body: TokenDockWidget(state: AppState.loading()),
       ),
     );
   }
