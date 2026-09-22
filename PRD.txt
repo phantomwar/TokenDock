@@ -1,0 +1,2351 @@
+# Plano de Desenvolvimento — TokenDock Desktop
+
+**Produto:** TokenDock
+**Plataforma inicial:** Windows 10/11
+**Stack:** Flutter + SQLite + Secure Storage/DPAPI
+**Arquitetura:** aplicação local, processo único
+**Objetivo:** widget leve para monitorar múltiplas assinaturas, contas e API keys de serviços de IA.
+
+---
+
+# 1. Estratégia de desenvolvimento
+
+O projeto deverá seguir três princípios:
+
+1. **Interface primeiro**
+2. **Uma integração funcionando antes de adicionar outra**
+3. **Não adicionar infraestrutura antes de existir necessidade real**
+
+A sequência será:
+
+```text
+UI
+↓
+Persistência
+↓
+OpenCode
+↓
+MiniMax
+↓
+OpenRouter
+↓
+Antigravity
+↓
+Polimento
+↓
+Release
+```
+
+Cada fase precisa produzir uma aplicação utilizável.
+
+---
+
+# 2. Fase 0 — Bootstrap do projeto
+
+## Objetivo
+
+Criar a base mínima do aplicativo Flutter Windows.
+
+## Implementar
+
+Criar projeto:
+
+```text
+tokendock/
+```
+
+Targets:
+
+```text
+Windows
+```
+
+Inicialmente não habilitar:
+
+```text
+Web
+Android
+iOS
+Linux
+macOS
+```
+
+## Estrutura inicial
+
+```text
+lib/
+├── main.dart
+│
+├── app/
+│   ├── app.dart
+│   └── theme.dart
+│
+├── models/
+│
+├── providers/
+│
+├── services/
+│
+├── storage/
+│
+└── ui/
+    ├── widget/
+    ├── settings/
+    └── components/
+```
+
+## Dependências iniciais
+
+Adicionar somente:
+
+```text
+window_manager
+tray_manager
+path_provider
+```
+
+Não adicionar SQLite, networking ou secure storage ainda.
+
+## Configurações
+
+Definir:
+
+```text
+Min Windows:
+Windows 10
+
+Architecture:
+x64
+```
+
+## Resultado esperado
+
+Executável abrindo uma janela Windows básica.
+
+## Critério de conclusão
+
+```text
+flutter run -d windows
+```
+
+inicia corretamente.
+
+Sem warnings críticos.
+
+---
+
+# 3. Fase 1 — Design System
+
+## Objetivo
+
+Definir aparência antes da lógica.
+
+Criar:
+
+```text
+TokenDockTheme
+```
+
+com:
+
+```text
+Light
+Dark
+System
+```
+
+## Componentes básicos
+
+Criar:
+
+```text
+AppCard
+QuotaBar
+ProviderIcon
+StatusIndicator
+AccountHeader
+QuotaRow
+CompactAccountRow
+SectionHeader
+IconButton
+```
+
+## Tokens visuais
+
+Definir centralmente:
+
+```text
+spacing
+radius
+font sizes
+animation duration
+opacity
+shadow
+```
+
+Exemplo:
+
+```text
+spacingXS
+spacingSM
+spacingMD
+spacingLG
+
+radiusSM
+radiusMD
+radiusLG
+```
+
+Nunca espalhar valores arbitrários pela interface.
+
+---
+
+# 4. Fase 2 — Widget mockado
+
+## Objetivo
+
+Criar o produto visual completo antes de conectar qualquer API.
+
+Criar dados falsos:
+
+```text
+OpenCode Principal
+OpenCode Projetos
+MiniMax Work
+Antigravity Work
+OpenRouter Production
+```
+
+Exemplo:
+
+```text
+OpenCode Principal
+
+5h       74%
+Weekly   42%
+Monthly  29%
+```
+
+## Implementar
+
+Widget:
+
+```text
+Compact
+Normal
+Expanded
+```
+
+---
+
+# 5. Modo compacto
+
+Exemplo:
+
+```text
+╭──────────────────────────╮
+│ TokenDock          ● ↻   │
+│                          │
+│ OC Principal      74%    │
+│ OC Projetos       21%    │
+│ Antigravity       53%    │
+│ MiniMax           36%    │
+╰──────────────────────────╯
+```
+
+## Requisitos
+
+Largura aproximada:
+
+```text
+280–320px
+```
+
+Mostrar:
+
+```text
+nome
+status
+quota principal
+```
+
+Nada além disso.
+
+---
+
+# 6. Modo normal
+
+Exemplo:
+
+```text
+╭────────────────────────────────╮
+│ TokenDock                  ● ↻ │
+│                                │
+│ OpenCode · Principal           │
+│ 5h      ███████░░░ 74%  1:32  │
+│ week    ████░░░░░░ 42%        │
+│                                │
+│ OpenCode · Projetos            │
+│ 5h      ██░░░░░░░░ 21%        │
+╰────────────────────────────────╯
+```
+
+Mostrar:
+
+```text
+provider
+apelido
+quota
+reset
+status
+```
+
+---
+
+# 7. Modo expandido
+
+Adicionar:
+
+```text
+todas as quotas
+plan
+último refresh
+erro quando existir
+```
+
+Ainda sem gráficos.
+
+---
+
+# 8. Responsividade
+
+Criar breakpoint simples:
+
+```text
+< 330
+Compact
+
+330–550
+Normal
+
+> 550
+Expanded
+```
+
+Utilizar:
+
+```dart
+LayoutBuilder
+```
+
+Evitar múltiplas árvores completamente diferentes.
+
+---
+
+# 9. Fase 3 — Janela Windows
+
+## Objetivo
+
+Transformar a janela Flutter em widget desktop.
+
+Implementar usando:
+
+```text
+window_manager
+```
+
+## Recursos
+
+```text
+frameless
+always on top
+remember size
+remember position
+min size
+max size
+```
+
+## Comportamentos
+
+Permitir:
+
+```text
+arrastar
+redimensionar
+encaixar próximo da borda
+```
+
+Não implementar snapping avançado inicialmente.
+
+---
+
+# 10. Fechar para tray
+
+Ao clicar:
+
+```text
+X
+```
+
+não finalizar.
+
+Executar:
+
+```text
+hide()
+```
+
+O aplicativo continua no tray.
+
+---
+
+# 11. Fase 4 — System Tray
+
+Criar ícone TokenDock.
+
+Menu:
+
+```text
+Open TokenDock
+
+Refresh All
+
+────────────
+
+Always on Top
+Start with Windows
+
+────────────
+
+Settings
+
+Exit
+```
+
+## Eventos
+
+Double click:
+
+```text
+mostrar widget
+```
+
+Exit:
+
+```text
+finalizar aplicação
+```
+
+---
+
+# 12. Fase 5 — Modelos de domínio
+
+Somente depois da UI estar pronta.
+
+Criar:
+
+```text
+Connection
+ProviderSnapshot
+Quota
+ConnectionStatus
+```
+
+---
+
+# 13. Connection
+
+```dart
+class Connection {
+  final String id;
+
+  final String provider;
+
+  final String displayName;
+
+  final String? group;
+
+  final String? plan;
+
+  final String credentialRef;
+
+  final bool enabled;
+}
+```
+
+Não adicionar campos sem uso real.
+
+---
+
+# 14. Quota
+
+```dart
+class Quota {
+  final String id;
+
+  final String label;
+
+  final double? percent;
+
+  final double? remaining;
+
+  final double? limit;
+
+  final String? unit;
+
+  final DateTime? resetAt;
+}
+```
+
+---
+
+# 15. ProviderSnapshot
+
+```dart
+class ProviderSnapshot {
+  final String connectionId;
+
+  final ConnectionStatus status;
+
+  final List<Quota> quotas;
+
+  final double? balance;
+
+  final DateTime fetchedAt;
+
+  final String? error;
+}
+```
+
+---
+
+# 16. Status
+
+Somente:
+
+```text
+ok
+warning
+limited
+authError
+error
+updating
+```
+
+---
+
+# 17. Fase 6 — Persistência SQLite
+
+Adicionar:
+
+```text
+sqflite_common_ffi
+```
+
+Criar:
+
+```text
+tokendock.db
+```
+
+em:
+
+```text
+%LOCALAPPDATA%\TokenDock\
+```
+
+---
+
+# 18. Banco inicial
+
+Criar apenas três tabelas:
+
+```text
+connections
+quota_cache
+settings
+```
+
+---
+
+# 19. connections
+
+```sql
+id
+provider
+display_name
+group_name
+plan
+auth_type
+secret_ref
+enabled
+sort_order
+created_at
+updated_at
+```
+
+---
+
+# 20. quota_cache
+
+```sql
+connection_id
+quota_key
+label
+percent
+remaining
+limit_value
+unit
+reset_at
+status
+updated_at
+```
+
+---
+
+# 21. settings
+
+```sql
+key
+value
+```
+
+Exemplos:
+
+```text
+theme
+refresh_interval
+window_x
+window_y
+window_width
+window_height
+always_on_top
+start_with_windows
+```
+
+---
+
+# 22. Migrations
+
+Mesmo sendo pequeno, começar com:
+
+```text
+schema_version = 1
+```
+
+Criar:
+
+```text
+Migration001
+```
+
+Não usar ORM complexo.
+
+---
+
+# 23. Repository
+
+Criar:
+
+```text
+ConnectionRepository
+SettingsRepository
+QuotaCacheRepository
+```
+
+Exemplo:
+
+```dart
+abstract interface class ConnectionRepository {
+  Future<List<Connection>> getAll();
+
+  Future<void> save(Connection connection);
+
+  Future<void> delete(String id);
+}
+```
+
+---
+
+# 24. Fase 7 — Secure Storage
+
+Adicionar:
+
+```text
+flutter_secure_storage
+```
+
+Criar:
+
+```text
+SecretStore
+```
+
+Interface:
+
+```dart
+abstract interface class SecretStore {
+  Future<void> write(
+    String key,
+    String value,
+  );
+
+  Future<String?> read(String key);
+
+  Future<void> delete(String key);
+}
+```
+
+---
+
+# 25. Regra crítica
+
+Jamais armazenar:
+
+```text
+API key
+OAuth token
+refresh token
+cookie
+session
+```
+
+diretamente no SQLite.
+
+SQLite guarda apenas:
+
+```text
+secret_ref
+```
+
+---
+
+# 26. Fluxo de cadastro
+
+Quando usuário cadastrar:
+
+```text
+OpenCode Principal
+```
+
+com:
+
+```text
+sk-12345
+```
+
+processo:
+
+```text
+gera UUID
+↓
+SecureStore.write()
+↓
+SQLite salva secret_ref
+```
+
+---
+
+# 27. Exclusão
+
+Ao remover conexão:
+
+```text
+SQLite DELETE
++
+SecretStore DELETE
++
+quota_cache DELETE
+```
+
+Tudo precisa ser removido.
+
+---
+
+# 28. Fase 8 — Tela Connections
+
+Criar tela:
+
+```text
+Accounts / Connections
+```
+
+Exemplo:
+
+```text
+Connections
+
+OpenCode
+
+Principal
+Go
+[Edit] [Refresh] [Remove]
+
+Projetos
+Go
+[Edit] [Refresh] [Remove]
+
+────────────
+
++ Add Connection
+```
+
+---
+
+# 29. Add Connection
+
+Campos:
+
+```text
+Provider
+
+Display name
+
+Group
+
+Credential
+```
+
+Dependendo do provider:
+
+```text
+API key
+
+ou
+
+Local account
+```
+
+Botão obrigatório:
+
+```text
+Test Connection
+```
+
+---
+
+# 30. Test Connection
+
+Sequência:
+
+```text
+Credential
+↓
+ProviderAdapter.test()
+↓
+Response
+```
+
+Mostrar:
+
+```text
+✓ Connected
+
+OpenCode Go detected
+
+5h       21%
+Weekly   11%
+Monthly   7%
+```
+
+Somente depois:
+
+```text
+Save
+```
+
+---
+
+# 31. Fase 9 — Provider Architecture
+
+Criar:
+
+```dart
+abstract interface class ProviderAdapter {
+  String get id;
+
+  String get name;
+
+  Future<TestResult> test(
+    Connection connection,
+    String secret,
+  );
+
+  Future<ProviderSnapshot> fetch(
+    Connection connection,
+    String secret,
+  );
+}
+```
+
+Somente isso.
+
+---
+
+# 32. ProviderRegistry
+
+Criar:
+
+```dart
+ProviderRegistry
+```
+
+Map:
+
+```text
+opencode → OpenCodeProvider
+minimax → MiniMaxProvider
+openrouter → OpenRouterProvider
+antigravity → AntigravityProvider
+```
+
+Não criar plugin system.
+
+---
+
+# 33. Fase 10 — OpenCode Go
+
+Primeira integração real.
+
+## Objetivo
+
+Validar multi-assinatura.
+
+Cadastrar:
+
+```text
+OpenCode 1
+OpenCode 2
+OpenCode 3
+```
+
+Cada um com uma credencial diferente.
+
+---
+
+# 34. OpenCode adapter
+
+Implementar:
+
+```text
+test()
+fetch()
+```
+
+Mapear:
+
+```text
+rolling
+weekly
+monthly
+```
+
+para:
+
+```text
+Quota
+```
+
+---
+
+# 35. Resultado esperado
+
+```text
+OpenCode · Principal
+
+5h
+███████░░░ 72%
+
+Weekly
+████░░░░░░ 43%
+
+Monthly
+███░░░░░░░ 31%
+```
+
+---
+
+# 36. Testes OpenCode
+
+Testar:
+
+```text
+valid key
+invalid key
+expired/invalid auth
+HTTP 429
+HTTP 500
+timeout
+malformed response
+```
+
+E principalmente:
+
+```text
+3 contas simultaneamente
+```
+
+---
+
+# 37. Fase 11 — Refresh Service
+
+Criar:
+
+```text
+RefreshService
+```
+
+Responsável por:
+
+```text
+refreshOne()
+refreshAll()
+```
+
+---
+
+# 38. Auto refresh
+
+Configurações:
+
+```text
+1 min
+3 min
+5 min
+10 min
+manual
+```
+
+Default:
+
+```text
+3 min
+```
+
+Usar:
+
+```text
+Timer.periodic
+```
+
+Sem scheduler sofisticado.
+
+---
+
+# 39. Concorrência
+
+Não disparar dezenas de requests ao mesmo tempo.
+
+Limite:
+
+```text
+4
+```
+
+requisições simultâneas.
+
+Pode implementar fila simples.
+
+---
+
+# 40. Cache
+
+Após cada sucesso:
+
+```text
+ProviderSnapshot
+↓
+quota_cache
+```
+
+Ao iniciar TokenDock:
+
+```text
+SQLite
+↓
+mostrar cache
+↓
+refresh background
+```
+
+---
+
+# 41. Fase 12 — Countdown
+
+Para quotas com:
+
+```text
+resetAt
+```
+
+calcular localmente.
+
+Exemplo:
+
+```text
+Reset in 01:42:18
+```
+
+Não fazer request novo para atualizar countdown.
+
+---
+
+# 42. Fase 13 — MiniMax
+
+Segundo adapter.
+
+Implementar:
+
+```text
+5h
+weekly
+```
+
+Suportar várias credenciais:
+
+```text
+MiniMax Work
+MiniMax Personal
+MiniMax Client
+```
+
+---
+
+# 43. Testes MiniMax
+
+Mesmos cenários:
+
+```text
+key válida
+key inválida
+quota esgotada
+timeout
+429
+500
+```
+
+---
+
+# 44. Fase 14 — OpenRouter
+
+Terceiro adapter.
+
+Inicialmente:
+
+```text
+individual API key
+```
+
+Mostrar:
+
+```text
+balance
+limit
+remaining
+daily
+weekly
+monthly
+```
+
+---
+
+# 45. OpenRouter Management API
+
+Não implementar imediatamente.
+
+Adicionar depois como:
+
+```text
+Import OpenRouter Keys
+```
+
+Isso é melhoria v0.2.
+
+---
+
+# 46. Fase 15 — Antigravity
+
+Implementar por último entre os P0.
+
+Motivo:
+
+```text
+mais dependente de autenticação local
+mais sujeito a mudanças
+multi-account mais complexo
+```
+
+---
+
+# 47. Antigravity fase 1
+
+Primeiro suportar:
+
+```text
+1 conta
+```
+
+Validar:
+
+```text
+quota
+models
+reset
+plan
+```
+
+---
+
+# 48. Antigravity fase 2
+
+Depois permitir:
+
+```text
+várias contas
+```
+
+Cada uma como `Connection`.
+
+Exemplo:
+
+```text
+Antigravity · Trabalho
+Antigravity · Projetos
+Antigravity · Pessoal
+```
+
+---
+
+# 49. Fallback Antigravity
+
+Se a integração depender de recurso não documentado:
+
+mostrar claramente:
+
+```text
+Experimental Provider
+```
+
+e impedir que erro quebre o aplicativo.
+
+---
+
+# 50. Fase 16 — Groups
+
+Agora implementar grupos.
+
+Exemplo:
+
+```text
+TRABALHO
+
+OpenCode Principal
+OpenCode Projetos
+Antigravity Work
+MiniMax Work
+
+PESSOAL
+
+Antigravity Personal
+OpenCode Personal
+```
+
+---
+
+# 51. Ordenação
+
+Permitir inicialmente:
+
+```text
+manual
+provider
+status
+```
+
+Drag and drop pode ficar para depois.
+
+---
+
+# 52. Fase 17 — Status visual
+
+Regras padrão:
+
+```text
+0–74%
+normal
+
+75–89%
+warning
+
+90–99%
+critical
+
+100%
+limited
+```
+
+Esses thresholds devem ser configuráveis depois.
+
+---
+
+# 53. Não depender somente da cor
+
+Usar:
+
+```text
+●
+⚠
+!
+```
+
+ou ícones equivalentes.
+
+---
+
+# 54. Fase 18 — Erros
+
+Todo card deve suportar:
+
+```text
+Auth required
+Provider unavailable
+Timeout
+Rate limited
+Unknown response
+```
+
+Exemplo:
+
+```text
+Antigravity · Trabalho
+
+⚠ Authentication required
+
+[Reconnect]
+```
+
+---
+
+# 55. Nunca apagar cache após erro
+
+Se último valor era:
+
+```text
+72%
+```
+
+mostrar:
+
+```text
+72%
+
+⚠ Last updated 23m ago
+```
+
+e não:
+
+```text
+0%
+```
+
+---
+
+# 56. Fase 19 — Settings
+
+Tela pequena.
+
+## General
+
+```text
+Start with Windows
+Refresh interval
+Close to tray
+```
+
+## Appearance
+
+```text
+System
+Dark
+Light
+
+Compact mode
+
+Always on top
+```
+
+## Connections
+
+```text
+Add
+Edit
+Delete
+Test
+```
+
+## About
+
+```text
+Version
+GitHub
+Check for updates
+```
+
+Check for updates pode ficar desabilitado no primeiro release.
+
+---
+
+# 57. Fase 20 — Start with Windows
+
+Implementar:
+
+```text
+launch_at_startup
+```
+
+Opção:
+
+```text
+Start minimized to tray
+```
+
+Default recomendado:
+
+```text
+false
+```
+
+até o usuário habilitar.
+
+---
+
+# 58. Fase 21 — Notificações básicas
+
+Adicionar somente:
+
+```text
+quota >= 80%
+quota >= 95%
+auth error
+```
+
+Para evitar repetição:
+
+```text
+notificar uma vez
+```
+
+até quota mudar/resetar.
+
+---
+
+# 59. Não criar alert engine
+
+Usar regra simples:
+
+```text
+lastNotificationThreshold
+```
+
+por conexão.
+
+---
+
+# 60. Fase 22 — Persistência de janela
+
+Salvar:
+
+```text
+x
+y
+width
+height
+mode
+always_on_top
+```
+
+Ao iniciar:
+
+restaurar.
+
+Se monitor não existir mais:
+
+```text
+mover janela para monitor principal
+```
+
+Isso evita abrir fora da tela.
+
+---
+
+# 61. Fase 23 — Otimização
+
+Revisar:
+
+```text
+rebuilds
+timers
+HTTP clients
+animations
+SQLite queries
+```
+
+Objetivo:
+
+quando parado:
+
+```text
+CPU próximo de 0%
+```
+
+---
+
+# 62. HTTP client
+
+Manter um client reutilizável por provider.
+
+Não criar:
+
+```text
+new Client()
+```
+
+a cada request.
+
+---
+
+# 63. Timeouts
+
+Definir:
+
+```text
+connection timeout:
+5–10s
+
+request timeout:
+10–15s
+```
+
+Evitar requests presos.
+
+---
+
+# 64. Fase 24 — Segurança
+
+Checklist:
+
+```text
+[ ] nenhuma key no SQLite
+
+[ ] nenhuma key no log
+
+[ ] nenhuma key em exceptions
+
+[ ] nenhuma key em analytics
+
+[ ] clipboard tratado com cuidado
+
+[ ] masked keys na UI
+
+[ ] secure storage funcionando
+```
+
+---
+
+# 65. Masking
+
+Mostrar:
+
+```text
+sk-••••••••••82AD
+```
+
+Nunca mostrar segredo completo depois de salvo.
+
+---
+
+# 66. Logs
+
+Produção:
+
+```text
+INFO
+WARNING
+ERROR
+```
+
+Não logar body de requests contendo secrets.
+
+---
+
+# 67. Fase 25 — Testes unitários
+
+Testar prioritariamente:
+
+```text
+provider response parsing
+quota calculation
+reset parsing
+SQLite repositories
+secure credential references
+status thresholds
+```
+
+---
+
+# 68. Provider fixtures
+
+Criar:
+
+```text
+test/
+fixtures/
+```
+
+Exemplos:
+
+```text
+opencode_success.json
+opencode_limit.json
+opencode_error.json
+
+minimax_success.json
+
+openrouter_success.json
+```
+
+Isso permite testar sem chamar APIs reais.
+
+---
+
+# 69. Fase 26 — Integration tests
+
+Testar fluxo:
+
+```text
+Add Connection
+↓
+Test
+↓
+Save
+↓
+Restart App
+↓
+Connection restored
+↓
+Refresh
+↓
+Quota displayed
+```
+
+---
+
+# 70. Teste principal multi-assinatura
+
+Obrigatório testar:
+
+```text
+Provider:
+OpenCode
+
+Connection 1
+Connection 2
+Connection 3
+Connection 4
+Connection 5
+```
+
+Todas precisam:
+
+```text
+atualizar separadamente
+armazenar separado
+mostrar separado
+falhar separado
+```
+
+---
+
+# 71. Fase 27 — Offline behavior
+
+Sem internet:
+
+TokenDock deve abrir normalmente.
+
+Mostrar:
+
+```text
+Last update:
+14:42
+
+Offline
+```
+
+Não travar.
+
+---
+
+# 72. Fase 28 — Packaging
+
+Criar primeiro:
+
+```text
+Portable ZIP
+```
+
+para testes.
+
+Depois:
+
+```text
+Installer
+```
+
+---
+
+# 73. Installer
+
+O instalador deve:
+
+```text
+instalar TokenDock
+criar Start Menu
+opcional desktop shortcut
+registrar uninstall
+```
+
+Não iniciar automaticamente com Windows sem consentimento.
+
+---
+
+# 74. Fase 29 — Versão interna
+
+Release:
+
+```text
+0.1.0-alpha
+```
+
+Usar diariamente.
+
+Meta:
+
+```text
+7–14 dias de uso real
+```
+
+antes de considerar beta.
+
+---
+
+# 75. O que observar durante uso real
+
+Registrar bugs relacionados a:
+
+```text
+quota incorreta
+reset incorreto
+provider expirando
+uso excessivo CPU
+janela perdendo posição
+tray
+suspensão do Windows
+retorno do sleep
+internet caindo
+API respondendo diferente
+```
+
+---
+
+# 76. Fase 30 — Sleep / Wake
+
+Muito importante em desktop.
+
+Quando Windows volta de:
+
+```text
+sleep
+hibernate
+```
+
+o timer pode estar atrasado.
+
+Ao detectar retomada:
+
+```text
+refreshAll()
+```
+
+após pequeno intervalo.
+
+---
+
+# 77. Fase 31 — Beta
+
+Versão:
+
+```text
+0.1.0-beta
+```
+
+Critérios:
+
+```text
+OpenCode estável
+MiniMax estável
+OpenRouter estável
+Antigravity funcional
+multi-account funcionando
+secure storage funcionando
+tray estável
+```
+
+---
+
+# 78. Fase 32 — Release 0.1
+
+Release público.
+
+Entregar:
+
+```text
+TokenDockSetup.exe
+TokenDockPortable.zip
+```
+
+Documentação:
+
+```text
+README
+Installation
+Adding Accounts
+Security
+Troubleshooting
+```
+
+---
+
+# 79. Roadmap 0.2
+
+Somente após 0.1 funcionar bem.
+
+Adicionar:
+
+```text
+history
+charts
+OpenRouter Management API
+notifications configuráveis
+drag and drop
+provider autodetection
+additional providers
+```
+
+---
+
+# 80. Roadmap 0.3
+
+Possíveis providers:
+
+```text
+Codex
+Claude
+OpenAI API
+Gemini API
+GitHub Copilot
+Groq
+DeepSeek
+z.ai
+```
+
+---
+
+# 81. Roadmap 0.4
+
+Somente se existir necessidade:
+
+```text
+Flutter Web
+```
+
+Nesse ponto avaliar:
+
+```text
+Go backend
+```
+
+Mas não antes.
+
+---
+
+# 82. Roadmap futuro
+
+Se existir demanda real para acessar vários PCs:
+
+```text
+TokenDock Agent
++
+TokenDock Server
+```
+
+Apenas então considerar:
+
+```text
+Go
+PostgreSQL
+PocketBase
+```
+
+---
+
+# 83. Ordem recomendada de implementação real
+
+Executar exatamente nesta ordem:
+
+```text
+01 Flutter Windows
+
+02 Design System
+
+03 Widget mockado
+
+04 Compact / Expanded
+
+05 Frameless Window
+
+06 Tray
+
+07 Models
+
+08 SQLite
+
+09 SecureStore
+
+10 Connections CRUD
+
+11 Provider Interface
+
+12 OpenCode Go
+
+13 RefreshService
+
+14 Multi-OpenCode testing
+
+15 MiniMax
+
+16 OpenRouter
+
+17 Groups
+
+18 Antigravity
+
+19 Errors / stale states
+
+20 Startup with Windows
+
+21 Notifications
+
+22 Persistence window state
+
+23 Security review
+
+24 Performance review
+
+25 Installer
+
+26 Alpha
+
+27 Daily testing
+
+28 Beta
+
+29 Release
+```
+
+---
+
+# 84. Primeira meta funcional
+
+Antes de trabalhar em MiniMax, Antigravity ou OpenRouter, atingir:
+
+```text
+TokenDock.exe
+↓
+abre widget bonito
+↓
+fica no tray
+↓
+permite cadastrar 3 OpenCode Go
+↓
+protege as 3 API keys
+↓
+consulta as 3 contas
+↓
+mostra quotas individualmente
+↓
+atualiza automaticamente
+↓
+lembra tudo após reiniciar
+```
+
+Quando isso funcionar, a arquitetura central está validada.
+
+---
+
+# 85. Segunda meta funcional
+
+Adicionar:
+
+```text
+2 MiniMax
++
+2 OpenRouter
+```
+
+Resultado:
+
+```text
+7 conexões
+3 providers
+1 widget
+```
+
+sem mudança arquitetural significativa.
+
+Se for necessário remodelar o sistema para isso, a primeira arquitetura estava errada.
+
+---
+
+# 86. Terceira meta funcional
+
+Adicionar:
+
+```text
+Antigravity multi-account
+```
+
+Somente após os providers simples estarem estáveis.
+
+---
+
+# 87. Definição de pronto para uma feature
+
+Uma tarefa só termina quando possui:
+
+```text
+implementação
+loading state
+error state
+persistência quando aplicável
+teste
+UI final
+```
+
+Não considerar pronto somente porque:
+
+```text
+"API respondeu"
+```
+
+---
+
+# 88. Regras para evitar overengineering
+
+Não criar:
+
+```text
+interface
+factory
+repository
+service
+manager
+controller
+```
+
+para cada classe automaticamente.
+
+Criar abstração somente quando:
+
+```text
+existirem pelo menos 2 implementações
+
+ou
+
+houver dependência externa que provavelmente mudará
+```
+
+Exceções que já justificam abstração:
+
+```text
+ProviderAdapter
+SecretStore
+ConnectionRepository
+```
+
+---
+
+# 89. Regra para novas dependências
+
+Antes de adicionar pacote Flutter:
+
+responder:
+
+```text
+1. Flutter/Dart padrão resolve?
+
+2. O pacote é realmente necessário?
+
+3. Está mantido?
+
+4. Suporta Windows?
+
+5. Há alternativa menor?
+```
+
+Se as respostas não forem boas:
+
+não adicionar.
+
+---
+
+# 90. Regra para novos providers
+
+Todo novo provider deve exigir apenas:
+
+```text
+ProviderAdapter
++
+models específicos internos
++
+tests
+```
+
+Nunca exigir mudança nos cards principais.
+
+Se exigir:
+
+revisar o modelo comum.
+
+---
+
+# 91. Git workflow
+
+Branches:
+
+```text
+main
+develop
+feature/*
+fix/*
+```
+
+Opcionalmente simplificar para:
+
+```text
+main
+feature/*
+```
+
+se apenas uma pessoa estiver desenvolvendo.
+
+---
+
+# 92. Commits
+
+Preferir commits pequenos:
+
+```text
+feat: add compact widget
+
+feat: add secure credential store
+
+feat: add OpenCode usage provider
+
+fix: restore window position correctly
+
+test: add OpenCode quota fixtures
+```
+
+---
+
+# 93. Checklist da versão 0.1
+
+## UI
+
+```text
+[ ] compact widget
+[ ] normal widget
+[ ] expanded widget
+[ ] dark
+[ ] light
+[ ] responsive
+[ ] animations
+```
+
+## Windows
+
+```text
+[ ] frameless
+[ ] always-on-top
+[ ] tray
+[ ] close-to-tray
+[ ] startup
+[ ] restore position
+```
+
+## Data
+
+```text
+[ ] SQLite
+[ ] migrations
+[ ] cache
+[ ] settings
+```
+
+## Security
+
+```text
+[ ] SecureStore
+[ ] masking
+[ ] log redaction
+[ ] delete credentials
+```
+
+## Providers
+
+```text
+[ ] OpenCode
+[ ] MiniMax
+[ ] OpenRouter
+[ ] Antigravity
+```
+
+## Accounts
+
+```text
+[ ] multi-account
+[ ] aliases
+[ ] groups
+[ ] enable/disable
+[ ] edit
+[ ] remove
+```
+
+## Refresh
+
+```text
+[ ] manual
+[ ] automatic
+[ ] parallel
+[ ] timeout
+[ ] 429 handling
+[ ] stale state
+```
+
+## Release
+
+```text
+[ ] portable
+[ ] installer
+[ ] README
+[ ] troubleshooting
+```
+
+---
+
+# 94. Resultado esperado da v0.1
+
+No uso diário:
+
+```text
+Windows inicia
+        ↓
+TokenDock inicia no tray
+        ↓
+widget aparece quando solicitado
+        ↓
+cache aparece instantaneamente
+        ↓
+contas atualizam
+        ↓
+usuário identifica rapidamente
+qual assinatura possui quota
+```
+
+O produto deve responder principalmente:
+
+```text
+Qual das minhas assinaturas ainda tem limite?
+```
+
+sem precisar abrir os sites de cada provedor.
+
+---
+
+# 95. Prioridade de esforço
+
+Distribuição recomendada:
+
+```text
+35% UI / UX
+
+25% providers
+
+15% Windows integration
+
+10% persistence
+
+10% tests
+
+5% installer / release
+```
+
+A qualidade visual faz parte do produto e não deve ser deixada para o final.
+
+---
+
+# 96. Arquitetura final da v0.1
+
+```text
+                   TokenDock
+                      │
+              ┌───────┴───────┐
+              │               │
+             UI            Services
+              │               │
+       ┌──────┼──────┐    Refresh
+       │      │      │     Tray
+     Cards Settings Window   Startup
+                              │
+                   ┌──────────┼──────────┐
+                   │          │          │
+               Providers    SQLite    Secrets
+                   │                     │
+          ┌────────┼────────┐           DPAPI
+          │        │        │
+       OpenCode MiniMax OpenRouter
+          │
+      Antigravity
+```
+
+Um aplicativo.
+
+Um processo.
+
+Um banco local.
+
+Sem servidor.
+
+Sem cloud.
+
+Sem infraestrutura desnecessária.
+
+---
+
+# 97. Regra final do projeto
+
+Para a versão 0.1:
+
+> Primeiro fazer o widget ser agradável o suficiente para permanecer aberto na área de trabalho o dia inteiro e confiável o suficiente para substituir a consulta manual aos painéis dos provedores.
+
+Qualquer funcionalidade que não contribua diretamente para esse objetivo deverá ser adiada.
