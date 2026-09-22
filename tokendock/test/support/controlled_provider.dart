@@ -59,7 +59,7 @@ class ControlledProvider implements ProviderAdapter {
     if (errorToThrow != null) {
       return TestResult.failure(error: errorToThrow.toString());
     }
-    return const TestResult.success(message: 'Controlled test success');
+    return const TestResult.success(plan: 'Controlled');
   }
 
   @override

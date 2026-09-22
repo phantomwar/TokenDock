@@ -59,6 +59,8 @@ void main() {
       id: id,
       provider: provider,
       displayName: 'Connection $id',
+      group: null,
+      plan: null,
       credentialRef: 'cred-$id',
       enabled: enabled,
     );
@@ -170,7 +172,7 @@ void main() {
       final secretStore =
           MemorySecretStore({'cred-$connectionId': 'sk-valid-key'});
 
-      final initialQuotas = [
+      final initialQuotas = <Quota>[
         const Quota(
           id: 'credits',
           label: 'Credits',
@@ -178,6 +180,7 @@ void main() {
           remaining: 75.0,
           limit: 100.0,
           unit: 'USD',
+          resetAt: null,
         ),
       ];
       await quotaCacheRepo.saveAll(connectionId, initialQuotas);
