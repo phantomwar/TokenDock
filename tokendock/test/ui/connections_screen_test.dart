@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tokendock/app/app_state.dart';
 import 'package:tokendock/models/connection.dart';
 import 'package:tokendock/models/quota.dart';
@@ -9,7 +8,6 @@ import 'package:tokendock/storage/secret_store.dart';
 
 import '../support/memory_secret_store.dart';
 import '../support/test_app.dart';
-import '../support/test_database.dart';
 
 class FailingConnectionRepository implements ConnectionRepository {
   @override
@@ -25,20 +23,14 @@ class FailingConnectionRepository implements ConnectionRepository {
 }
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-  });
-
-  late TestDatabase db;
+  late MemoryConnectionRepository connectionRepo;
+  late MemoryQuotaCacheRepository quotaCacheRepo;
   late MemorySecretStore store;
 
-  setUp(() async {
-    db = await TestDatabase.create();
+  setUp(() {
+    connectionRepo = MemoryConnectionRepository();
+    quotaCacheRepo = MemoryQuotaCacheRepository();
     store = MemorySecretStore();
-  });
-
-  tearDown(() async {
-    await db.close();
   });
 
   group('ConnectionsScreen - Test-Before-Save Gate', () {
@@ -48,7 +40,7 @@ void main() {
         TestConnectionsScreen.withResult(
           success: false,
           error: 'Invalid API key',
-          connectionRepo: db.connectionRepository,
+          connectionRepo: connectionRepo,
           secretStore: store,
         ),
       );
@@ -94,8 +86,8 @@ void main() {
       await tester.pumpWidget(
         TestConnectionsScreen.withResult(
           success: true,
-          connectionRepo: db.connectionRepository,
-          quotaCacheRepo: db.quotaCacheRepository,
+          connectionRepo: connectionRepo,
+          quotaCacheRepo: quotaCacheRepo,
           secretStore: store,
           quotas: const [
             Quota(
@@ -153,8 +145,8 @@ void main() {
       expect(find.text('OpenRouter Main'), findsOneWidget);
       expect(find.textContaining('openrouter • Production'), findsOneWidget);
 
-      // Verify connection in database
-      final conns = await db.connectionRepository.getAll();
+      // Verify connection in repository
+      final conns = await connectionRepo.getAll();
       expect(conns.length, 1);
       final conn = conns.first;
       expect(conn.displayName, 'OpenRouter Main');
@@ -166,7 +158,7 @@ void main() {
       expect(savedSecret, 'sk-or-v1-validsecretkey1234');
 
       // Verify cached quota
-      final cachedQuotas = await db.quotaCacheRepository.getAll(conn.id);
+      final cachedQuotas = await quotaCacheRepo.getAll(conn.id);
       expect(cachedQuotas.length, 1);
       expect(cachedQuotas.first.label, 'Credits');
     });
@@ -177,7 +169,7 @@ void main() {
       await tester.pumpWidget(
         TestConnectionsScreen.withResult(
           success: true,
-          connectionRepo: db.connectionRepository,
+          connectionRepo: connectionRepo,
           secretStore: store,
         ),
       );
@@ -268,7 +260,7 @@ void main() {
       const oldSecret = 'sk-or-v1-oldsecretkey1111';
       await store.write(oldSecretRef, oldSecret);
 
-      await db.connectionRepository.save(
+      await connectionRepo.save(
         const Connection(
           id: 'conn-replace-1',
           provider: 'openrouter',
@@ -283,7 +275,7 @@ void main() {
       await tester.pumpWidget(
         TestConnectionsScreen.withResult(
           success: true,
-          connectionRepo: db.connectionRepository,
+          connectionRepo: connectionRepo,
           secretStore: store,
         ),
       );
@@ -325,8 +317,8 @@ void main() {
       await tester.tap(find.byKey(const Key('saveConnection')));
       await tester.pumpAndSettle();
 
-      // Verify connection in database has a new credentialRef
-      final conns = await db.connectionRepository.getAll();
+      // Verify connection in repository has a new credentialRef
+      final conns = await connectionRepo.getAll();
       expect(conns.length, 1);
       final updatedConn = conns.first;
       expect(updatedConn.credentialRef, isNot(oldSecretRef));
@@ -345,7 +337,7 @@ void main() {
       const secretRef = 'delete-target-ref';
       await store.write(secretRef, 'sk-or-v1-deletetarget');
 
-      await db.connectionRepository.save(
+      await connectionRepo.save(
         const Connection(
           id: 'conn-to-delete',
           provider: 'openrouter',
@@ -359,7 +351,7 @@ void main() {
 
       await tester.pumpWidget(
         TestConnectionsScreen(
-          connectionRepo: db.connectionRepository,
+          connectionRepo: connectionRepo,
           secretStore: store,
         ),
       );
@@ -371,8 +363,8 @@ void main() {
       await tester.tap(find.byKey(const Key('deleteConnection_conn-to-delete')));
       await tester.pumpAndSettle();
 
-      // Connection is deleted from database
-      final conns = await db.connectionRepository.getAll();
+      // Connection is deleted from repository
+      final conns = await connectionRepo.getAll();
       expect(conns.isEmpty, isTrue);
 
       // Secret is deleted from secret store
@@ -390,7 +382,7 @@ void main() {
       const secretValue = 'sk-or-v1-supersecretplaintext9999';
       await store.write(secretRef, secretValue);
 
-      await db.connectionRepository.save(
+      await connectionRepo.save(
         const Connection(
           id: 'conn-mask-test',
           provider: 'openrouter',
@@ -404,7 +396,7 @@ void main() {
 
       await tester.pumpWidget(
         TestConnectionsScreen(
-          connectionRepo: db.connectionRepository,
+          connectionRepo: connectionRepo,
           secretStore: store,
         ),
       );
@@ -423,7 +415,7 @@ void main() {
 
     testWidgets('Toggling connection enabled updates database', (tester) async {
       await store.write('toggle-ref', 'sk-or-v1-toggle');
-      await db.connectionRepository.save(
+      await connectionRepo.save(
         const Connection(
           id: 'conn-toggle',
           provider: 'openrouter',
@@ -437,7 +429,7 @@ void main() {
 
       await tester.pumpWidget(
         TestConnectionsScreen(
-          connectionRepo: db.connectionRepository,
+          connectionRepo: connectionRepo,
           secretStore: store,
         ),
       );
@@ -447,7 +439,7 @@ void main() {
       await tester.tap(find.byKey(const Key('toggleConnection_conn-toggle')));
       await tester.pumpAndSettle();
 
-      final conns = await db.connectionRepository.getAll();
+      final conns = await connectionRepo.getAll();
       expect(conns.first.enabled, isFalse);
     });
   });
@@ -456,8 +448,8 @@ void main() {
     test('addConnection writes secret, saves connection, and handles rollback',
         () async {
       final appState = AppState(
-        connectionRepository: db.connectionRepository,
-        quotaCacheRepository: db.quotaCacheRepository,
+        connectionRepository: connectionRepo,
+        quotaCacheRepository: quotaCacheRepo,
         secretStore: store,
       );
 
@@ -493,7 +485,7 @@ void main() {
 
     test('updateConnection replaces secret and cleans up old secret', () async {
       final appState = AppState(
-        connectionRepository: db.connectionRepository,
+        connectionRepository: connectionRepo,
         secretStore: store,
       );
 
@@ -518,7 +510,7 @@ void main() {
 
     test('removeConnection deletes connection and secret', () async {
       final appState = AppState(
-        connectionRepository: db.connectionRepository,
+        connectionRepository: connectionRepo,
         secretStore: store,
       );
 
@@ -534,7 +526,7 @@ void main() {
 
       expect(appState.accounts.isEmpty, isTrue);
       expect(await store.read(conn.credentialRef), isNull);
-      expect((await db.connectionRepository.getAll()).isEmpty, isTrue);
+      expect((await connectionRepo.getAll()).isEmpty, isTrue);
     });
   });
 }

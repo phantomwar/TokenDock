@@ -583,7 +583,10 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                     ),
                   ),
                 const SizedBox(height: 16),
-                Row(
+                OverflowBar(
+                  spacing: 8,
+                  overflowSpacing: 8,
+                  alignment: MainAxisAlignment.end,
                   children: [
                     ElevatedButton(
                       key: const Key('testConnectionButton'),
@@ -591,13 +594,11 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                           _isTesting || _isSaving ? null : _testConnection,
                       child: const Text('Test Connection'),
                     ),
-                    const Spacer(),
                     TextButton(
                       onPressed:
                           _isSaving ? null : () => Navigator.of(context).pop(),
                       child: const Text('Cancel'),
                     ),
-                    const SizedBox(width: 8),
                     ElevatedButton(
                       key: const Key('saveConnection'),
                       onPressed: _testSuccess && !_isSaving ? _save : null,

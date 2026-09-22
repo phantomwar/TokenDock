@@ -144,3 +144,58 @@ class TestApp extends StatelessWidget {
     );
   }
 }
+
+/// In-memory implementation of [ConnectionRepository] for testing.
+class MemoryConnectionRepository implements ConnectionRepository {
+  MemoryConnectionRepository([List<Connection>? initialConnections])
+      : _storage = {
+          for (final c in initialConnections ?? <Connection>[]) c.id: c
+        };
+
+  final Map<String, Connection> _storage;
+
+  @override
+  Future<List<Connection>> getAll() async {
+    return _storage.values.toList();
+  }
+
+  @override
+  Future<void> save(Connection connection) async {
+    _storage[connection.id] = connection;
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    _storage.remove(id);
+  }
+
+  void clear() {
+    _storage.clear();
+  }
+}
+
+/// In-memory implementation of [QuotaCacheRepository] for testing.
+class MemoryQuotaCacheRepository implements QuotaCacheRepository {
+  MemoryQuotaCacheRepository();
+
+  final Map<String, List<Quota>> _storage = {};
+
+  @override
+  Future<List<Quota>> getAll(String connectionId) async {
+    return List<Quota>.unmodifiable(_storage[connectionId] ?? const <Quota>[]);
+  }
+
+  @override
+  Future<void> saveAll(String connectionId, List<Quota> quotas) async {
+    _storage[connectionId] = List<Quota>.from(quotas);
+  }
+
+  @override
+  Future<void> deleteForConnection(String connectionId) async {
+    _storage.remove(connectionId);
+  }
+
+  void clear() {
+    _storage.clear();
+  }
+}
