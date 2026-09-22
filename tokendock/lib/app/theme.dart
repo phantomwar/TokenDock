@@ -21,6 +21,7 @@ class TokenDockColors {
     required this.statusWarning,
     required this.statusLimited,
     required this.statusUpdating,
+    required this.quotaFill,
   });
 
   final Color canvas;
@@ -36,7 +37,7 @@ class TokenDockColors {
   final Color statusWarning;
   final Color statusLimited;
   final Color statusUpdating;
-
+  final Color quotaFill;
   /// Every color in the ramp, for opacity/readability audits in tests.
   List<Color> get values => <Color>[
         canvas,
@@ -52,6 +53,7 @@ class TokenDockColors {
         statusWarning,
         statusLimited,
         statusUpdating,
+        quotaFill,
       ];
 }
 
@@ -70,6 +72,7 @@ abstract final class TokenDockTheme {
     statusWarning: Color(0xFFA85A00),
     statusLimited: Color(0xFFC33737),
     statusUpdating: Color(0xFF6C6A73),
+    quotaFill: Color(0xFF1769C2),
   );
 
   static const TokenDockColors dark = TokenDockColors(
@@ -86,6 +89,7 @@ abstract final class TokenDockTheme {
     statusWarning: Color(0xFFA85A00),
     statusLimited: Color(0xFFC33737),
     statusUpdating: Color(0xFF6C6A73),
+    quotaFill: Color(0xFF8AB8FF),
   );
 
   /// Dark-based ramp where every value is fully opaque and text accents are
@@ -104,6 +108,7 @@ abstract final class TokenDockTheme {
     statusWarning: Color(0xFFFFB020),
     statusLimited: Color(0xFFFF7A7A),
     statusUpdating: Color(0xFFFFFFFF),
+    quotaFill: Color(0xFF8AB8FF),
   );
 
   /// Resolves the active ramp: high-contrast wins when the platform requests

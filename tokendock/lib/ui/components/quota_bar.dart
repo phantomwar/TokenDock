@@ -32,7 +32,7 @@ class QuotaBar extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: FractionallySizedBox(
               widthFactor: clamped,
-              child: Container(color: colors.statusNormal),
+              child: Container(color: colors.quotaFill),
             ),
           ),
         ),
