@@ -24,7 +24,7 @@ class TokenDockWidget extends StatelessWidget {
   const TokenDockWidget.empty({super.key, this.onAddConnection})
       : state = const AppState.empty();
 
-  const TokenDockWidget.loaded({
+  TokenDockWidget.loaded({
     super.key,
     required List<AccountItem> accounts,
     this.onAddConnection,
