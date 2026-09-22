@@ -27,10 +27,17 @@ void main() {
   late MemoryQuotaCacheRepository quotaCacheRepo;
   late MemorySecretStore store;
 
-  setUp(() {
+  setUp(() async {
     connectionRepo = MemoryConnectionRepository();
     quotaCacheRepo = MemoryQuotaCacheRepository();
     store = MemorySecretStore();
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    await binding.setSurfaceSize(const Size(800, 1000));
+  });
+
+  tearDown(() async {
+    final binding = TestWidgetsFlutterBinding.ensureInitialized();
+    await binding.setSurfaceSize(null);
   });
 
   group('ConnectionsScreen - Test-Before-Save Gate', () {
@@ -138,6 +145,7 @@ void main() {
       expect(saveBtnEnabled.onPressed, isNotNull);
 
       // Tap Save
+      await tester.ensureVisible(find.byKey(const Key('saveConnection')));
       await tester.tap(find.byKey(const Key('saveConnection')));
       await tester.pumpAndSettle();
 
@@ -243,6 +251,7 @@ void main() {
           isNotNull);
 
       // Tap Save
+      await tester.ensureVisible(find.byKey(const Key('saveConnection')));
       await tester.tap(find.byKey(const Key('saveConnection')));
       await tester.pumpAndSettle();
 
@@ -314,6 +323,7 @@ void main() {
           isNotNull);
 
       // Tap Save
+      await tester.ensureVisible(find.byKey(const Key('saveConnection')));
       await tester.tap(find.byKey(const Key('saveConnection')));
       await tester.pumpAndSettle();
 
@@ -470,8 +480,8 @@ void main() {
         secretStore: store,
       );
 
-      expect(
-        () => appState.addConnection(
+      await expectLater(
+        appState.addConnection(
           provider: 'openrouter',
           displayName: 'Fail Add',
           secret: 'sk-transient-secret',
