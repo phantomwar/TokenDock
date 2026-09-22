@@ -27,22 +27,17 @@ void main() {
   late MemoryQuotaCacheRepository quotaCacheRepo;
   late MemorySecretStore store;
 
-  setUp(() async {
+  setUp(() {
     connectionRepo = MemoryConnectionRepository();
     quotaCacheRepo = MemoryQuotaCacheRepository();
     store = MemorySecretStore();
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    await binding.setSurfaceSize(const Size(800, 1000));
-  });
-
-  tearDown(() async {
-    final binding = TestWidgetsFlutterBinding.ensureInitialized();
-    await binding.setSurfaceSize(null);
   });
 
   group('ConnectionsScreen - Test-Before-Save Gate', () {
     testWidgets('Save remains disabled until a connection test succeeds',
         (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         TestConnectionsScreen.withResult(
           success: false,
@@ -90,6 +85,8 @@ void main() {
     testWidgets(
         'Successful test enables Save, and saving creates connection and stores secret in secret store',
         (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         TestConnectionsScreen.withResult(
           success: true,
@@ -174,6 +171,8 @@ void main() {
     testWidgets(
         'Editing credential after successful test disables Save button again until re-tested',
         (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       await tester.pumpWidget(
         TestConnectionsScreen.withResult(
           success: true,
@@ -220,7 +219,8 @@ void main() {
     testWidgets(
         'Compensation on add failure: if repository save fails, secret is rolled back and removed from secret store',
         (tester) async {
-      final failingRepo = FailingConnectionRepository();
+      await tester.binding.setSurfaceSize(const Size(800, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
       await tester.pumpWidget(
         TestConnectionsScreen.withResult(
@@ -265,6 +265,8 @@ void main() {
     testWidgets(
         'Replacement compensation: updating secret writes new secret, saves connection, and deletes old secret',
         (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       const oldSecretRef = 'old-secret-ref-uuid';
       const oldSecret = 'sk-or-v1-oldsecretkey1111';
       await store.write(oldSecretRef, oldSecret);

@@ -443,10 +443,11 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(16.0),
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -458,7 +459,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                       : 'Edit Connection',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 12),
                 TextFormField(
                   key: const Key('connectionProviderField'),
                   controller: _providerController,
@@ -468,7 +469,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                     border: OutlineInputBorder(),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 TextFormField(
                   key: const Key('connectionDisplayNameField'),
                   controller: _displayNameController,
@@ -477,7 +478,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                     border: OutlineInputBorder(),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 TextFormField(
                   key: const Key('connectionGroupField'),
                   controller: _groupController,
@@ -487,7 +488,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                     hintText: 'Optional',
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 TextFormField(
                   key: const Key('connectionCredentialField'),
                   controller: _credentialController,
@@ -497,7 +498,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                     border: OutlineInputBorder(),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 if (_isTesting)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8.0),
