@@ -53,6 +53,7 @@ class StatusIndicator extends StatelessWidget {
     final label = labelOf(status);
     final color = colorOf(context, status);
     return Semantics(
+      excludeSemantics: true,
       label: label,
       child: Row(
         mainAxisSize: MainAxisSize.min,
