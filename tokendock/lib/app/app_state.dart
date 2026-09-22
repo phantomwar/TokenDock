@@ -7,9 +7,11 @@ import '../models/quota.dart';
 import '../models/test_result.dart';
 import '../providers/provider_adapter.dart';
 import '../providers/provider_registry.dart';
+import '../services/refresh_service.dart';
 import '../storage/connection_repository.dart';
 import '../storage/quota_cache_repository.dart';
 import '../storage/secret_store.dart';
+import '../storage/settings_repository.dart';
 
 /// One account pairing a [Connection] with its latest [ProviderSnapshot].
 ///
@@ -44,9 +46,28 @@ class AppState implements ChangeNotifier {
     this.quotaCacheRepository,
     this.secretStore,
     this.providerRegistry,
+    this.settingsRepository,
+    RefreshService? refreshService,
+    bool autoStartRefreshTimer = false,
   })  : _staticLoading = false,
         _staticAccounts = const [],
-        _notifier = _StateNotifier(isLoading, accounts);
+        _notifier = _StateNotifier(isLoading, accounts),
+        _refreshService = refreshService ??
+            ((connectionRepository != null &&
+                    quotaCacheRepository != null &&
+                    secretStore != null)
+                ? RefreshService(
+                    connectionRepository: connectionRepository,
+                    quotaCacheRepository: quotaCacheRepository,
+                    secretStore: secretStore,
+                    providerRegistry:
+                        providerRegistry ?? ProviderRegistry.instance,
+                    settingsRepository: settingsRepository,
+                    autoStartTimer: autoStartRefreshTimer,
+                  )
+                : null) {
+    _refreshService?.addSnapshotListener(_handleSnapshotUpdate);
+  }
 
   const AppState.loading()
       : _staticLoading = true,
@@ -55,7 +76,9 @@ class AppState implements ChangeNotifier {
         connectionRepository = null,
         quotaCacheRepository = null,
         secretStore = null,
-        providerRegistry = null;
+        providerRegistry = null,
+        settingsRepository = null,
+        _refreshService = null;
 
   const AppState.empty()
       : _staticLoading = false,
@@ -64,7 +87,9 @@ class AppState implements ChangeNotifier {
         connectionRepository = null,
         quotaCacheRepository = null,
         secretStore = null,
-        providerRegistry = null;
+        providerRegistry = null,
+        settingsRepository = null,
+        _refreshService = null;
 
   const AppState.pure({
     bool isLoading = false,
@@ -75,8 +100,9 @@ class AppState implements ChangeNotifier {
         connectionRepository = null,
         quotaCacheRepository = null,
         secretStore = null,
-        providerRegistry = null;
-
+        providerRegistry = null,
+        settingsRepository = null,
+        _refreshService = null;
   final bool _staticLoading;
   final List<AccountItem> _staticAccounts;
   final _StateNotifier? _notifier;
@@ -94,6 +120,10 @@ class AppState implements ChangeNotifier {
   final QuotaCacheRepository? quotaCacheRepository;
   final SecretStore? secretStore;
   final ProviderRegistry? providerRegistry;
+  final SettingsRepository? settingsRepository;
+  final RefreshService? _refreshService;
+
+  RefreshService? get refreshService => _refreshService;
 
   /// True while initial loading or database operations are in flight.
   bool get isLoading => _effectiveNotifier.isLoading;
@@ -124,7 +154,36 @@ class AppState implements ChangeNotifier {
 
   @override
   void dispose() {
+    _refreshService?.removeSnapshotListener(_handleSnapshotUpdate);
+    _refreshService?.dispose();
     _effectiveNotifier.dispose();
+  }
+
+  void _handleSnapshotUpdate(ProviderSnapshot snapshot) {
+    final currentAccounts = _effectiveNotifier.accounts;
+    final index = currentAccounts
+        .indexWhere((a) => a.connection.id == snapshot.connectionId);
+    if (index != -1) {
+      final existing = currentAccounts[index];
+      final updated = AccountItem(
+        connection: existing.connection,
+        snapshot: snapshot,
+      );
+      final updatedList = List<AccountItem>.from(currentAccounts);
+      updatedList[index] = updated;
+      _effectiveNotifier.accounts = updatedList;
+      _effectiveNotifier.notify();
+    }
+  }
+
+  /// Refreshes quotas for a single connection.
+  Future<void> refreshOne(String id) async {
+    await _refreshService?.refreshOne(id);
+  }
+
+  /// Refreshes quotas for all enabled connections with concurrency cap.
+  Future<void> refreshAll() async {
+    await _refreshService?.refreshAll();
   }
 
   /// Loads all connections from [ConnectionRepository] and their quotas

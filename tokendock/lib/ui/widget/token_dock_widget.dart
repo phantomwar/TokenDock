@@ -33,6 +33,20 @@ class TokenDockWidget extends StatelessWidget {
   final AppState state;
   final VoidCallback? onAddConnection;
 
+  /// Formats relative age for a timestamp, e.g. `just now`, `5m ago`, `2h ago`.
+  static String formatRelativeAge(DateTime dateTime, {DateTime? now}) {
+    final current = now ?? DateTime.now();
+    final diff = current.difference(dateTime);
+    if (diff.isNegative || diff.inSeconds < 60) {
+      return 'just now';
+    } else if (diff.inMinutes < 60) {
+      return '${diff.inMinutes}m ago';
+    } else if (diff.inHours < 24) {
+      return '${diff.inHours}h ago';
+    } else {
+      return '${diff.inDays}d ago';
+    }
+  }
   @override
   Widget build(BuildContext context) {
     return WidgetShell(
@@ -192,7 +206,7 @@ class TokenDockWidget extends StatelessWidget {
           ],
           const SizedBox(height: TokenDockSpacing.s8),
           Text(
-            'Updated ${accounts[i].snapshot.fetchedAt.toLocal()}',
+            'Last updated ${formatRelativeAge(accounts[i].snapshot.fetchedAt)}',
             style: TokenDockTypography.captionStyle(color: colors.mutedInk),
           ),
           if (accounts[i].snapshot.error != null &&
