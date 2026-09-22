@@ -208,8 +208,7 @@ class TestApp extends StatelessWidget {
     super.key,
     AppState? state,
     this.child,
-  })  : state = state ?? createTestAppState(),
-        child = child;
+  }) : state = state ?? createTestAppState();
 
   TestApp.empty({super.key})
       : state = createTestAppState(accounts: const [], isLoading: false),
