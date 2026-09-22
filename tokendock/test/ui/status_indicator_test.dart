@@ -8,35 +8,41 @@ void main() {
   testWidgets('limited status shows Limited text and semantic label',
       (tester) async {
     final handle = tester.ensureSemantics();
-    addTearDown(handle.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: TokenDockTheme.lightTheme(),
-        home: const Scaffold(
-          body: StatusIndicator(status: ConnectionStatus.limited),
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: TokenDockTheme.lightTheme(),
+          home: const Scaffold(
+            body: StatusIndicator(status: ConnectionStatus.limited),
+          ),
         ),
-      ),
-    );
+      );
 
-    expect(find.text('Limited'), findsOneWidget);
-    expect(find.bySemanticsLabel('Limited'), findsOneWidget);
+      expect(find.text('Limited'), findsOneWidget);
+      expect(find.bySemanticsLabel('Limited'), findsOneWidget);
+    } finally {
+      handle.dispose();
+    }
   });
 
   testWidgets('every status exposes its label as text and semantics',
       (tester) async {
     final handle = tester.ensureSemantics();
-    addTearDown(handle.dispose);
-    for (final status in ConnectionStatus.values) {
-      final label = StatusIndicator.labelOf(status);
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: TokenDockTheme.lightTheme(),
-          home: Scaffold(body: StatusIndicator(status: status)),
-        ),
-      );
+    try {
+      for (final status in ConnectionStatus.values) {
+        final label = StatusIndicator.labelOf(status);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: TokenDockTheme.lightTheme(),
+            home: Scaffold(body: StatusIndicator(status: status)),
+          ),
+        );
 
-      expect(find.text(label), findsOneWidget);
-      expect(find.bySemanticsLabel(label), findsOneWidget);
+        expect(find.text(label), findsOneWidget);
+        expect(find.bySemanticsLabel(label), findsOneWidget);
+      }
+    } finally {
+      handle.dispose();
     }
   });
 }
