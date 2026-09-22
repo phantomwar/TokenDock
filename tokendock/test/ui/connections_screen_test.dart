@@ -221,7 +221,7 @@ void main() {
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(800, 1000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
-
+      final failingRepo = FailingConnectionRepository();
       await tester.pumpWidget(
         TestConnectionsScreen.withResult(
           success: true,
