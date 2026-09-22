@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": 402,
+    "message": "Key limit exceeded"
+  }
+}

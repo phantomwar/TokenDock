@@ -1,0 +1,14 @@
+{
+  "data": {
+    "label": "Work key",
+    "usage": 7.5,
+    "limit": 10.0,
+    "is_free_tier": false,
+    "rate_limit": {
+      "requests": 100,
+      "interval": "10s"
+    },
+    "limit_remaining": 2.5,
+    "limit_reset": null
+  }
+}
