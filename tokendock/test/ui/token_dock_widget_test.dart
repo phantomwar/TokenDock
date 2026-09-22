@@ -168,7 +168,7 @@ void main() {
     expect(find.text('Requests'), findsOneWidget);
     expect(find.text('Pro'), findsOneWidget);
     expect(find.text('Provider unavailable'), findsOneWidget);
-    expect(find.textContaining('Updated'), findsOneWidget);
+    expect(find.textContaining('Last updated'), findsOneWidget);
   });
 
   testWidgets('stale snapshot keeps quotas while showing error', (tester) async {
