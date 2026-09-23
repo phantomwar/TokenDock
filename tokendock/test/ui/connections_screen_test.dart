@@ -168,6 +168,36 @@ void main() {
     });
 
     testWidgets(
+        'saving a tested OAuth connection persists the replacement secret',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        TestConnectionsScreen.withResult(
+          success: true,
+          connectionRepo: connectionRepo,
+          secretStore: store,
+          replacementSecret: 'rotated-secret',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('addConnection')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('connectionDisplayNameField')), 'OAuth');
+      await tester.enterText(
+          find.byKey(const Key('connectionCredentialField')), 'old-secret');
+      await tester.tap(find.byKey(const Key('testConnectionButton')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('saveConnection')));
+      await tester.pumpAndSettle();
+
+      final saved = (await connectionRepo.getAll()).single;
+      expect(await store.read(saved.credentialRef), 'rotated-secret');
+    });
+
+    testWidgets(
         'Editing credential after successful test disables Save button again until re-tested',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(800, 1000));

@@ -423,13 +423,14 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       final secretText = _credentialController.text.trim();
       final bool isSecretModified = widget.existing == null ||
           (_initialMaskedSecret == null || secretText != _initialMaskedSecret);
+      final replacementSecret = _testResult?.replacementSecret;
 
       if (widget.existing == null) {
         await widget.appState.addConnection(
           provider: providerId,
           displayName: displayName,
           group: group,
-          secret: secretText,
+          secret: replacementSecret ?? secretText,
           plan: _testResult?.plan,
           initialQuotas: _testResult?.quotas ?? const [],
         );
@@ -438,7 +439,9 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
           existing: widget.existing!,
           displayName: displayName,
           group: group,
-          newSecret: isSecretModified ? secretText : null,
+          newSecret: isSecretModified
+              ? secretText
+              : replacementSecret,
           plan: _testResult?.plan ?? widget.existing!.plan,
           newQuotas: _testResult?.quotas,
         );

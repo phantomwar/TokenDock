@@ -85,4 +85,22 @@ void main() {
       'https://example.test/callback#done',
     );
   });
+
+  test('redacts credential-named JSON fields by substring', () {
+    const input = '{"token":"token-value","credential":"credential-value",'
+        '"oauth":"oauth-value","private_key":"private-value"}';
+
+    final redacted = redactSecret(input);
+
+    for (final value in [
+      'token-value',
+      'credential-value',
+      'oauth-value',
+      'private-value',
+    ]) {
+      expect(redacted, isNot(contains(value)));
+    }
+    expect(redacted, contains('token'));
+    expect(redacted, contains('credential'));
+  });
 }

@@ -229,7 +229,11 @@ void main() {
 
   test('test refreshes an expiring refreshable credential once before fetch', () async {
     final http = _RecordingHttp([
-      _Response(200, jsonEncode({'access_token': 'fresh', 'expires_in': 3600})),
+      _Response(200, jsonEncode({
+        'access_token': 'fresh',
+        'refresh_token': 'rotated-refresh',
+        'expires_in': 3600,
+      })),
       _Response(200, jsonEncode({
         'response': {
           'accountEmail': 'a@example.com',
@@ -238,7 +242,10 @@ void main() {
             {
               'groupId': 'gemini',
               'buckets': [
-                {'bucketId': 'weekly', 'remainingFraction': 0.4},
+                {
+                  'bucketId': 'weekly',
+                  'remainingFraction': 0.4,
+                },
               ],
             },
           ],
@@ -257,6 +264,7 @@ void main() {
     final result = await provider.test(_connection('a'), secret);
 
     expect(result.error, isNull);
+    expect(result.replacementSecret, contains('rotated-refresh'));
     expect(http.requests.map((request) => request.uri), [
       Uri.parse(AntigravityOAuthProvider.tokenEndpoint),
       Uri.parse('${AntigravityOAuthProvider.prodHost}/v1internal:retrieveUserQuotaSummary'),

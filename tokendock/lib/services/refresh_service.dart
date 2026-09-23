@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import '../models/connection.dart';
 import '../models/connection_health.dart';
 import '../models/connection_status.dart';
@@ -280,28 +281,6 @@ class RefreshService {
     }
     var connection = foundConnection;
 
-    String? secret;
-    try {
-      secret = await _secretStore.read(connection.credentialRef);
-    } catch (_) {
-      await _persistHealthAndPublish(
-        ProviderSnapshot(
-          connectionId: connectionId,
-          status: ConnectionStatus.error,
-          quotas: cachedQuotas,
-          balance: null,
-          fetchedAt: DateTime.now().toUtc(),
-          error: 'Credential storage unavailable',
-        ),
-      );
-      return;
-    }
-    if (secret == null || secret.isEmpty) {
-      await _persistHealthAndPublish(ProviderSnapshot(connectionId: connectionId, status: ConnectionStatus.authError, quotas: cachedQuotas, balance: null, fetchedAt: DateTime.now().toUtc(), error: 'Credential not found for connection'));
-      return;
-    }
-    final currentSecret = secret;
-
     final adapter = _providerRegistry.get(connection.provider);
     if (adapter == null) {
       await _persistHealthAndPublish(
@@ -316,6 +295,40 @@ class RefreshService {
       );
       return;
     }
+
+    final isLocalSource = _isLocalAntigravitySource(connection);
+    String? secret;
+    if (!isLocalSource) {
+      try {
+        secret = await _secretStore.read(connection.credentialRef);
+      } catch (_) {
+        await _persistHealthAndPublish(
+          ProviderSnapshot(
+            connectionId: connectionId,
+            status: ConnectionStatus.error,
+            quotas: cachedQuotas,
+            balance: null,
+            fetchedAt: DateTime.now().toUtc(),
+            error: 'Credential storage unavailable',
+          ),
+        );
+        return;
+      }
+      if (secret == null || secret.isEmpty) {
+        await _persistHealthAndPublish(
+          ProviderSnapshot(
+            connectionId: connectionId,
+            status: ConnectionStatus.authError,
+            quotas: cachedQuotas,
+            balance: null,
+            fetchedAt: DateTime.now().toUtc(),
+            error: 'Credential not found for connection',
+          ),
+        );
+        return;
+      }
+    }
+    final currentSecret = secret ?? '';
 
     ProviderSnapshot providerSnapshot = ProviderSnapshot(connectionId: connectionId, status: ConnectionStatus.error, quotas: cachedQuotas, balance: null, fetchedAt: DateTime.now().toUtc(), error: 'Refresh failed');
     String? definitiveCause;
@@ -432,8 +445,23 @@ class RefreshService {
         return;
       }
     }
-    await _persistHealthAndPublish(snapshot);
+    await _persistHealthAndPublish(snapshot.copyWith(connection: connection));
   }
+
+  bool _isLocalAntigravitySource(Connection connection) {
+    if (connection.provider != 'antigravity' || connection.providerData == null) {
+      return false;
+    }
+    try {
+      final data = jsonDecode(connection.providerData!);
+      if (data is! Map) return false;
+      final source = data['source'];
+      return source == 'language-server' || source == 'agy-cli';
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<Connection> _rotateCredential(
     Connection connection,
     String nextSecret,

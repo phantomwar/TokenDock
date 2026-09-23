@@ -1,3 +1,4 @@
+import 'connection.dart';
 import 'connection_status.dart';
 import 'quota.dart';
 
@@ -21,6 +22,7 @@ class ProviderSnapshot {
     required this.error,
     this.cooldownUntil,
     this.failureCause,
+    this.connection,
   });
 
   final String connectionId;
@@ -31,4 +33,19 @@ class ProviderSnapshot {
   final String? error;
   final DateTime? cooldownUntil;
   final ProviderFailureCause? failureCause;
+
+  /// Current persisted connection when a refresh rotated its credential.
+  final Connection? connection;
+
+  ProviderSnapshot copyWith({Connection? connection}) => ProviderSnapshot(
+        connectionId: connectionId,
+        status: status,
+        quotas: quotas,
+        balance: balance,
+        fetchedAt: fetchedAt,
+        error: error,
+        cooldownUntil: cooldownUntil,
+        failureCause: failureCause,
+        connection: connection ?? this.connection,
+      );
 }

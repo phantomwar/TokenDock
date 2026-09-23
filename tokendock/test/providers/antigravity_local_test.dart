@@ -69,7 +69,7 @@ void main() {
       expectedAccountKey: 'selected@example.com',
     );
 
-    expect(snapshot.status, ConnectionStatus.authError);
+    expect(snapshot.status, ConnectionStatus.error);
     expect(snapshot.error, 'Account mismatch');
   });
 
@@ -80,8 +80,76 @@ void main() {
       expectedAccountKey: 'selected@example.com',
     );
 
-    expect(snapshot.status, ConnectionStatus.authError);
+    expect(snapshot.status, ConnectionStatus.error);
     expect(snapshot.error, 'Account mismatch');
+  });
+
+  test('language server accepts persisted composite account identity', () {
+    final snapshot = AntigravityLocalReader.parseQuotaSummary(
+      body: jsonEncode({
+        'response': {
+          'accountEmail': 'selected@example.com',
+          'accountId': 'acct-a',
+          'groups': [
+            {
+              'groupId': 'gemini',
+              'buckets': [
+                {'bucketId': 'weekly', 'remainingFraction': 0.4},
+              ],
+            },
+          ],
+        },
+      }),
+      connectionId: 'agy-1',
+      expectedAccountKey: 'selected@example.com|acct-a',
+      requireIdentity: true,
+    );
+
+    expect(snapshot.status, ConnectionStatus.ok);
+  });
+
+  test('agy accepts persisted composite account identity', () {
+    final snapshot = AntigravityLocalReader.parseAgyPrint(
+      jsonEncode({
+        'accountEmail': 'selected@example.com',
+        'accountId': 'acct-a',
+        'quotaInfo': {
+          'gemini': {'remainingFraction': 0.5},
+        },
+      }),
+      connectionId: 'agy-1',
+      expectedAccountKey: 'selected@example.com|acct-a',
+    );
+
+    expect(snapshot.status, ConnectionStatus.ok);
+  });
+
+  test('language server fetch accepts persisted composite account identity', () async {
+    final reader = AntigravityLocalReader(
+      httpRunner: _FakeHttpRunner([
+        AntigravityHttpResponse(statusCode: 200, body: jsonEncode({
+          'response': {
+            'accountEmail': 'selected@example.com',
+            'accountId': 'acct-a',
+            'groups': [
+              {
+                'groupId': 'gemini',
+                'buckets': [
+                  {'bucketId': 'weekly', 'remainingFraction': 0.4},
+                ],
+              },
+            ],
+          },
+        })),
+      ]),
+    );
+
+    final snapshot = await reader.fetchSnapshot(connection(
+      identityKey: 'selected@example.com|acct-a',
+      providerData: jsonEncode({'source': 'language-server', 'port': 1234}),
+    ));
+
+    expect(snapshot.status, ConnectionStatus.ok);
   });
 
   test('availability-only payload is reported as Limits not available', () {
@@ -174,7 +242,7 @@ void main() {
       expectedAccountKey: 'selected@example.com',
     );
 
-    expect(snapshot.status, ConnectionStatus.authError);
+    expect(snapshot.status, ConnectionStatus.error);
     expect(snapshot.error, 'Account mismatch');
   });
 
@@ -192,8 +260,30 @@ void main() {
       providerData: jsonEncode({'source': 'agy-cli'}),
     ));
 
-    expect(snapshot.status, ConnectionStatus.authError);
+    expect(snapshot.status, ConnectionStatus.error);
     expect(snapshot.error, 'Account mismatch');
+  });
+
+  test('agy fetch accepts persisted composite account identity', () async {
+    final reader = AntigravityLocalReader(
+      processRunner: _FakeProcessRunner([
+        _ProcessResult(0, 0, 'agy 1.1.11\n', ''),
+        _ProcessResult(0, 0, jsonEncode({
+          'accountEmail': 'selected@example.com',
+          'accountId': 'acct-a',
+          'quotaInfo': {
+            'gemini': {'remainingFraction': 0.5},
+          },
+        }), ''),
+      ]),
+    );
+
+    final snapshot = await reader.fetchSnapshot(connection(
+      identityKey: 'selected@example.com|acct-a',
+      providerData: jsonEncode({'source': 'agy-cli'}),
+    ));
+
+    expect(snapshot.status, ConnectionStatus.ok);
   });
 
   test('legacy Gemini model entries merge into one worst-fraction pool row', () {

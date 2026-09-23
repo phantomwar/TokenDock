@@ -3,11 +3,59 @@ import 'package:tokendock/app/app_state.dart';
 import 'package:tokendock/models/connection.dart';
 import 'package:tokendock/models/connection_health.dart';
 import 'package:tokendock/models/connection_status.dart';
+import 'package:tokendock/models/provider_snapshot.dart';
 import 'package:tokendock/models/quota.dart';
+import 'package:tokendock/providers/provider_adapter.dart';
+import 'package:tokendock/services/refresh_service.dart';
+import 'package:tokendock/models/test_result.dart';
+import 'package:tokendock/services/refreshable_credential.dart';
 
 import '../support/memory_secret_store.dart';
-
 import '../support/test_database.dart';
+
+class _RotatingProvider implements ProviderAdapter {
+  @override
+  String get id => 'antigravity';
+
+  @override
+  String get name => 'Rotating';
+
+  @override
+  AuthKind get authKind => AuthKind.oauth;
+
+  @override
+  Map<String, String> buildAuthHeader(String secret) =>
+      {'Authorization': 'Bearer $secret'};
+
+  @override
+  RefreshableCredential? refreshableCredential(String secret) => _RotatingCredential();
+
+  @override
+  Future<TestResult> test(Connection connection, String secret) async =>
+      TestResult.success();
+
+  @override
+  Future<ProviderSnapshot> fetch(Connection connection, String secret) async =>
+      ProviderSnapshot(
+        connectionId: connection.id,
+        status: ConnectionStatus.ok,
+        quotas: const [],
+        balance: null,
+        fetchedAt: DateTime.now().toUtc(),
+        error: null,
+      );
+}
+
+class _RotatingCredential implements RefreshableCredential {
+  @override
+  DateTime? get expiresAt => DateTime.now().toUtc().subtract(const Duration(minutes: 2));
+
+  @override
+  Duration get refreshLead => const Duration(minutes: 1);
+
+  @override
+  Future<String> refresh(String currentSecret) async => 'rotated-secret';
+}
 
 void main() {
   test('load restores cached quotas and persisted cooldown health', () async {
@@ -138,6 +186,49 @@ void main() {
     expect(toggled.authType, 'oauth');
     expect(toggled.identityKey, 'account-id');
     expect(toggled.providerData, '{"workspace":"production"}');
+  });
+
+  test('editing after credential rotation keeps the current credential ref', () async {
+    final testDb = await TestDatabase.create();
+    addTearDown(testDb.close);
+    const connection = Connection(
+      id: 'conn-rotation-edit',
+      provider: 'antigravity',
+      displayName: 'Before rotation',
+      group: null,
+      plan: null,
+      credentialRef: 'old-ref',
+      enabled: true,
+    );
+    await testDb.connectionRepository.save(connection);
+    final store = MemorySecretStore({'old-ref': 'old-secret'});
+    final service = RefreshService.forTest(
+      provider: _RotatingProvider(),
+      connectionRepository: testDb.connectionRepository,
+      quotaCacheRepository: testDb.quotaCacheRepository,
+      secretStore: store,
+    );
+    final state = AppState(
+      connectionRepository: testDb.connectionRepository,
+      quotaCacheRepository: testDb.quotaCacheRepository,
+      secretStore: store,
+      refreshService: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.load();
+    await state.refreshOne(connection.id);
+    final rotated = state.accounts.single.connection;
+    expect(rotated.credentialRef, isNot('old-ref'));
+
+    await state.updateConnection(
+      existing: rotated,
+      displayName: 'After rotation',
+    );
+
+    final persisted = (await testDb.connectionRepository.getAll()).single;
+    expect(persisted.credentialRef, rotated.credentialRef);
+    expect(await store.read(persisted.credentialRef), 'rotated-secret');
   });
 
 }

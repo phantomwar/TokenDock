@@ -16,18 +16,20 @@ String redactSecret(String input, [List<String> secrets = const []]) {
   );
   redacted = redacted.replaceAllMapped(
     RegExp(
-      r'''(["']?(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|id[_-]?token|cookie|api[_-]?key)["']?\s*[:=]\s*)(?!\s*\[redacted\])(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)''',
+      r'''(["']?[^:=\s"',{}]*(?:key|token|secret|auth|credential|cookie)[^:=\s"',{}]*["']?\s*[:=]\s*)(?!(?:Bearer\s+)?\[redacted\])("[^"]*"|'[^']*'|[^\s,;}\]]+)''',
       caseSensitive: false,
     ),
-    (match) => '${match.group(1)}[redacted]',
+    (match) {
+      final prefix = match.group(1)!;
+      final value = match.group(2)!;
+      if (prefix.toLowerCase().contains('authorization') &&
+          value.trimLeft().toLowerCase().startsWith('bearer ')) {
+        return '$prefix' 'Bearer [redacted]';
+      }
+      return '$prefix[redacted]';
+    },
   );
-  return redacted.replaceAllMapped(
-    RegExp(
-      r'''(["']?authorization["']?\s*[:=]\s*)(?!Bearer\s+\[redacted\])(Bearer\s+)?(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)''',
-      caseSensitive: false,
-    ),
-    (match) => '${match.group(1)}${match.group(2) ?? ''}[redacted]',
-  );
+  return redacted;
 }
 
 Map<String, String> redactHeaders(Map<String, String> headers) {

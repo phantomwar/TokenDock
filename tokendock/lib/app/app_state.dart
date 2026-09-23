@@ -206,7 +206,7 @@ class AppState implements ChangeNotifier {
     if (index != -1) {
       final existing = currentAccounts[index];
       final updated = AccountItem(
-        connection: existing.connection,
+        connection: snapshot.connection ?? existing.connection,
         snapshot: snapshot,
       );
       final updatedList = List<AccountItem>.from(currentAccounts);

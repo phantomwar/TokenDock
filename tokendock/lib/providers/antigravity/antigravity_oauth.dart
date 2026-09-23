@@ -233,9 +233,17 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       testSecret = await credential.refresh(testSecret);
     }
     final snapshot = await fetch(connection, testSecret);
+    final replacementSecret = testSecret == secret ? null : testSecret;
     return snapshot.error == null
-        ? TestResult.success(quotas: snapshot.quotas, plan: connection.plan)
-        : TestResult.failure(error: snapshot.error!);
+        ? TestResult.success(
+            quotas: snapshot.quotas,
+            plan: connection.plan,
+            replacementSecret: replacementSecret,
+          )
+        : TestResult.failure(
+            error: snapshot.error!,
+            replacementSecret: replacementSecret,
+          );
   }
   @override Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
     final credential = _credential(secret);

@@ -221,6 +221,9 @@ void main() {
     required String id,
     String provider = 'openrouter',
     bool enabled = true,
+    String? providerData,
+    String? identityKey,
+    String? credentialRef,
   }) {
     return Connection(
       id: id,
@@ -228,8 +231,10 @@ void main() {
       displayName: 'Connection $id',
       group: null,
       plan: null,
-      credentialRef: 'cred-$id',
+      credentialRef: credentialRef ?? 'cred-$id',
       enabled: enabled,
+      identityKey: identityKey,
+      providerData: providerData,
     );
   }
 
@@ -269,6 +274,26 @@ void main() {
       await service.refreshOne('conn-a');
       expect(controlled.fetchCalls, equals(2));
 
+      service.dispose();
+    });
+
+    test('local Antigravity source refreshes without a stored credential', () async {
+      final provider = ControlledProvider(id: 'antigravity');
+      final service = RefreshService.forTest(
+        provider: provider,
+        connectionRepository: _FakeConnectionRepository([
+          createConnection(
+            id: 'conn-local',
+            provider: 'antigravity',
+            providerData: '{"source":"language-server","port":1234}',
+          ),
+        ]),
+        secretStore: MemorySecretStore(),
+      );
+
+      await service.refreshOne('conn-local');
+
+      expect(provider.fetchCalls, 1);
       service.dispose();
     });
 
@@ -672,7 +697,6 @@ void main() {
         expect(controlled.fetchCalls, 1);
         expect(publishedSnapshots.last.cooldownUntil, retryAt);
         expect(publishedSnapshots.last.quotas, [cachedQuota]);
-
         service.dispose();
       },
     );
@@ -685,10 +709,12 @@ void main() {
         createConnection(id: 'conn-proactive', provider: 'antigravity'),
       ]);
       final store = MemorySecretStore({'cred-conn-proactive': 'old-secret'});
+      final snapshots = <ProviderSnapshot>[];
       final service = RefreshService.forTest(
         provider: provider,
         connectionRepository: connections,
         secretStore: store,
+        onSnapshotUpdated: snapshots.add,
       );
 
       await service.refreshOne('conn-proactive');
@@ -700,6 +726,7 @@ void main() {
       expect(current.credentialRef, isNot('cred-conn-proactive'));
       expect(await store.read(current.credentialRef), 'rotated-1');
       expect(await store.read('cred-conn-proactive'), isNull);
+      expect(snapshots.last.connection?.credentialRef, current.credentialRef);
       service.dispose();
     });
 

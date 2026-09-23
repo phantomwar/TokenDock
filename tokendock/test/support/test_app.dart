@@ -178,10 +178,15 @@ class TestConnectionsScreen extends StatelessWidget {
     String? error,
     List<Quota>? quotas,
     String? plan,
+    String? replacementSecret,
   }) {
     final adapter = FakeProviderAdapter(
       testResult: success
-          ? TestResult.success(plan: plan ?? 'Pro', quotas: quotas ?? const [])
+          ? TestResult.success(
+              plan: plan ?? 'Pro',
+              quotas: quotas ?? const [],
+              replacementSecret: replacementSecret,
+            )
           : TestResult.failure(error: error ?? 'Invalid API key'),
     );
     final registry = ProviderRegistry(registerDefaults: false);

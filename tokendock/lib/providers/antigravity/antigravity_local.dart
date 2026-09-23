@@ -199,7 +199,7 @@ class AntigravityLocalReader {
       final schemaChanged = error.message == 'quota_source_changed';
       return ProviderSnapshot(
         connectionId: connectionId,
-        status: schemaChanged ? ConnectionStatus.error : ConnectionStatus.authError,
+        status: ConnectionStatus.error,
         quotas: const [],
         balance: null,
         fetchedAt: now,
@@ -239,7 +239,7 @@ class AntigravityLocalReader {
       final schemaChanged = error.message == 'quota_source_changed';
       return ProviderSnapshot(
         connectionId: connectionId,
-        status: schemaChanged ? ConnectionStatus.error : ConnectionStatus.authError,
+        status: ConnectionStatus.error,
         quotas: const [],
         balance: null,
         fetchedAt: now,
@@ -466,8 +466,7 @@ class AntigravityLocalReader {
       final decoded = jsonDecode(body);
       if (decoded is! Map) return false;
       final root = _map(decoded['response']) ?? _map(decoded)!;
-      final actual = root['accountEmail'] ?? root['email'] ?? root['account'];
-      return actual is String && actual.toLowerCase() == expected.toLowerCase();
+      return _identityMatches(root, expected);
     } catch (_) {
       return false;
     }
@@ -475,18 +474,30 @@ class AntigravityLocalReader {
 
   static void _rejectMismatchedAccount(Map<String, dynamic> root, String? expected) {
     if (expected == null || expected.isEmpty) return;
-    final actual = root['accountEmail'] ?? root['email'] ?? root['account'];
-    if (actual is String && actual.isNotEmpty && actual.toLowerCase() != expected.toLowerCase()) {
+    if (!_identityMatches(root, expected) && _responseIdentity(root) != null) {
       throw const AntigravitySourceException('Account mismatch');
     }
   }
 
   static void _requireAccountIdentity(Map<String, dynamic> root, String? expected) {
     if (expected == null || expected.isEmpty) return;
-    final actual = root['accountEmail'] ?? root['email'] ?? root['account'];
-    if (actual is! String || actual.isEmpty || actual.toLowerCase() != expected.toLowerCase()) {
+    if (!_identityMatches(root, expected)) {
       throw const AntigravitySourceException('Account mismatch');
     }
+  }
+
+  static bool _identityMatches(Map<String, dynamic> root, String expected) =>
+      _responseIdentity(root)?.toLowerCase() == expected.toLowerCase();
+
+  static String? _responseIdentity(Map<String, dynamic> root) {
+    final email = (root['accountEmail'] ?? root['email'])?.toString().trim();
+    final account =
+        (root['accountId'] ?? root['account_id'] ?? root['account'])?.toString().trim();
+    if (email != null && email.isNotEmpty && account != null && account.isNotEmpty) {
+      return '$email|$account';
+    }
+    if (email != null && email.isNotEmpty) return email;
+    return account != null && account.isNotEmpty ? account : null;
   }
 
   static ProviderSnapshot _ok(String id, DateTime at, List<Quota> quotas) => ProviderSnapshot(
