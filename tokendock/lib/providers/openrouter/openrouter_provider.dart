@@ -37,6 +37,7 @@ class OpenRouterProvider implements ProviderAdapter {
   @override
   RefreshableCredential? refreshableCredential(String secret) => null;
 
+  @override
   Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
     try {
       final request = await _client

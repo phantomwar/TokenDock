@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tokendock/services/refreshable_credential.dart';
 
 class _Fake implements RefreshableCredential {
+  @override
   final DateTime? expiresAt = DateTime.utc(2026, 9, 23, 12);
   int calls = 0;
 

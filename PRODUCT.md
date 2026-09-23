@@ -64,7 +64,7 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 
 - Baseline evidence at `7154db3`: `flutter test` 96/96; `flutter test integration_test/multi_account_flow_test.dart` 3/3; `flutter analyze` 0 errors and 0 warnings; Windows release build succeeds.
 - Covered: compact/normal/expanded layouts, light/dark/high-contrast themes, keyboard-only flows (Tab/Enter/Space reach Add Connection), reduced motion, test-before-save CRUD with credential compensation, refresh concurrency and coalescing, cache preservation, and three-account isolation.
-- Current login-adaptation evidence at `c0acaef` plus warning fixes: `flutter test --no-pub` 165/165 passed. `flutter analyze` exited nonzero with 0 errors, 0 warnings, and 14 informational diagnostics; six pre-existing `prefer_initializing_formals` diagnostics remain in `RefreshService`, with the remaining diagnostics in the new Antigravity/provider/test code. The Windows integration test could not launch because Flutter plugin builds require symlink support/Developer Mode in this environment.
+- Current login-adaptation evidence at `c0acaef` plus analyzer-info fixes: `flutter test --no-pub` 165/165 passed. `flutter analyze` exited nonzero with 0 errors, 0 warnings, and 6 informational diagnostics, all pre-existing `prefer_initializing_formals` diagnostics in `RefreshService`; no new analyzer diagnostics remain. The Windows integration test could not launch because Flutter plugin builds require symlink support/Developer Mode in this environment.
 
 ## Product Principles
 

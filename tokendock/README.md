@@ -19,7 +19,7 @@ flutter build windows --release
 
 - `flutter test --no-pub`: 165/165 tests passed.
 - `flutter test integration_test/multi_account_flow_test.dart`: Windows integration build requires symlink support/Developer Mode; pending in this environment (baseline had 3 fixture-backed proofs: independent restore, cache replacement on success, cache preservation on timeout, restart restore from cache).
-- `flutter analyze`: exited nonzero with 0 errors, 0 warnings, and 14 informational diagnostics. The info set includes six `prefer_initializing_formals` diagnostics in `RefreshService` (the plan recorded five before this implementation; the current run reports six), plus diagnostics in the new Antigravity/provider/test code.
+- `flutter analyze`: exited nonzero with 0 errors, 0 warnings, and 6 informational diagnostics, all pre-existing `prefer_initializing_formals` diagnostics in `RefreshService`; no new analyzer diagnostics remain.
 - `flutter run -d windows`: frameless 360x600 widget; first run shows `No connections yet` with one `Add Connection` action.
 - Release smoke: `%LOCALAPPDATA%\TokenDock\tokendock.db` is created; close hides the window to the tray; Exit terminates.
 

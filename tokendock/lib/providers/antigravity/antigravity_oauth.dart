@@ -56,8 +56,8 @@ class AntigravitySelectedAccountGuard {
 }
 
 class AntigravityOAuthProvider implements ProviderAdapter {
-  AntigravityOAuthProvider({AntigravityOAuthHttpRunner? http, SecretStore? secretStore, Future<void> Function(Uri url)? launchExternalBrowser})
-      : _http = http ?? _HttpClientRunner(), _secretStore = secretStore, launchExternalBrowser = launchExternalBrowser ?? launchWindowsBrowser;
+  AntigravityOAuthProvider({AntigravityOAuthHttpRunner? http, this._secretStore, Future<void> Function(Uri url)? launchExternalBrowser})
+      : _http = http ?? _HttpClientRunner(), launchExternalBrowser = launchExternalBrowser ?? launchWindowsBrowser;
   final AntigravityOAuthHttpRunner _http;
   final SecretStore? _secretStore;
   final Future<void> Function(Uri url) launchExternalBrowser;
@@ -127,11 +127,12 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     AntigravityTransportFailure? transportFailure;
     for (final host in const [prodHost, dailyHost]) {
       try {
-        final result = await _postJson(Uri.parse('$host/v1internal:loadCodeAssist'), {
+        final payload = <String, dynamic>{
           'metadata': {'pluginType': 'ANTIGRAVITY', 'ideType': 'IDE_UNSPECIFIED'},
-          if (projectId != null && projectId.isNotEmpty) 'cloudaicompanionProject': projectId,
-          if (identity != null) 'userIdentifier': identity,
-        }, bearer: access);
+          if (projectId case final project? when project.isNotEmpty) 'cloudaicompanionProject': project,
+        };
+        if (identity != null) payload['userIdentifier'] = identity;
+        final result = await _postJson(Uri.parse('$host/v1internal:loadCodeAssist'), payload, bearer: access);
         if (result['response'] is Map) return result;
         throw const AntigravitySchemaChanged();
       } on AntigravityTransportFailure catch (error) { transportFailure = error; }
@@ -140,11 +141,12 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     throw StateError('loadCodeAssist unavailable');
   }
   Future<Map<String, dynamic>> _onboardUser(String access, {String? identity, String? projectId}) async {
-    final result = await _postJson(Uri.parse('$prodHost/v1internal:onboardUser'), {
+    final payload = <String, dynamic>{
       'metadata': {'pluginType': 'ANTIGRAVITY', 'ideType': 'IDE_UNSPECIFIED'},
-      if (projectId != null && projectId.isNotEmpty) 'cloudaicompanionProject': projectId,
-      if (identity != null) 'userIdentifier': identity,
-    }, bearer: access);
+      if (projectId case final project? when project.isNotEmpty) 'cloudaicompanionProject': project,
+    };
+    if (identity != null) payload['userIdentifier'] = identity;
+    final result = await _postJson(Uri.parse('$prodHost/v1internal:onboardUser'), payload, bearer: access);
     if (result['response'] is! Map) throw const AntigravitySchemaChanged();
     return result;
   }
@@ -262,7 +264,9 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         }
       }
     } else {
-      for (final entry in _map(rawModels).entries) _mergeLegacyQuota(quotaInfo, entry.key, entry.value);
+      for (final entry in _map(rawModels).entries) {
+        _mergeLegacyQuota(quotaInfo, entry.key, entry.value);
+      }
     }
     return quotaInfo;
   }

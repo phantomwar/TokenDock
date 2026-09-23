@@ -153,7 +153,7 @@ void main() {
             socketDone.complete();
           }
         },
-        onError: (Object _, StackTrace __) {
+        onError: (Object error, StackTrace stack) {
           if (!socketDone.isCompleted) {
             socketDone.complete();
           }
