@@ -335,6 +335,36 @@ void main() {
     expect(snapshot.error, 'agy version is too old');
   });
 
+  test('callback-only CSRF rejection leaves local endpoints for agy', () async {
+    final http = _FakeHttpRunner([
+      const AntigravityHttpResponse(statusCode: 401, body: ''),
+      const AntigravityHttpResponse(statusCode: 401, body: ''),
+      const AntigravityHttpResponse(statusCode: 401, body: ''),
+    ]);
+    final process = _FakeProcessRunner([
+      _ProcessResult(0, 0, 'agy 0.0.0\n', ''),
+    ]);
+    final reader = AntigravityLocalReader(
+      httpRunner: http,
+      csrfTokenFor: (_, _) => 'rejected-token',
+      processRunner: process,
+      sessionDiscovery: _FakeSessionDiscovery(const []),
+    );
+
+    final snapshot = await reader.fetchSnapshot(connection(providerData: jsonEncode({
+      'source': 'language-server',
+      'port': 1234,
+    })));
+
+    expect(http.paths, ['/RetrieveUserQuotaSummary']);
+    expect(
+      http.headers.map((headers) => headers['X-Codeium-Csrf-Token']),
+      ['rejected-token'],
+    );
+    expect(process.calls, hasLength(1));
+    expect(snapshot.error, 'agy version is too old');
+  });
+
   test('language server tries quota summary, status, then model configs before agy', () async {
     final http = _FakeHttpRunner([
       const AntigravityHttpResponse(statusCode: 404, body: ''),

@@ -17,7 +17,7 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-- `flutter test --no-pub`: 196/196 tests passed.
+- `flutter test --no-pub`: 197/197 tests passed.
 - `flutter test integration_test/multi_account_flow_test.dart`: Windows integration build requires symlink support/Developer Mode; pending in this environment (baseline had 3 fixture-backed proofs: independent restore, cache replacement on success, cache preservation on timeout, restart restore from cache).
 - `flutter analyze`: 0 errors and 0 warnings; 7 pre-existing informational diagnostics, so the command exits nonzero.
 - `flutter run -d windows`: frameless 360x600 widget; first run shows `No connections yet` with one `Add Connection` action.

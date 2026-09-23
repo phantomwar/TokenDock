@@ -436,12 +436,16 @@ class AntigravityLocalReader {
               }
               break;
             }
+            if (response.statusCode == 404) break;
           } catch (_) {
             // Invalidate below, then retry only if discovery found a new session.
           }
 
           runtimeConfig?.invalidateCsrfToken(connection.id);
-          if (!shouldRediscover) break;
+          if (!shouldRediscover) {
+            csrfToken = null;
+            break endpointLoop;
+          }
           final refreshedSession = await _sessionForPort(port);
           final refreshedToken =
               refreshedSession?.csrfToken ?? csrfTokenFor?.call(connection, port);
