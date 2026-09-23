@@ -120,5 +120,52 @@ void main() {
 
       await expectLater(delivered, throwsA(isA<TimeoutException>()));
     });
+
+    test('completes a pending callback wait when explicitly closed', () async {
+      final session = await OAuthLoopback.start(
+        timeout: const Duration(seconds: 5),
+      );
+      addTearDown(session.close);
+
+      final delivered = session.waitForCode('expected-state');
+      final deliveredExpectation = expectLater(
+        delivered,
+        throwsA(isA<StateError>()),
+      ).timeout(const Duration(milliseconds: 250));
+
+      await session.close();
+      await deliveredExpectation;
+    });
+
+    test('force closes an active loopback connection', () async {
+      final session = await OAuthLoopback.start(
+        timeout: const Duration(seconds: 5),
+      );
+      final socket = await Socket.connect(
+        InternetAddress.loopbackIPv4,
+        session.redirectUri.port,
+      );
+      final socketDone = Completer<void>();
+      socket.listen(
+        (_) {},
+        onDone: () {
+          if (!socketDone.isCompleted) {
+            socketDone.complete();
+          }
+        },
+        onError: (Object _, StackTrace __) {
+          if (!socketDone.isCompleted) {
+            socketDone.complete();
+          }
+        },
+      );
+      addTearDown(() async {
+        socket.destroy();
+        await session.close();
+      });
+
+      await session.close().timeout(const Duration(milliseconds: 250));
+      await socketDone.future.timeout(const Duration(milliseconds: 250));
+    });
   });
 }

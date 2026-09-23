@@ -171,7 +171,7 @@ final class OAuthLoopbackSession {
     }
   }
 
-  Future<void> close() => _close(force: false);
+  Future<void> close() => _close(force: true);
 
   Future<void> _closeWithError(Object error, [StackTrace? stackTrace]) {
     _fail(error, stackTrace);
@@ -180,6 +180,9 @@ final class OAuthLoopbackSession {
 
   Future<void> _close({required bool force}) {
     return _closeFuture ??= () async {
+      _fail(
+        StateError('OAuth loopback session was closed before completion.'),
+      );
       _closed = true;
       _timer.cancel();
       await _requestSubscription?.cancel();
