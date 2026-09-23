@@ -4,6 +4,7 @@ import 'provider_adapter.dart';
 class ProviderRegistry {
   ProviderRegistry({bool registerDefaults = true}) {
     if (registerDefaults) {
+      // The default OpenRouter registry entry uses API key authentication.
       register(OpenRouterProvider());
     }
   }

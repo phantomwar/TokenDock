@@ -27,6 +27,13 @@ class OpenRouterProvider implements ProviderAdapter {
   String get name => 'OpenRouter';
 
   @override
+  AuthKind get authKind => AuthKind.apiKey;
+
+  @override
+  Map<String, String> buildAuthHeader(String secret) =>
+      {'Authorization': 'Bearer $secret'};
+
+  @override
   Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
     try {
       final request = await _client
