@@ -13,6 +13,8 @@
 ## Implementation notes
 - Direct model quota entries are distinguished from pool maps by quota fields (`remainingFraction`, `remaining`, `resetTime`, or `resetAt`) and merged with the lower fraction.
 - RefreshService now invokes the refreshable credential directly from its own refresh operation, avoiding the prior self-wait through `runTokenOperation()` while preserving one refresh per `refreshOne()`.
+- Cleanup retry interval is injectable; the focused lifecycle test records each orphan-ref delete, proves both old refs retry before disposal, then proves disposal prevents later attempts.
+- GREEN follow-up: `flutter test --no-pub test/services/refresh_service_test.dart` passed (15 tests).
 - No project-wide validation was run.
 
 ## Commit

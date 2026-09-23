@@ -174,11 +174,11 @@ class _CleanupFailingSecretStore implements SecretStore {
   _CleanupFailingSecretStore(Map<String, String> initial) : values = Map<String, String>.from(initial);
 
   final Map<String, String> values;
-  int deleteCalls = 0;
+  final deleteAttempts = <String>[];
 
   @override
   Future<void> delete(String key) async {
-    deleteCalls++;
+    deleteAttempts.add(key);
     throw StateError('vault busy');
   }
 
@@ -724,7 +724,7 @@ void main() {
       service.dispose();
     });
 
-    test('repeated rotations retain each failed cleanup ref and dispose stops retry work', () async {
+    test('repeated rotations retry every orphan ref and dispose stops later retries', () async {
       final provider = _RefreshableAntigravityProvider(
         expiresAt: DateTime.now().toUtc().subtract(const Duration(minutes: 2)),
       );
@@ -736,19 +736,26 @@ void main() {
         provider: provider,
         connectionRepository: connections,
         secretStore: store,
+        secretCleanupInterval: const Duration(milliseconds: 1),
       );
 
       await service.refreshOne('conn-cleanup');
       await service.refreshOne('conn-cleanup');
+      final orphanRefs = store.deleteAttempts.take(2).toList();
+      expect(orphanRefs, hasLength(2));
+      expect(orphanRefs[0], 'cred-conn-cleanup');
 
-      expect(provider.refreshCalls, 2);
-      expect(store.deleteCalls, 2);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      for (final ref in orphanRefs) {
+        expect(store.deleteAttempts.where((attempt) => attempt == ref).length, greaterThanOrEqualTo(2));
+      }
       expect(service.credentialCleanupWarnings, hasLength(2));
       expect(store.values, hasLength(3));
+
       service.dispose();
-      final callsAtDispose = store.deleteCalls;
+      final attemptsAtDispose = store.deleteAttempts.length;
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(store.deleteCalls, callsAtDispose);
+      expect(store.deleteAttempts.length, attemptsAtDispose);
     });
 
     test('periodic timer: timer fires and invokes refreshAll(), timer cancels on dispose', () async {

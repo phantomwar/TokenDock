@@ -29,6 +29,7 @@ class RefreshService {
     int defaultIntervalMinutes = 3,
     bool autoStartTimer = true,
     Duration? timerInterval,
+    Duration secretCleanupInterval = const Duration(minutes: 1),
   }) : _connectionRepository = connectionRepository,
        _connectionHealthRepository =
            connectionHealthRepository ?? _InMemoryConnectionHealthRepository(),
@@ -36,7 +37,8 @@ class RefreshService {
        _secretStore = secretStore,
        _providerRegistry = providerRegistry,
        _settingsRepository = settingsRepository,
-       _maximumConcurrent = maximumConcurrent {
+       _maximumConcurrent = maximumConcurrent,
+       _secretCleanupInterval = secretCleanupInterval {
     if (onSnapshotUpdated != null) {
       _snapshotListeners.add(onSnapshotUpdated);
     }
@@ -66,6 +68,7 @@ class RefreshService {
     bool autoStartTimer = false,
     Duration? timerInterval,
     int defaultIntervalMinutes = 3,
+    Duration secretCleanupInterval = const Duration(minutes: 1),
   }) {
     final registry =
         providerRegistry ?? ProviderRegistry(registerDefaults: false);
@@ -84,6 +87,7 @@ class RefreshService {
       defaultIntervalMinutes: defaultIntervalMinutes,
       autoStartTimer: autoStartTimer,
       timerInterval: timerInterval,
+      secretCleanupInterval: secretCleanupInterval,
     );
   }
 
@@ -94,6 +98,7 @@ class RefreshService {
   final ProviderRegistry _providerRegistry;
   final SettingsRepository? _settingsRepository;
   final int _maximumConcurrent;
+  final Duration _secretCleanupInterval;
   final Map<String, ConnectionHealth> _healthFallback = {};
 
   final List<void Function(ProviderSnapshot snapshot)> _snapshotListeners = [];
@@ -433,7 +438,7 @@ class RefreshService {
   }
   List<String> get credentialCleanupWarnings => List.unmodifiable(_credentialCleanupWarnings);
   void _scheduleSecretCleanup() {
-    _secretCleanupTimer ??= Timer(const Duration(minutes: 1), () async {
+    _secretCleanupTimer ??= Timer(_secretCleanupInterval, () async {
       _secretCleanupTimer = null;
       for (final ref in List.of(_pendingSecretCleanup)) {
         try { await _secretStore.delete(ref); _pendingSecretCleanup.remove(ref); } catch (_) {}
