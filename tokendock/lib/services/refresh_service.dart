@@ -440,6 +440,7 @@ class RefreshService {
             balance: null,
             fetchedAt: DateTime.now().toUtc(),
             error: 'Local storage unavailable',
+            connection: connection,
           ),
         );
         return;
@@ -536,6 +537,7 @@ class RefreshService {
           fetchedAt: DateTime.now().toUtc(),
           error: 'Local storage unavailable',
           cooldownUntil: snapshot.cooldownUntil,
+          connection: snapshot.connection,
         ),
       );
     }

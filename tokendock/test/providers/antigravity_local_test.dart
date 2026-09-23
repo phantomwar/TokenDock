@@ -124,6 +124,34 @@ void main() {
     expect(snapshot.status, ConnectionStatus.ok);
   });
 
+  test('scalar expected identity matches either response identity component', () {
+    final body = jsonEncode({
+      'response': {
+        'accountEmail': 'selected@example.com',
+        'accountId': 'acct-a',
+        'groups': [
+          {
+            'groupId': 'gemini',
+            'buckets': [
+              {'bucketId': 'weekly', 'remainingFraction': 0.4},
+            ],
+          },
+        ],
+      },
+    });
+
+    for (final expected in ['selected@example.com', 'acct-a']) {
+      final snapshot = AntigravityLocalReader.parseQuotaSummary(
+        body: body,
+        connectionId: 'agy-1',
+        expectedAccountKey: expected,
+        requireIdentity: true,
+      );
+
+      expect(snapshot.status, ConnectionStatus.ok, reason: expected);
+    }
+  });
+
   test('language server fetch accepts persisted composite account identity', () async {
     final reader = AntigravityLocalReader(
       httpRunner: _FakeHttpRunner([

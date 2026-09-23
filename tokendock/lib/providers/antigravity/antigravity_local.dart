@@ -486,8 +486,16 @@ class AntigravityLocalReader {
     }
   }
 
-  static bool _identityMatches(Map<String, dynamic> root, String expected) =>
-      _responseIdentity(root)?.toLowerCase() == expected.toLowerCase();
+  static bool _identityMatches(Map<String, dynamic> root, String expected) {
+    if (expected.contains('|')) {
+      return _responseIdentity(root)?.toLowerCase() == expected.toLowerCase();
+    }
+    final email = (root['accountEmail'] ?? root['email'])?.toString().trim();
+    final account =
+        (root['accountId'] ?? root['account_id'] ?? root['account'])?.toString().trim();
+    final normalized = expected.toLowerCase();
+    return email?.toLowerCase() == normalized || account?.toLowerCase() == normalized;
+  }
 
   static String? _responseIdentity(Map<String, dynamic> root) {
     final email = (root['accountEmail'] ?? root['email'])?.toString().trim();

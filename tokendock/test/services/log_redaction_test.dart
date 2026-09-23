@@ -103,4 +103,16 @@ void main() {
     expect(redacted, contains('token'));
     expect(redacted, contains('credential'));
   });
+
+  test('redacts every value in a credential-named JSON array', () {
+    final redacted = redactSecret(
+      '{"tokens":["first-secret","second-secret"],"safe":["visible"]}',
+    );
+
+    expect(redacted, isNot(contains('first-secret')));
+    expect(redacted, isNot(contains('second-secret')));
+    expect(redacted, contains('tokens'));
+    expect(redacted, contains('safe'));
+    expect(redacted, contains('visible'));
+  });
 }

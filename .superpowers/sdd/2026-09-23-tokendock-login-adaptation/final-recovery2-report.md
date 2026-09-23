@@ -13,10 +13,19 @@ Implemented the six remaining findings from the final recovery review in the log
 5. Redaction now applies the documented substring rule (`key|token|secret|auth|credential|cookie`) to JSON and query-like field names, including token, credential, oauth, and private_key, while retaining bearer and URL behavior.
 6. Local account mismatch is reported as `ConnectionStatus.error` with `ProviderFailureCause.accountMismatch`, preserving cache and avoiding credential-disable events.
 
+## Final reviewer follow-up
+
+7. Scalar expected local identities now match either the response email or account component; composite equality is required only when the persisted key contains `|`.
+8. `AppState.updateConnection` restores the prior row before deleting a replacement secret when quota-cache persistence fails after the row commit.
+9. Cache and health persistence error snapshots now carry the current rotated connection, and `AppState` adopts it on error paths.
+10. JSON redaction now parses complete JSON documents recursively, so credential-named arrays and nested objects cannot leak later values.
+
+Added regressions for scalar identity matching, update compensation, rotated cache/health error snapshots, AppState error adoption, and credential arrays.
+
 ## Verification
 
-- Focused command: `flutter test --no-pub test/providers/antigravity_local_test.dart test/providers/antigravity_oauth_test.dart test/services/oauth_loopback_test.dart test/services/refresh_service_test.dart test/services/log_redaction_test.dart test/app/app_state_test.dart test/ui/connections_screen_test.dart` — passed, 91 tests.
-- Full command: `flutter test --no-pub` — passed, 187 tests.
+- Focused command: `flutter test --no-pub test/providers/antigravity_local_test.dart test/providers/antigravity_oauth_test.dart test/services/oauth_loopback_test.dart test/services/refresh_service_test.dart test/services/log_redaction_test.dart test/app/app_state_test.dart test/ui/connections_screen_test.dart` — passed, 97 tests.
+- Full command: `flutter test --no-pub` — passed, 193 tests.
 - `flutter analyze` — completed with 7 pre-existing informational lints and no errors/warnings; the new unnecessary-interpolation info was removed before the final analyzer run.
 
 ## Concerns

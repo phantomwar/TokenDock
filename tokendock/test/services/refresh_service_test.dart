@@ -59,6 +59,19 @@ class _FakeQuotaCacheRepository implements QuotaCacheRepository {
   }
 }
 
+class _FailingQuotaCacheRepository implements QuotaCacheRepository {
+  @override
+  Future<List<Quota>> getAll(String connectionId) async => const [];
+
+  @override
+  Future<void> saveAll(String connectionId, List<Quota> quotas) async {
+    throw StateError('cache unavailable');
+  }
+
+  @override
+  Future<void> deleteForConnection(String connectionId) async {}
+}
+
 class _FakeConnectionHealthRepository implements ConnectionHealthRepository {
   _FakeConnectionHealthRepository([Map<String, ConnectionHealth>? initial])
     : _records = Map<String, ConnectionHealth>.from(initial ?? const {});
@@ -726,6 +739,54 @@ void main() {
       expect(current.credentialRef, isNot('cred-conn-proactive'));
       expect(await store.read(current.credentialRef), 'rotated-1');
       expect(await store.read('cred-conn-proactive'), isNull);
+      expect(snapshots.last.connection?.credentialRef, current.credentialRef);
+      service.dispose();
+    });
+
+    test('cache failure after rotation publishes the rotated connection', () async {
+      final provider = _RefreshableAntigravityProvider(
+        expiresAt: DateTime.now().toUtc().subtract(const Duration(minutes: 2)),
+      );
+      final connections = _FakeConnectionRepository([
+        createConnection(id: 'conn-cache-rotation', provider: 'antigravity'),
+      ]);
+      final snapshots = <ProviderSnapshot>[];
+      final service = RefreshService.forTest(
+        provider: provider,
+        connectionRepository: connections,
+        quotaCacheRepository: _FailingQuotaCacheRepository(),
+        secretStore: MemorySecretStore({'cred-conn-cache-rotation': 'old-secret'}),
+        onSnapshotUpdated: snapshots.add,
+      );
+
+      await service.refreshOne('conn-cache-rotation');
+
+      final current = (await connections.getAll()).single;
+      expect(snapshots.last.status, ConnectionStatus.error);
+      expect(snapshots.last.connection?.credentialRef, current.credentialRef);
+      service.dispose();
+    });
+
+    test('health failure after rotation publishes the rotated connection', () async {
+      final provider = _RefreshableAntigravityProvider(
+        expiresAt: DateTime.now().toUtc().subtract(const Duration(minutes: 2)),
+      );
+      final connections = _FakeConnectionRepository([
+        createConnection(id: 'conn-health-rotation', provider: 'antigravity'),
+      ]);
+      final snapshots = <ProviderSnapshot>[];
+      final service = RefreshService.forTest(
+        provider: provider,
+        connectionRepository: connections,
+        connectionHealthRepository: _FailingConnectionHealthRepository(),
+        secretStore: MemorySecretStore({'cred-conn-health-rotation': 'old-secret'}),
+        onSnapshotUpdated: snapshots.add,
+      );
+
+      await service.refreshOne('conn-health-rotation');
+
+      final current = (await connections.getAll()).single;
+      expect(snapshots.last.status, ConnectionStatus.error);
       expect(snapshots.last.connection?.credentialRef, current.credentialRef);
       service.dispose();
     });

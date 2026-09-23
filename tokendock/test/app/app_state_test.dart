@@ -9,9 +9,23 @@ import 'package:tokendock/providers/provider_adapter.dart';
 import 'package:tokendock/services/refresh_service.dart';
 import 'package:tokendock/models/test_result.dart';
 import 'package:tokendock/services/refreshable_credential.dart';
+import 'package:tokendock/storage/quota_cache_repository.dart';
 
 import '../support/memory_secret_store.dart';
 import '../support/test_database.dart';
+
+class _FailingQuotaCacheRepository implements QuotaCacheRepository {
+  @override
+  Future<List<Quota>> getAll(String connectionId) async => const [];
+
+  @override
+  Future<void> saveAll(String connectionId, List<Quota> quotas) async {
+    throw StateError('cache unavailable');
+  }
+
+  @override
+  Future<void> deleteForConnection(String connectionId) async {}
+}
 
 class _RotatingProvider implements ProviderAdapter {
   @override
@@ -229,6 +243,78 @@ void main() {
     final persisted = (await testDb.connectionRepository.getAll()).single;
     expect(persisted.credentialRef, rotated.credentialRef);
     expect(await store.read(persisted.credentialRef), 'rotated-secret');
+  });
+
+  test('AppState adopts rotated connection on refresh error snapshots', () async {
+    final testDb = await TestDatabase.create();
+    addTearDown(testDb.close);
+    const connection = Connection(
+      id: 'conn-rotation-error',
+      provider: 'antigravity',
+      displayName: 'Rotating error',
+      group: null,
+      plan: null,
+      credentialRef: 'old-error-ref',
+      enabled: true,
+    );
+    await testDb.connectionRepository.save(connection);
+    final store = MemorySecretStore({'old-error-ref': 'old-secret'});
+    final service = RefreshService.forTest(
+      provider: _RotatingProvider(),
+      connectionRepository: testDb.connectionRepository,
+      quotaCacheRepository: _FailingQuotaCacheRepository(),
+      secretStore: store,
+    );
+    final state = AppState(
+      connectionRepository: testDb.connectionRepository,
+      quotaCacheRepository: _FailingQuotaCacheRepository(),
+      secretStore: store,
+      refreshService: service,
+    );
+    addTearDown(state.dispose);
+
+    await state.load();
+    await state.refreshOne(connection.id);
+
+    expect(state.accounts.single.snapshot.status, ConnectionStatus.error);
+    expect(state.accounts.single.connection.credentialRef, isNot('old-error-ref'));
+  });
+
+  test('cache failure restores the old row before deleting replacement secret', () async {
+    final testDb = await TestDatabase.create();
+    addTearDown(testDb.close);
+    const connection = Connection(
+      id: 'conn-cache-failure',
+      provider: 'antigravity',
+      displayName: 'Before update',
+      group: null,
+      plan: null,
+      credentialRef: 'old-ref',
+      enabled: true,
+    );
+    await testDb.connectionRepository.save(connection);
+    final store = MemorySecretStore({'old-ref': 'old-secret'});
+    final state = AppState(
+      connectionRepository: testDb.connectionRepository,
+      quotaCacheRepository: _FailingQuotaCacheRepository(),
+      secretStore: store,
+    );
+    addTearDown(state.dispose);
+
+    await expectLater(
+      state.updateConnection(
+        existing: connection,
+        displayName: 'After update',
+        newSecret: 'replacement-secret',
+        newQuotas: const [],
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    final persisted = (await testDb.connectionRepository.getAll()).single;
+    expect(persisted.credentialRef, 'old-ref');
+    expect(await store.read('old-ref'), 'old-secret');
+    expect(store.entries.length, 1);
   });
 
 }

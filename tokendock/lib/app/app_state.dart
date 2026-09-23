@@ -421,16 +421,27 @@ class AppState implements ChangeNotifier {
       providerData: existing.providerData,
     );
 
+    var rowSaved = false;
     try {
       await repo.save(updatedConnection);
+      rowSaved = true;
       if (newQuotas != null && quotaCacheRepository != null) {
         await quotaCacheRepository!.saveAll(existing.id, newQuotas);
       }
-    } catch (e) {
-      if (secretChanged && newSecretRef != null) {
+    } catch (error, stackTrace) {
+      var restored = !rowSaved;
+      if (rowSaved) {
+        try {
+          await repo.save(existing);
+          restored = true;
+        } catch (_) {
+          // Keep the replacement secret if the row cannot be restored.
+        }
+      }
+      if (secretChanged && newSecretRef != null && restored) {
         await store.delete(newSecretRef);
       }
-      rethrow;
+      Error.throwWithStackTrace(error, stackTrace);
     }
 
     if (secretChanged && newSecretRef != null) {
