@@ -292,6 +292,49 @@ void main() {
     expect(runtime.csrfTokenFor('agy-1'), 'replacement-token');
   });
 
+  test('rejected CSRF token is not reused when rediscovery finds no replacement', () async {
+    final http = _FakeHttpRunner([
+      const AntigravityHttpResponse(statusCode: 401, body: ''),
+      const AntigravityHttpResponse(statusCode: 401, body: ''),
+      const AntigravityHttpResponse(statusCode: 401, body: ''),
+    ]);
+    const discoveredSession = AntigravityLocalSession(
+      port: 1234,
+      processId: 3101,
+      csrfToken: 'rejected-token',
+    );
+    final discovery = _SequencedSessionDiscovery([
+      const [discoveredSession],
+      const [],
+    ]);
+    final process = _FakeProcessRunner([
+      _ProcessResult(0, 0, 'agy 0.0.0\n', ''),
+    ]);
+    final runtime = AntigravityLocalRuntimeConfig();
+    final reader = AntigravityLocalReader(
+      httpRunner: http,
+      csrfTokenFor: (_, _) => 'rejected-token',
+      processRunner: process,
+      runtimeConfig: runtime,
+      sessionDiscovery: discovery,
+    );
+
+    final snapshot = await reader.fetchSnapshot(connection(providerData: jsonEncode({
+      'source': 'language-server',
+      'port': 1234,
+    })));
+
+    expect(http.paths, ['/RetrieveUserQuotaSummary']);
+    expect(
+      http.headers.map((headers) => headers['X-Codeium-Csrf-Token']),
+      ['rejected-token'],
+    );
+    expect(discovery.calls, 2);
+    expect(runtime.csrfTokenFor('agy-1'), isNull);
+    expect(process.calls, hasLength(1));
+    expect(snapshot.error, 'agy version is too old');
+  });
+
   test('language server tries quota summary, status, then model configs before agy', () async {
     final http = _FakeHttpRunner([
       const AntigravityHttpResponse(statusCode: 404, body: ''),

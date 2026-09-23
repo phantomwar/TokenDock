@@ -64,7 +64,7 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 
 - Baseline evidence at `7154db3`: `flutter test` 96/96; `flutter test integration_test/multi_account_flow_test.dart` 3/3; `flutter analyze` 0 errors and 0 warnings; Windows release build succeeds.
 - Covered: compact/normal/expanded layouts, light/dark/high-contrast themes, keyboard-only flows (Tab/Enter/Space reach Add Connection), reduced motion, test-before-save CRUD with credential compensation, refresh concurrency and coalescing, cache preservation, and three-account isolation.
-- Current final-review evidence: focused Antigravity/OAuth/loopback/RefreshService/redaction/AppState/ConnectionsScreen suites pass (98 tests in the recorded focused command); full `flutter test --no-pub` passes (195 tests). `flutter analyze` reports 0 errors and 0 warnings, with 7 pre-existing informational diagnostics and exits nonzero. No real Google integration, external browser launch, or Antigravity process was exercised; tests use sanitized fake HTTP/process fixtures. Windows integration remains pending on symlink support/Developer Mode.
+- Current final-review evidence: focused Antigravity/OAuth/loopback/RefreshService/redaction/AppState/ConnectionsScreen suites pass (98 tests in the recorded focused command); full `flutter test --no-pub` passes (196 tests). `flutter analyze` reports 0 errors and 0 warnings, with 7 pre-existing informational diagnostics and exits nonzero. No real Google integration, external browser launch, or Antigravity process was exercised; tests use sanitized fake HTTP/process fixtures. Windows integration remains pending on symlink support/Developer Mode.
 
 ## Product Principles
 

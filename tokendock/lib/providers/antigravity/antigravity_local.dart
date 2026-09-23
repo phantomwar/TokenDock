@@ -403,7 +403,7 @@ class AntigravityLocalReader {
         );
       }
       final shouldRediscover = runtimeConfig != null || session != null;
-      for (final endpoint in const [
+      endpointLoop: for (final endpoint in const [
         'RetrieveUserQuotaSummary',
         'GetUserStatus',
         'GetCommandModelConfigs',
@@ -445,10 +445,10 @@ class AntigravityLocalReader {
           final refreshedSession = await _sessionForPort(port);
           final refreshedToken =
               refreshedSession?.csrfToken ?? csrfTokenFor?.call(connection, port);
-          final sessionChanged = !_sameSession(session, refreshedSession) ||
-              csrfToken != refreshedToken;
+          final replacementFound = csrfToken != refreshedToken ||
+              (refreshedSession != null && !_sameSession(session, refreshedSession));
           if (!retriedCurrentSession &&
-              sessionChanged &&
+              replacementFound &&
               refreshedToken != null &&
               refreshedToken.isNotEmpty) {
             csrfToken = refreshedToken;
@@ -464,7 +464,8 @@ class AntigravityLocalReader {
             retriedCurrentSession = true;
             continue;
           }
-          break;
+          csrfToken = null;
+          break endpointLoop;
         }
       }
     }
