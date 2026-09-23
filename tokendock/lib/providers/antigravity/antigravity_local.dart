@@ -196,13 +196,15 @@ class AntigravityLocalReader {
       }
       return _error(connectionId, now, 'Limits not available');
     } on AntigravitySourceException catch (error) {
+      final schemaChanged = error.message == 'quota_source_changed';
       return ProviderSnapshot(
         connectionId: connectionId,
-        status: ConnectionStatus.authError,
+        status: schemaChanged ? ConnectionStatus.error : ConnectionStatus.authError,
         quotas: const [],
         balance: null,
         fetchedAt: now,
         error: error.message,
+        failureCause: schemaChanged ? ProviderFailureCause.quotaSourceChanged : ProviderFailureCause.accountMismatch,
       );
     } catch (_) {
       return _error(connectionId, now, 'Limits not available');
@@ -234,13 +236,15 @@ class AntigravityLocalReader {
       }
       return quotas.isEmpty ? _error(connectionId, now, 'Limits not available') : _ok(connectionId, now, quotas);
     } on AntigravitySourceException catch (error) {
+      final schemaChanged = error.message == 'quota_source_changed';
       return ProviderSnapshot(
         connectionId: connectionId,
-        status: ConnectionStatus.authError,
+        status: schemaChanged ? ConnectionStatus.error : ConnectionStatus.authError,
         quotas: const [],
         balance: null,
         fetchedAt: now,
         error: error.message,
+        failureCause: schemaChanged ? ProviderFailureCause.quotaSourceChanged : ProviderFailureCause.accountMismatch,
       );
     } catch (_) {
       return _error(connectionId, now, 'Limits not available');
@@ -362,8 +366,13 @@ class AntigravityLocalReader {
         final bucket = _map(rawBucket);
         if (bucket == null) continue;
         final window = _window((bucket['bucketId'] ?? bucket['id'] ?? '').toString());
-        final fraction = _number(bucket['remainingFraction']) ??
-            _number(_map(bucket['remaining'])?['remainingFraction']);
+        final rawFraction = bucket.containsKey('remainingFraction')
+            ? bucket['remainingFraction']
+            : _map(bucket['remaining'])?['remainingFraction'];
+        if (rawFraction != null && !_validFraction(rawFraction)) {
+          throw const AntigravitySourceException('quota_source_changed');
+        }
+        final fraction = _number(rawFraction);
         final reset = _date(bucket['resetTime'] ?? bucket['resetAt']);
         final candidate = _Bucket(fraction, reset, bucket['description']?.toString());
         final key = '$pool-$window';
@@ -383,7 +392,11 @@ class AntigravityLocalReader {
       final pool = _pool(key);
       final value = _map(raw);
       if (pool == null || value == null) return;
-      final fraction = _number(value['remainingFraction']);
+      final rawFraction = value['remainingFraction'];
+      if (rawFraction != null && !_validFraction(rawFraction)) {
+        throw const AntigravitySourceException('quota_source_changed');
+      }
+      final fraction = _number(rawFraction);
       final reset = _date(value['resetTime'] ?? value['resetAt']);
       if (fraction == null && reset == null) return;
       final id = '$pool-5h';
@@ -419,9 +432,15 @@ class AntigravityLocalReader {
     return lower.contains('week') || lower.contains('7d') ? 'weekly' : '5h';
   }
 
+  static bool _validFraction(dynamic value) {
+    final parsed = value is num ? value.toDouble() : double.tryParse('$value');
+    return parsed != null && parsed.isFinite && parsed >= 0 && parsed <= 1;
+  }
+
   static double? _number(dynamic value) {
-    if (value is num) return value.toDouble().clamp(0, 1).toDouble();
-    return double.tryParse(value?.toString() ?? '');
+    if (value == null) return null;
+    final parsed = value is num ? value.toDouble() : double.tryParse(value.toString());
+    return parsed != null && parsed.isFinite && parsed >= 0 && parsed <= 1 ? parsed : null;
   }
 
   static DateTime? _date(dynamic value) {

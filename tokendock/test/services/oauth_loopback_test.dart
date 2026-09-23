@@ -167,5 +167,34 @@ void main() {
       await session.close().timeout(const Duration(milliseconds: 250));
       await socketDone.future.timeout(const Duration(milliseconds: 250));
     });
+
+    test('accepts an IPv6 loopback callback on the companion listener', () async {
+      final session = await OAuthLoopback.start(
+        timeout: const Duration(seconds: 5),
+      );
+      addTearDown(session.close);
+      final delivered = session.waitForCode('expected-state');
+      final client = HttpClient();
+      addTearDown(() => client.close(force: true));
+
+      final response = await (await client.getUrl(Uri(
+        scheme: 'http',
+        host: '::1',
+        port: session.redirectUri.port,
+        path: session.redirectUri.path,
+        queryParameters: {
+          'code': 'ipv6-code',
+          'state': 'expected-state',
+        },
+      ))).close();
+
+      expect(response.statusCode, HttpStatus.ok);
+      await response.drain<void>();
+      expect((await delivered).code, 'ipv6-code');
+      await expectLater(
+        client.getUrl(session.redirectUri).then((request) => request.close()),
+        throwsA(anyOf(isA<SocketException>(), isA<HttpException>())),
+      );
+    });
   });
 }

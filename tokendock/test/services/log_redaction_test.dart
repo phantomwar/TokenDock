@@ -60,4 +60,29 @@ void main() {
       'https://example.test/path#usage?literal=true',
     );
   });
+
+  test('redacts named credential fields in JSON and case variants', () {
+    const input = '{"access_token":"a","refreshToken":"r","client_secret":"s",'
+        '"id_token":"i","Authorization":"Bearer h","cookie":"c","api_key":"k"}';
+
+    final redacted = redactSecret(input);
+
+    for (final value in ['"a"', '"r"', '"s"', '"i"', 'Bearer h', '"c"', '"k"']) {
+      expect(redacted, isNot(contains(value)));
+    }
+    expect(redacted, contains('access_token'));
+    expect(redacted, contains('refreshToken'));
+  });
+
+  test('redacts named query-like credential fields without removing URL rules', () {
+    final redacted = redactSecret(
+      'client-secret=credential ACCESS_TOKEN=value apiKey: value',
+    );
+    expect(redacted, isNot(contains('credential')));
+    expect(redacted, isNot(contains('value')));
+    expect(
+      redactUrl('https://example.test/callback?state=abc#done'),
+      'https://example.test/callback#done',
+    );
+  });
 }

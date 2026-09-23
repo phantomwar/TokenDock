@@ -262,10 +262,10 @@ class RefreshService {
     );
 
     final connections = await _connectionRepository.getAll();
-    final connection = connections
+    final foundConnection = connections
         .where((c) => c.id == connectionId)
         .firstOrNull;
-    if (connection == null) {
+    if (foundConnection == null) {
       _publishSnapshot(
         ProviderSnapshot(
           connectionId: connectionId,
@@ -278,6 +278,7 @@ class RefreshService {
       );
       return;
     }
+    var connection = foundConnection;
 
     String? secret;
     try {
@@ -322,7 +323,9 @@ class RefreshService {
     if (refreshable != null && refreshable.expiresAt != null &&
         refreshable.expiresAt!.isBefore(DateTime.now().toUtc().add(refreshable.refreshLead))) {
       try {
-        secret = await _rotateCredential(connection, await refreshable.refresh(currentSecret));
+        final refreshedSecret = await refreshable.refresh(currentSecret);
+        connection = await _rotateCredential(connection, refreshedSecret);
+        secret = refreshedSecret;
       } catch (error) {
         definitiveCause = definitiveOAuthFailureCause(error);
         providerSnapshot = ProviderSnapshot(
@@ -333,13 +336,18 @@ class RefreshService {
           fetchedAt: DateTime.now().toUtc(),
           error: definitiveCause ?? redactSecret(error.toString(), [currentSecret]),
         );
+        if (definitiveCause == 'invalid_grant') {
+          await _deleteCredentialBestEffort(connection);
+        }
       }
     }
     if (definitiveCause == null) {
       try {
         providerSnapshot = await adapter.fetch(connection, secret ?? currentSecret);
-        if (providerSnapshot.status == ConnectionStatus.authError && (providerSnapshot.error == '401' || (providerSnapshot.error ?? '').toLowerCase().contains('401')) && refreshable != null) {
-          secret = await _rotateCredential(connection, await refreshable.refresh(secret ?? currentSecret));
+        if (providerSnapshot.failureCause == ProviderFailureCause.invalidCredential && refreshable != null) {
+          final refreshedSecret = await refreshable.refresh(secret ?? currentSecret);
+          connection = await _rotateCredential(connection, refreshedSecret);
+          secret = refreshedSecret;
           providerSnapshot = await adapter.fetch(connection, secret);
         }
       } catch (error) {
@@ -351,13 +359,17 @@ class RefreshService {
           balance: null,
           fetchedAt: DateTime.now().toUtc(),
           error: definitiveCause ?? redactSecret(error.toString(), [currentSecret]),
+          failureCause: definitiveCause == 'bare_401'
+              ? ProviderFailureCause.invalidCredential
+              : null,
         );
+        if (definitiveCause == 'invalid_grant') {
+          await _deleteCredentialBestEffort(connection);
+        }
       }
     }
-    if (definitiveCause == null && providerSnapshot.error == 'quota_source_changed') {
-      definitiveCause = 'quota_source_changed';
-    }
-    if (definitiveCause == null && providerSnapshot.status == ConnectionStatus.authError) {
+    if (definitiveCause == null &&
+        providerSnapshot.failureCause == ProviderFailureCause.invalidCredential) {
       definitiveCause = 'bare_401';
       providerSnapshot = ProviderSnapshot(
         connectionId: providerSnapshot.connectionId,
@@ -367,6 +379,21 @@ class RefreshService {
         fetchedAt: providerSnapshot.fetchedAt,
         error: definitiveCause,
         cooldownUntil: providerSnapshot.cooldownUntil,
+        failureCause: ProviderFailureCause.invalidCredential,
+      );
+    } else if (definitiveCause == null &&
+        providerSnapshot.status == ConnectionStatus.authError &&
+        providerSnapshot.failureCause == null) {
+      definitiveCause = 'bare_401';
+      providerSnapshot = ProviderSnapshot(
+        connectionId: providerSnapshot.connectionId,
+        status: ConnectionStatus.authError,
+        quotas: providerSnapshot.quotas,
+        balance: providerSnapshot.balance,
+        fetchedAt: providerSnapshot.fetchedAt,
+        error: definitiveCause,
+        cooldownUntil: providerSnapshot.cooldownUntil,
+        failureCause: ProviderFailureCause.invalidCredential,
       );
     }
     if (definitiveCause != null) {
@@ -384,6 +411,7 @@ class RefreshService {
             error: providerSnapshot.error == null
                 ? null
                 : redactSecret(providerSnapshot.error!, [currentSecret]),
+            failureCause: providerSnapshot.failureCause,
             cooldownUntil: providerSnapshot.cooldownUntil,
           );
 
@@ -406,7 +434,10 @@ class RefreshService {
     }
     await _persistHealthAndPublish(snapshot);
   }
-  Future<String> _rotateCredential(Connection connection, String nextSecret) async {
+  Future<Connection> _rotateCredential(
+    Connection connection,
+    String nextSecret,
+  ) async {
     final nextRef = generateSecretRef();
     await _secretStore.write(nextRef, nextSecret);
     final updated = Connection(
@@ -427,14 +458,20 @@ class RefreshService {
       await _secretStore.delete(nextRef);
       rethrow;
     }
+    await _deleteCredentialBestEffort(connection);
+    return updated;
+  }
+
+  Future<void> _deleteCredentialBestEffort(Connection connection) async {
     try {
       await _secretStore.delete(connection.credentialRef);
     } catch (_) {
       _pendingSecretCleanup.add(connection.credentialRef);
-      _credentialCleanupWarnings.add('Old credential cleanup pending for ${connection.id}');
+      _credentialCleanupWarnings.add(
+        'Old credential cleanup pending for ${connection.id}',
+      );
       _scheduleSecretCleanup();
     }
-    return nextSecret;
   }
   List<String> get credentialCleanupWarnings => List.unmodifiable(_credentialCleanupWarnings);
   void _scheduleSecretCleanup() {

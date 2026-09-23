@@ -99,11 +99,20 @@ class _ThrowingSecretStore implements SecretStore {
 }
 
 class _RefreshableAntigravityProvider implements ProviderAdapter {
-  _RefreshableAntigravityProvider({this.expiresAt, this.unauthorizedFirst = false, this.refreshError});
+  _RefreshableAntigravityProvider({
+    this.expiresAt,
+    this.unauthorizedFirst = false,
+    this.refreshError,
+    this.snapshotError,
+    this.failureCause,
+  });
 
   final DateTime? expiresAt;
   final bool unauthorizedFirst;
   final Object? refreshError;
+  String? snapshotError;
+  ProviderFailureCause? failureCause;
+  DateTime? cooldownUntil;
   int fetchCalls = 0;
   int refreshCalls = 0;
   final fetchedSecrets = <String>[];
@@ -118,13 +127,16 @@ class _RefreshableAntigravityProvider implements ProviderAdapter {
   AuthKind get authKind => AuthKind.oauth;
 
   @override
-  Map<String, String> buildAuthHeader(String secret) => {'Authorization': 'Bearer $secret'};
+  Map<String, String> buildAuthHeader(String secret) =>
+      {'Authorization': 'Bearer $secret'};
 
   @override
-  RefreshableCredential refreshableCredential(String secret) => _RefreshableCredential(this);
+  RefreshableCredential refreshableCredential(String secret) =>
+      _RefreshableCredential(this);
 
   @override
-  Future<TestResult> test(Connection connection, String secret) async => TestResult.success();
+  Future<TestResult> test(Connection connection, String secret) async =>
+      TestResult.success();
 
   @override
   Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
@@ -138,6 +150,21 @@ class _RefreshableAntigravityProvider implements ProviderAdapter {
         balance: null,
         fetchedAt: DateTime.now().toUtc(),
         error: '401',
+        failureCause: ProviderFailureCause.invalidCredential,
+      );
+    }
+    if (snapshotError != null) {
+      return ProviderSnapshot(
+        connectionId: connection.id,
+        status: failureCause == ProviderFailureCause.transient
+            ? ConnectionStatus.warning
+            : ConnectionStatus.error,
+        quotas: const [],
+        balance: null,
+        fetchedAt: DateTime.now().toUtc(),
+        error: snapshotError,
+        cooldownUntil: cooldownUntil,
+        failureCause: failureCause,
       );
     }
     return ProviderSnapshot(
@@ -721,6 +748,86 @@ void main() {
       expect(events.single.cause, 'invalid_grant');
       expect(snapshots.last.status, ConnectionStatus.authError);
       expect(snapshots.last.error, 'invalid_grant');
+      service.dispose();
+    });
+
+    test('invalid_grant deletes the reusable local pair', () async {
+      final provider = _RefreshableAntigravityProvider(
+        expiresAt: DateTime.now().toUtc().subtract(const Duration(minutes: 2)),
+        refreshError: StateError('invalid_grant'),
+      );
+      final store = MemorySecretStore({'cred-conn-reuse': 'reusable-secret'});
+      final service = RefreshService.forTest(
+        provider: provider,
+        connectionRepository: _FakeConnectionRepository([
+          createConnection(id: 'conn-reuse', provider: 'antigravity'),
+        ]),
+        secretStore: store,
+      );
+
+      await service.refreshOne('conn-reuse');
+
+      expect(await store.read('cred-conn-reuse'), isNull);
+      service.dispose();
+    });
+
+    test('typed provider failures retain status and only 401 disables credentials', () async {
+      final cases = <ProviderFailureCause, ConnectionStatus>{
+        ProviderFailureCause.onboardingRequired: ConnectionStatus.error,
+        ProviderFailureCause.accountMismatch: ConnectionStatus.error,
+        ProviderFailureCause.quotaSourceChanged: ConnectionStatus.error,
+        ProviderFailureCause.forbidden: ConnectionStatus.error,
+        ProviderFailureCause.transport: ConnectionStatus.error,
+        ProviderFailureCause.transient: ConnectionStatus.warning,
+      };
+
+      for (final entry in cases.entries) {
+        final provider = _RefreshableAntigravityProvider(
+          snapshotError: entry.key.name,
+          failureCause: entry.key,
+        );
+        final events = <CredentialDisabledEvent>[];
+        final snapshots = <ProviderSnapshot>[];
+        final service = RefreshService.forTest(
+          provider: provider,
+          connectionRepository: _FakeConnectionRepository([
+            createConnection(id: 'typed-${entry.key.name}', provider: 'antigravity'),
+          ]),
+          secretStore: MemorySecretStore({
+            'cred-typed-${entry.key.name}': 'secret',
+          }),
+          onSnapshotUpdated: snapshots.add,
+        )..addDisabledListener(events.add);
+
+        await service.refreshOne('typed-${entry.key.name}');
+
+        expect(snapshots.last.status, entry.value, reason: entry.key.name);
+        expect(events, isEmpty, reason: entry.key.name);
+        service.dispose();
+      }
+    });
+
+    test('reactive rotation deletes the current ref and leaves no orphan', () async {
+      final provider = _RefreshableAntigravityProvider(
+        unauthorizedFirst: true,
+        snapshotError: null,
+      );
+      final connections = _FakeConnectionRepository([
+        createConnection(id: 'conn-current-ref', provider: 'antigravity'),
+      ]);
+      final store = MemorySecretStore({'cred-conn-current-ref': 'old-secret'});
+      final service = RefreshService.forTest(
+        provider: provider,
+        connectionRepository: connections,
+        secretStore: store,
+      );
+
+      await service.refreshOne('conn-current-ref');
+
+      final current = (await connections.getAll()).single;
+      expect(current.credentialRef, isNot('cred-conn-current-ref'));
+      expect(await store.read('cred-conn-current-ref'), isNull);
+      expect(await store.read(current.credentialRef), 'rotated-1');
       service.dispose();
     });
 

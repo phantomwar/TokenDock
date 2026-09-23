@@ -1,6 +1,16 @@
 import 'connection_status.dart';
 import 'quota.dart';
 
+
+enum ProviderFailureCause {
+  onboardingRequired,
+  accountMismatch,
+  quotaSourceChanged,
+  forbidden,
+  transport,
+  transient,
+  invalidCredential,
+}
 class ProviderSnapshot {
   const ProviderSnapshot({
     required this.connectionId,
@@ -10,6 +20,7 @@ class ProviderSnapshot {
     required this.fetchedAt,
     required this.error,
     this.cooldownUntil,
+    this.failureCause,
   });
 
   final String connectionId;
@@ -19,4 +30,5 @@ class ProviderSnapshot {
   final DateTime fetchedAt;
   final String? error;
   final DateTime? cooldownUntil;
+  final ProviderFailureCause? failureCause;
 }

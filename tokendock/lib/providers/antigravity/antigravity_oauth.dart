@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-
+import 'dart:math';
 import '../../models/connection.dart';
 import '../../models/connection_status.dart';
 import '../../models/provider_snapshot.dart';
@@ -12,9 +12,14 @@ import '../provider_adapter.dart';
 import 'antigravity_local.dart';
 
 class AntigravityOAuthHttpResponse {
-  const AntigravityOAuthHttpResponse({required this.statusCode, required this.body});
+  const AntigravityOAuthHttpResponse({
+    required this.statusCode,
+    required this.body,
+    this.retryAfter,
+  });
   final int statusCode;
   final String body;
+  final String? retryAfter;
 }
 abstract interface class AntigravityOAuthHttpRunner {
   Future<AntigravityOAuthHttpResponse> post(Uri uri, {required Map<String, String> headers, required String body});
@@ -28,9 +33,11 @@ class AntigravityTransportFailure implements Exception {
   final Object cause;
 }
 class AntigravityTransientFailure implements Exception {
-  const AntigravityTransientFailure(this.statusCode);
+  const AntigravityTransientFailure(this.statusCode, {this.cooldownUntil});
   final int statusCode;
-  @override String toString() => 'Antigravity transient HTTP $statusCode';
+  final DateTime? cooldownUntil;
+  @override
+  String toString() => 'Antigravity transient HTTP $statusCode';
 }
 class AntigravitySchemaChanged implements Exception {
   const AntigravitySchemaChanged();
@@ -61,6 +68,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   final AntigravityOAuthHttpRunner _http;
   final SecretStore? _secretStore;
   final Future<void> Function(Uri url) launchExternalBrowser;
+  final Set<String> _rotatedRefreshTokens = {};
 
   static Future<void> launchWindowsBrowser(Uri url) async {
     if (Platform.isWindows) {
@@ -74,6 +82,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   static const dailyHost = 'https://daily-cloudcode-pa.googleapis.com';
   static const authorizationEndpoint = 'https://accounts.google.com/o/oauth2/v2/auth';
   static const clientId = '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
+  static const revokeEndpoint = 'https://oauth2.googleapis.com/revoke';
   @override String get id => 'antigravity';
   @override String get name => 'Antigravity';
   @override AuthKind get authKind => AuthKind.oauth;
@@ -174,7 +183,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
           final remaining = bucket['remaining'] is Map ? Map<String, dynamic>.from(bucket['remaining'] as Map) : bucket;
           final fraction = remaining['remainingFraction'];
           final reset = bucket['resetTime'] ?? bucket['resetAt'] ?? remaining['resetTime'] ?? remaining['resetAt'];
-          if (bucketId.isEmpty || (fraction != null && fraction is! num && double.tryParse('$fraction') == null) || (reset != null && !_validReset(reset)) || (fraction == null && reset == null)) throw const AntigravitySchemaChanged();
+          if (bucketId.isEmpty || (fraction != null && !_validFraction(fraction)) || (reset != null && !_validReset(reset)) || (fraction == null && reset == null)) throw const AntigravitySchemaChanged();
         }
       }
       return;
@@ -187,7 +196,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         final value = Map<String, dynamic>.from(raw);
         final fraction = value['remainingFraction'];
         final reset = value['resetTime'] ?? value['resetAt'];
-        if (fraction != null && fraction is! num && double.tryParse('$fraction') == null) throw const AntigravitySchemaChanged();
+        if (fraction != null && !_validFraction(fraction)) throw const AntigravitySchemaChanged();
         if (reset != null && !_validReset(reset)) throw const AntigravitySchemaChanged();
         if (fraction == null && reset == null) throw const AntigravitySchemaChanged();
       }
@@ -202,26 +211,42 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     throw const AntigravitySchemaChanged();
   }
 
+  static bool _validFraction(dynamic value) {
+    final parsed = value is num ? value.toDouble() : double.tryParse('$value');
+    return parsed != null && parsed.isFinite && parsed >= 0 && parsed <= 1;
+  }
+
   static bool _validReset(dynamic value) {
     if (value is num) return true;
     final text = value.toString().trim();
     return text.isNotEmpty && (DateTime.tryParse(text) != null || int.tryParse(text) != null);
   }
 
-  @override Future<TestResult> test(Connection connection, String secret) async {
-    final snapshot = await fetch(connection, secret);
-    return snapshot.error == null ? TestResult.success(quotas: snapshot.quotas, plan: connection.plan) : TestResult.failure(error: snapshot.error!);
+  @override
+  Future<TestResult> test(Connection connection, String secret) async {
+    var testSecret = secret;
+    final credential = refreshableCredential(testSecret);
+    final expiresAt = credential?.expiresAt;
+    if (credential != null &&
+        expiresAt != null &&
+        expiresAt.isBefore(DateTime.now().toUtc().add(credential.refreshLead))) {
+      testSecret = await credential.refresh(testSecret);
+    }
+    final snapshot = await fetch(connection, testSecret);
+    return snapshot.error == null
+        ? TestResult.success(quotas: snapshot.quotas, plan: connection.plan)
+        : TestResult.failure(error: snapshot.error!);
   }
   @override Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
     final credential = _credential(secret);
     final project = _providerData(connection)['projectId']?.toString() ?? credential['projectId']?.toString();
-    if (project == null || project.isEmpty) return _error(connection.id, 'Complete Antigravity onboarding before connecting');
+    if (project == null || project.isEmpty) return _error(connection.id, 'onboarding_required', ProviderFailureCause.onboardingRequired);
     final expected = credential['identityKey']?.toString() ?? connection.identityKey;
     try {
       for (final host in const [prodHost, dailyHost]) {
         try {
           final payload = await _postJson(Uri.parse('$host/v1internal:retrieveUserQuotaSummary'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
-          if (!const AntigravitySelectedAccountGuard().accepts(expected: expected, payload: payload)) return _error(connection.id, 'Account mismatch');
+          if (!const AntigravitySelectedAccountGuard().accepts(expected: expected, payload: payload)) return _error(connection.id, 'account_mismatch', ProviderFailureCause.accountMismatch);
           _requireQuotaSchema(payload);
           return AntigravityLocalReader.parseQuotaSummary(body: jsonEncode(payload), connectionId: connection.id);
         } on StateError catch (error) {
@@ -230,11 +255,19 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       }
       return await _fetchLegacy(connection, credential, project, expected);
     } on AntigravitySchemaChanged {
-      return _error(connection.id, 'quota_source_changed');
+      return _error(connection.id, 'quota_source_changed', ProviderFailureCause.quotaSourceChanged);
     } on AntigravityTransientFailure catch (error) {
-      return ProviderSnapshot(connectionId: connection.id, status: ConnectionStatus.warning, quotas: const [], balance: null, fetchedAt: DateTime.now().toUtc(), error: error.toString(), cooldownUntil: DateTime.now().toUtc().add(const Duration(minutes: 1)));
-    } catch (error) {
-      return _error(connection.id, error.toString().replaceFirst('Exception: ', ''));
+      final fetchedAt = DateTime.now().toUtc();
+      return ProviderSnapshot(connectionId: connection.id, status: ConnectionStatus.warning, quotas: const [], balance: null, fetchedAt: fetchedAt, error: error.toString(), cooldownUntil: error.cooldownUntil ?? fetchedAt.add(const Duration(minutes: 1)), failureCause: ProviderFailureCause.transient);
+    } on AntigravityTransportFailure {
+      return _error(connection.id, 'transport', ProviderFailureCause.transport);
+    } on StateError catch (error) {
+      final normalized = error.toString().toLowerCase();
+      if (normalized.contains('http 403')) return _error(connection.id, 'forbidden', ProviderFailureCause.forbidden);
+      if (normalized.contains('401')) return _error(connection.id, 'bare_401', ProviderFailureCause.invalidCredential);
+      return _error(connection.id, normalized.replaceFirst('bad state: ', ''), null);
+    } catch (_) {
+      return _error(connection.id, 'error', null);
     }
   }
   Future<ProviderSnapshot> _fetchLegacy(Connection connection, Map<String, dynamic> credential, String project, String? expected) async {
@@ -242,7 +275,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     final quotaEnvelope = await _postJson(Uri.parse('$prodHost/v1internal:retrieveUserQuota'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
     final models = _unwrapEnvelope(modelsEnvelope);
     final quota = _unwrapEnvelope(quotaEnvelope);
-    if (!const AntigravitySelectedAccountGuard().accepts(expected: expected, payload: quota)) return _error(connection.id, 'Account mismatch');
+    if (!const AntigravitySelectedAccountGuard().accepts(expected: expected, payload: quota)) return _error(connection.id, 'account_mismatch', ProviderFailureCause.accountMismatch);
     final quotaInfo = _mergeLegacyModels(quota, models);
     _requireQuotaSchema({'quotaInfo': quotaInfo}, legacy: true);
     return AntigravityLocalReader.parseQuotaSummary(body: jsonEncode({'response': {'quotaInfo': quotaInfo, 'accountEmail': quota['accountEmail'], 'accountId': quota['accountId']}}), connectionId: connection.id);
@@ -297,19 +330,103 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   }
 
   Future<String> refresh(String currentSecret) async {
-    final value = _credential(currentSecret); final refreshToken = value['refreshToken']?.toString();
-    if (refreshToken == null || refreshToken.isEmpty) throw StateError('refresh token missing');
-    final response = await _postJson(Uri.parse(tokenEndpoint), {'client_id': clientId, 'refresh_token': refreshToken, 'grant_type': 'refresh_token', 'access_type': 'offline'});
-    if (response['access_token'] == null) throw StateError('invalid_grant');
-    return jsonEncode({...value, 'accessToken': response['access_token'], 'refreshToken': response['refresh_token'] ?? refreshToken, 'expiresAt': _expiry(response)?.toIso8601String()});
+    final value = _credential(currentSecret);
+    final refreshToken = value['refreshToken']?.toString();
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw StateError('refresh token missing');
+    }
+    final reused = _rotatedRefreshTokens.contains(refreshToken);
+    try {
+      final response = await _postJson(Uri.parse(tokenEndpoint), {
+        'client_id': clientId,
+        'refresh_token': refreshToken,
+        'grant_type': 'refresh_token',
+        'access_type': 'offline',
+      });
+      if (response['access_token'] == null) throw StateError('invalid_grant');
+      final replacement = response['refresh_token']?.toString();
+      if (replacement != null && replacement.isNotEmpty && replacement != refreshToken) {
+        _rotatedRefreshTokens.add(refreshToken);
+      }
+      return jsonEncode({
+        ...value,
+        'accessToken': response['access_token'],
+        'refreshToken': replacement ?? refreshToken,
+        'expiresAt': _expiry(response)?.toIso8601String(),
+      });
+    } on StateError catch (error) {
+      if (!error.toString().contains('invalid_grant')) rethrow;
+      await _revokeBestEffort(refreshToken);
+      rethrow;
+    } on AntigravityTransportFailure {
+      if (reused) await _revokeBestEffort(refreshToken);
+      rethrow;
+    }
   }
-  Future<Map<String, dynamic>> _postJson(Uri uri, Map<String, dynamic> body, {String? bearer}) async {
+
+  Future<void> _revokeBestEffort(String refreshToken) async {
+    try {
+      await _http.post(
+        Uri.parse(revokeEndpoint),
+        headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'token=$refreshToken',
+      );
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>> _postJson(
+    Uri uri,
+    Map<String, dynamic> body, {
+    String? bearer,
+  }) async {
     AntigravityOAuthHttpResponse response;
-    try { response = await _http.post(uri, headers: {if (bearer != null && bearer.isNotEmpty) 'Authorization': 'Bearer $bearer', 'Content-Type': 'application/json'}, body: jsonEncode(body)); }
-    catch (error) { throw AntigravityTransportFailure(error); }
-    if (response.statusCode == 429 || response.statusCode >= 500) throw AntigravityTransientFailure(response.statusCode);
-    if (response.statusCode < 200 || response.statusCode >= 300) { if (response.statusCode == 401) throw StateError('401'); if (response.statusCode == 400 && response.body.contains('invalid_grant')) throw StateError('invalid_grant'); throw StateError('HTTP ${response.statusCode}'); }
-    try { return _map(jsonDecode(response.body)); } catch (_) { throw const AntigravitySchemaChanged(); }
+    try {
+      response = await _http.post(
+        uri,
+        headers: {
+          if (bearer != null && bearer.isNotEmpty) 'Authorization': 'Bearer $bearer',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      );
+    } catch (error) {
+      throw AntigravityTransportFailure(error);
+    }
+    if (response.statusCode == 429 || response.statusCode >= 500) {
+      final fetchedAt = DateTime.now().toUtc();
+      final retryAt = _parseRetryAfter(response.retryAfter, fetchedAt);
+      throw AntigravityTransientFailure(
+        response.statusCode,
+        cooldownUntil: retryAt ?? fetchedAt.add(const Duration(minutes: 1)),
+      );
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode == 401) throw StateError('401');
+      if (response.statusCode == 400 && response.body.contains('invalid_grant')) {
+        throw StateError('invalid_grant');
+      }
+      throw StateError('HTTP ${response.statusCode}');
+    }
+    try {
+      return _map(jsonDecode(response.body));
+    } catch (_) {
+      throw const AntigravitySchemaChanged();
+    }
+  }
+
+  static DateTime? _parseRetryAfter(String? value, DateTime now) {
+    final header = value?.trim();
+    if (header == null || header.isEmpty) return null;
+    final seconds = int.tryParse(header);
+    if (seconds != null) {
+      return seconds > 0 ? now.add(Duration(seconds: seconds)) : null;
+    }
+    try {
+      final retryAt = HttpDate.parse(header).toUtc();
+      return retryAt.isAfter(now) ? retryAt : null;
+    } catch (_) {
+      return null;
+    }
   }
   static Map<String, dynamic> _map(dynamic value) => value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
   static Map<String, dynamic> _providerData(Connection c) { try { return c.providerData == null ? <String, dynamic>{} : _map(jsonDecode(c.providerData!)); } catch (_) { return <String, dynamic>{}; } }
@@ -317,7 +434,20 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   static String? _tier(Map<String, dynamic> v) { final r = _map(v['response']); final t = _map(r['currentTier']); return (t['id'] ?? t['name'] ?? r['tier'])?.toString(); }
   static DateTime? _expiry(Map<String, dynamic> v) { final s = v['expires_in']; return s is num ? DateTime.now().toUtc().add(Duration(seconds: s.toInt())) : null; }
   static Map<String, dynamic> _credential(String raw) { try { return _map(jsonDecode(raw)); } catch (_) { return {'accessToken': raw}; } }
-  ProviderSnapshot _error(String id, String error) => ProviderSnapshot(connectionId: id, status: ConnectionStatus.authError, quotas: const [], balance: null, fetchedAt: DateTime.now().toUtc(), error: error);
+  ProviderSnapshot _error(String id, String error, ProviderFailureCause? cause) => ProviderSnapshot(connectionId: id, status: cause == ProviderFailureCause.invalidCredential ? ConnectionStatus.authError : ConnectionStatus.error, quotas: const [], balance: null, fetchedAt: DateTime.now().toUtc(), error: error, failureCause: cause);
+
+  /// First retry honors the provider floor; later retryable attempts use Full
+  /// Jitter. This helper is intentionally separate from non-retryable errors.
+  static Duration retryDelay(
+    Duration retryAfterFloor,
+    int attempt, {
+    Random? random,
+  }) {
+    if (attempt <= 0) return retryAfterFloor;
+    final capSeconds = min(60, 1 << min(attempt, 6));
+    final jitterMs = (random ?? Random.secure()).nextInt(capSeconds * 1000 + 1);
+    return Duration(milliseconds: jitterMs);
+  }
 }
 
 class AntigravityRefreshableCredential implements RefreshableCredential {
@@ -330,5 +460,21 @@ class AntigravityRefreshableCredential implements RefreshableCredential {
   static Map<String, dynamic> _credential(String raw) { try { return Map<String, dynamic>.from(jsonDecode(raw) as Map); } catch (_) { return <String, dynamic>{}; } }
 }
 class _HttpClientRunner implements AntigravityOAuthHttpRunner {
-  @override Future<AntigravityOAuthHttpResponse> post(Uri uri, {required Map<String, String> headers, required String body}) async { final client = HttpClient(); try { final request = await client.postUrl(uri); headers.forEach(request.headers.set); request.write(body); final response = await request.close(); return AntigravityOAuthHttpResponse(statusCode: response.statusCode, body: await response.transform(const Utf8Decoder()).join()); } finally { client.close(force: true); } }
+  @override
+  Future<AntigravityOAuthHttpResponse> post(Uri uri, {required Map<String, String> headers, required String body}) async {
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(uri);
+      headers.forEach(request.headers.set);
+      request.write(body);
+      final response = await request.close();
+      return AntigravityOAuthHttpResponse(
+        statusCode: response.statusCode,
+        body: await response.transform(const Utf8Decoder()).join(),
+        retryAfter: response.headers.value(HttpHeaders.retryAfterHeader),
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
 }

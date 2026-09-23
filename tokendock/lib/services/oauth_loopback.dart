@@ -31,8 +31,18 @@ abstract final class OAuthLoopback {
     }
 
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    HttpServer? ipv6Server;
+    try {
+      ipv6Server = await HttpServer.bind(
+        InternetAddress.loopbackIPv6,
+        server.port,
+        shared: true,
+      );
+    } on SocketException {
+      ipv6Server = null;
+    }
     final session = OAuthLoopbackSession._(
-      server: server,
+      servers: [server, if (ipv6Server != null) ipv6Server],
       callbackPath: callbackPath,
       timeout: timeout,
     );
@@ -43,15 +53,15 @@ abstract final class OAuthLoopback {
 
 final class OAuthLoopbackSession {
   OAuthLoopbackSession._({
-    required HttpServer server,
+    required List<HttpServer> servers,
     required String callbackPath,
     required Duration timeout,
-  }) : _server = server,
+  }) : _servers = List.unmodifiable(servers),
        _callbackPath = callbackPath,
        redirectUri = Uri(
          scheme: 'http',
          host: InternetAddress.loopbackIPv4.address,
-         port: server.port,
+         port: servers.first.port,
          path: callbackPath,
        ) {
     _timer = Timer(timeout, () {
@@ -63,26 +73,28 @@ final class OAuthLoopbackSession {
     });
   }
 
-  final HttpServer _server;
+  final List<HttpServer> _servers;
   final String _callbackPath;
   Completer<OAuthLoopbackResult>? _result;
   final Uri redirectUri;
 
   late final Timer _timer;
-  StreamSubscription<HttpRequest>? _requestSubscription;
+  final List<StreamSubscription<HttpRequest>> _requestSubscriptions = [];
   Future<void>? _closeFuture;
   String? _expectedState;
   OAuthLoopbackResult? _completedResult;
   bool _closed = false;
 
   void _startListening() {
-    _requestSubscription = _server.listen(
-      (request) => unawaited(_handleRequest(request)),
-      onError: (Object error, StackTrace stackTrace) {
-        _fail(error, stackTrace);
-      },
-      cancelOnError: false,
-    );
+    for (final server in _servers) {
+      _requestSubscriptions.add(server.listen(
+        (request) => unawaited(_handleRequest(request)),
+        onError: (Object error, StackTrace stackTrace) {
+          _fail(error, stackTrace);
+        },
+        cancelOnError: false,
+      ));
+    }
   }
 
   Uri launchUrl(
@@ -179,15 +191,21 @@ final class OAuthLoopbackSession {
   }
 
   Future<void> _close({required bool force}) {
-    return _closeFuture ??= () async {
-      _fail(
-        StateError('OAuth loopback session was closed before completion.'),
-      );
-      _closed = true;
-      _timer.cancel();
-      await _requestSubscription?.cancel();
-      await _server.close(force: force);
-    }();
+    return _closeFuture ??= _closeInternal(force);
+  }
+
+  Future<void> _closeInternal(bool force) async {
+    _fail(
+      StateError('OAuth loopback session was closed before completion.'),
+    );
+    _closed = true;
+    _timer.cancel();
+    for (final subscription in _requestSubscriptions) {
+      await subscription.cancel();
+    }
+    for (final server in _servers) {
+      await server.close(force: force);
+    }
   }
 
   void _fail(Object error, [StackTrace? stackTrace]) {

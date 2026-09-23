@@ -4,7 +4,7 @@ Windows 10/11 x64 desktop widget that tracks up to three independent OpenRouter 
 
 ## Status
 
-Login adaptation implemented in the current worktree (`c0acaef`). Registered providers are `openrouter` (`AuthKind.apiKey`) and `antigravity` (`AuthKind.oauth`, per-account remote OAuth). `Migration001` creates `auth_type`; `Migration003` adds `identity_key` and `provider_data` and sets SQLite `user_version = 3`. Antigravity Appendix A provides a backend/test-only, opt-in local read-only quota source via `AntigravityLocalReader`; Appendix B provides backend/test-only per-account remote OAuth with loopback PKCE, refreshable secrets, selected-account guards, onboarding handling, and quota retrieval. Neither Antigravity flow is wired into the Connections UI. OpenRouter quota hardening remains: error taxonomy 401/402/403/429/503, documented `Retry-After`, persisted health/cooldown, cache preservation, and current-secret redaction. Dependencies upgraded 2026-09-23: `flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3` (fake in `test/storage/secret_store_test.dart` migrated `IOSOptions/MacOsOptions` → `AppleOptions`; no `lib/` change). Live provider end-to-end against real keys was not exercised; see the review record in `../.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md` (git-ignored working notes).
+Login adaptation and final-review recovery are implemented in the current worktree. Registered providers are `openrouter` (`AuthKind.apiKey`) and `antigravity` (`AuthKind.oauth`). Antigravity routes only explicit `providerData.source` values `language-server` and `agy-cli` to the opt-in local reader; absent/`remote` source uses per-account remote OAuth. `Migration001` creates `auth_type`; `Migration003` adds `identity_key` and `provider_data` and sets SQLite `user_version = 3`. Both Antigravity flows are backend/test-only and are not wired into the Connections UI. OpenRouter hardening and Antigravity quota/auth handling are covered by sanitized fake HTTP/process fixtures; no real Google integration or real browser launch was exercised.
 
 ## Run
 
@@ -17,9 +17,9 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-- `flutter test --no-pub`: 165/165 tests passed.
+- `flutter test --no-pub`: 179/179 tests passed.
 - `flutter test integration_test/multi_account_flow_test.dart`: Windows integration build requires symlink support/Developer Mode; pending in this environment (baseline had 3 fixture-backed proofs: independent restore, cache replacement on success, cache preservation on timeout, restart restore from cache).
-- `flutter analyze`: exited nonzero with 0 errors, 0 warnings, and 6 informational diagnostics, all pre-existing `prefer_initializing_formals` diagnostics in `RefreshService`; no new analyzer diagnostics remain.
+- `flutter analyze`: 0 errors and 0 warnings; 7 informational diagnostics (one null-aware-elements suggestion and six pre-existing RefreshService initializing-formals suggestions).
 - `flutter run -d windows`: frameless 360x600 widget; first run shows `No connections yet` with one `Add Connection` action.
 - Release smoke: `%LOCALAPPDATA%\TokenDock\tokendock.db` is created; close hides the window to the tray; Exit terminates.
 

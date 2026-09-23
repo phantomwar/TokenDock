@@ -252,6 +252,28 @@ void main() {
     expect(snapshot.quotas.map((q) => q.id), contains('claude-gpt-5h'));
     expect(runner.calls[1].arguments, ['-p', '/usage', '--output-format', 'json']);
   });
+
+  test('local parser rejects invalid remaining fractions without clamping', () {
+    for (final fraction in <dynamic>[double.nan, double.infinity, -0.1, 1.1, '2']) {
+      final snapshot = AntigravityLocalReader.parseQuotaSummary(
+        body: jsonEncode({
+          'response': {
+            'groups': [
+              {
+                'groupId': 'gemini',
+                'buckets': [
+                  {'bucketId': 'weekly', 'remainingFraction': '$fraction'},
+                ],
+              },
+            ],
+          },
+        }),
+        connectionId: 'agy-1',
+      );
+      expect(snapshot.status, ConnectionStatus.error, reason: '$fraction');
+      expect(snapshot.quotas, isEmpty, reason: '$fraction');
+    }
+  });
 }
 
 class _FakeHttpRunner implements AntigravityHttpRunner {

@@ -123,6 +123,9 @@ class OpenRouterResponse {
       status: status,
       quotas: const [],
       balance: null,
+      failureCause: status == ConnectionStatus.authError
+          ? ProviderFailureCause.invalidCredential
+          : null,
       fetchedAt: fetchedAt,
       error: error,
       cooldownUntil: cooldownUntil,

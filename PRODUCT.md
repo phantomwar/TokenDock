@@ -48,13 +48,13 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 
 ## Implementation Status
 
-- Status: login adaptation implemented in the current worktree (`c0acaef`); Windows 10/11 x64 only.
-- Provider list: `openrouter` and `antigravity` are registered. OpenRouter uses `AuthKind.apiKey`; Antigravity remote uses `AuthKind.oauth`. `AuthKind` also defines `structuredBearer` and `none` for the adapter boundary.
-- `Migration001` creates the `auth_type` column; `Migration003` adds `identity_key` and `provider_data` and sets SQLite `user_version = 3`. `AppDatabase.open` runs `Migration001`–`Migration003`.
-- OpenRouter retains the implemented quota hardening: 401 invalid credentials, 402 insufficient credits except documented in-flight-budget responses with `Retry-After`, 403 forbidden, and 429/503 honoring valid `Retry-After`; failures preserve cached quotas and redact the current credential.
-- Antigravity Appendix A is implemented as a backend/test-only, opt-in local read-only `AntigravityLocalReader` (language-server sources, then `agy` CLI when configured), with bounded process output/timeouts and account-mismatch rejection. The Connections UI is not wired to select this source.
-- Antigravity Appendix B is implemented as a backend/test-only per-account remote OAuth provider: loopback browser flow with PKCE, refreshable isolated per-connection secrets, selected-account guard, quota retrieval, onboarding-required handling, and schema-change handling while preserving cache. The Connections UI is not wired to launch this login flow.
-- Per-connection health is persisted alongside auth metadata. Active cooldowns skip only that connection; successful refresh clears the cooldown. Timer cadence remains fixed; adaptive polling is not implemented.
+- Status: login adaptation and final-review recovery implemented in the current worktree; Windows 10/11 x64 only.
+- Provider list: `openrouter` and `antigravity` are registered. OpenRouter uses `AuthKind.apiKey`; Antigravity uses `AuthKind.oauth` and dispatches only explicit `providerData.source` values `language-server` or `agy-cli` to the local reader. Remote is the default and remains available when source is absent or `remote`.
+- `Migration001` creates `auth_type`; `Migration003` adds `identity_key` and `provider_data` and sets SQLite `user_version = 3`. `AppDatabase.open` runs `Migration001`–`Migration003`.
+- OpenRouter retains quota hardening: 401 invalid credentials, 402 insufficient credits except documented in-flight-budget responses with `Retry-After`, 403 forbidden, and 429/503 honoring valid `Retry-After`; failures preserve cached quotas and redact current credential fields.
+- Antigravity Appendix A is backend/test-only, explicit opt-in local read-only quota: language-server sources then bounded `agy` CLI fallback, account mismatch rejection, strict fraction validation, and no credential custody. The Connections UI is not wired to select this source.
+- Antigravity Appendix B is backend/test-only per-account remote OAuth: external loopback browser + PKCE, least scopes, isolated refreshable secrets, typed failure causes, account guard, quota retrieval, onboarding prompt, `Retry-After` cooldown floors, rotated-token reuse revocation, and schema-change handling while preserving cache. The Connections UI is not wired to launch this login flow.
+- Per-connection health is persisted alongside auth metadata. Active cooldowns skip only that connection; successful refresh clears the cooldown. Timer cadence remains fixed; adaptive polling and automatic account fallback are not implemented.
 - Refresh: manual, Ctrl+R/Cmd+R (disabled while a text field has focus), tray action, and one periodic timer (default 3 minutes; 1/3/5/10/manual), at most four concurrent connection refreshes with same-ID coalescing. OAuth refresh is coordinated by the refreshable credential boundary; this does not imply UI-exposed Antigravity login.
 - Cache-first: cached quotas render immediately; refresh failures preserve prior values and show `Last updated <relative age>`; past resets render `Resetting…`.
 - Window/tray: frameless 360x600 window, hide-to-tray on close, explicit Exit; tray menu exposes Open TokenDock, Refresh All, Always on Top, Connections, and Exit, with double-click restoring the widget.
@@ -64,7 +64,7 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 
 - Baseline evidence at `7154db3`: `flutter test` 96/96; `flutter test integration_test/multi_account_flow_test.dart` 3/3; `flutter analyze` 0 errors and 0 warnings; Windows release build succeeds.
 - Covered: compact/normal/expanded layouts, light/dark/high-contrast themes, keyboard-only flows (Tab/Enter/Space reach Add Connection), reduced motion, test-before-save CRUD with credential compensation, refresh concurrency and coalescing, cache preservation, and three-account isolation.
-- Current login-adaptation evidence at `c0acaef` plus analyzer-info fixes: `flutter test --no-pub` 165/165 passed. `flutter analyze` exited nonzero with 0 errors, 0 warnings, and 6 informational diagnostics, all pre-existing `prefer_initializing_formals` diagnostics in `RefreshService`; no new analyzer diagnostics remain. The Windows integration test could not launch because Flutter plugin builds require symlink support/Developer Mode in this environment.
+- Current final-review evidence: focused Antigravity/OAuth/loopback/RefreshService/redaction suites pass; full `flutter test --no-pub` passes (179 tests). `flutter analyze` reports 0 errors and 0 warnings, with 7 informational diagnostics (one null-aware-elements suggestion and six pre-existing RefreshService initializing-formals suggestions). No real Google integration or real browser launch was exercised; tests use sanitized fake HTTP/process fixtures. Windows integration remains pending on symlink support/Developer Mode.
 
 ## Product Principles
 

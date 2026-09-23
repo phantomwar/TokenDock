@@ -10,9 +10,23 @@ String redactSecret(String input, [List<String> secrets = const []]) {
   for (final secret in orderedSecrets) {
     redacted = redacted.replaceAll(secret, '[redacted]');
   }
-  return redacted.replaceAllMapped(
+  redacted = redacted.replaceAllMapped(
     RegExp(r'''(Bearer\s+)[^\s"',}]+''', caseSensitive: false),
     (match) => '${match.group(1)}[redacted]',
+  );
+  redacted = redacted.replaceAllMapped(
+    RegExp(
+      r'''(["']?(?:access[_-]?token|refresh[_-]?token|client[_-]?secret|id[_-]?token|cookie|api[_-]?key)["']?\s*[:=]\s*)(?!\s*\[redacted\])(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)''',
+      caseSensitive: false,
+    ),
+    (match) => '${match.group(1)}[redacted]',
+  );
+  return redacted.replaceAllMapped(
+    RegExp(
+      r'''(["']?authorization["']?\s*[:=]\s*)(?!Bearer\s+\[redacted\])(Bearer\s+)?(?:"[^"]*"|'[^']*'|[^\s,;}\]]+)''',
+      caseSensitive: false,
+    ),
+    (match) => '${match.group(1)}${match.group(2) ?? ''}[redacted]',
   );
 }
 
