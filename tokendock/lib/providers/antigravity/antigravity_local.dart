@@ -132,16 +132,87 @@ class AntigravitySourceException implements Exception {
   String toString() => message;
 }
 
+abstract interface class AntigravitySessionDiscovery {
+  Future<List<AntigravityLocalSession>> discover();
+}
+
+class AntigravityLocalSession {
+  const AntigravityLocalSession({required this.port, required this.csrfToken});
+  final int port;
+  final String csrfToken;
+}
+
+class _WindowsAntigravitySessionDiscovery implements AntigravitySessionDiscovery {
+  @override
+  Future<List<AntigravityLocalSession>> discover() async {
+    if (!Platform.isWindows) return const [];
+    const script = r'''$ErrorActionPreference = 'Stop'
+Get-CimInstance Win32_Process |
+  Where-Object { $_.CommandLine -match 'language[_-]server' -and $_.CommandLine -match '--csrf_token' } |
+  ForEach-Object {
+    $port = if ($_.CommandLine -match '--extension_server_port[= ]+(\d+)') { $Matches[1] } else { $null }
+    $csrf = if ($_.CommandLine -match '--csrf_token[= ]+"?([^"\s]+)') { $Matches[1] } else { $null }
+    if ($port -and $csrf) { [pscustomobject]@{ port = [int]$port; csrfToken = $csrf } }
+  } | ConvertTo-Json -Compress''';
+    final result = await Process.run(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      runInShell: false,
+    );
+    if (result.exitCode != 0) return const [];
+    final output = '${result.stdout}'.trim();
+    if (output.isEmpty) return const [];
+    final decoded = jsonDecode(output);
+    final values = decoded is List ? decoded : [decoded];
+    final sessions = <AntigravityLocalSession>[];
+    for (final value in values) {
+      if (value is! Map) continue;
+      final port = (value['port'] as num?)?.toInt();
+      final csrfToken = value['csrfToken']?.toString();
+      if (port != null && csrfToken != null && csrfToken.isNotEmpty) {
+        sessions.add(AntigravityLocalSession(port: port, csrfToken: csrfToken));
+      }
+    }
+    return sessions;
+  }
+}
+
+class AntigravityLocalRuntimeConfig {
+  AntigravityLocalRuntimeConfig({
+    Map<String, String> csrfTokensByConnectionId = const {},
+  }) : _csrfTokensByConnectionId = Map.of(csrfTokensByConnectionId);
+
+  final Map<String, String> _csrfTokensByConnectionId;
+
+  String? csrfTokenFor(String connectionId) =>
+      _csrfTokensByConnectionId[connectionId];
+
+  void setCsrfToken(String connectionId, String token) {
+    _csrfTokensByConnectionId[connectionId] = token;
+  }
+
+  void remove(String connectionId) {
+    _csrfTokensByConnectionId.remove(connectionId);
+  }
+}
+
 /// Read-only adapter for the local Antigravity language server and `agy` CLI.
 class AntigravityLocalReader {
   AntigravityLocalReader({
     AntigravityProcessRunner? processRunner,
     AntigravityHttpRunner? httpRunner,
+    this.runtimeConfig,
+    this.csrfTokenFor,
+    AntigravitySessionDiscovery? sessionDiscovery,
   })  : _processRunner = processRunner ?? _SystemProcessRunner(),
-        _httpRunner = httpRunner ?? _LoopbackHttpRunner();
+        _httpRunner = httpRunner ?? _LoopbackHttpRunner(),
+        _sessionDiscovery = sessionDiscovery ?? _WindowsAntigravitySessionDiscovery();
 
   final AntigravityProcessRunner _processRunner;
   final AntigravityHttpRunner _httpRunner;
+  final AntigravityLocalRuntimeConfig? runtimeConfig;
+  final String? Function(Connection connection, int port)? csrfTokenFor;
+  final AntigravitySessionDiscovery _sessionDiscovery;
 
   static ProviderSnapshot parseQuotaSummary({
     required String body,
@@ -261,8 +332,27 @@ class AntigravityLocalReader {
     final port = providerData['port'] as int?;
     var accountMatched = false;
     if (port != null) {
+      var csrfToken = csrfTokenFor?.call(connection, port) ??
+          runtimeConfig?.csrfTokenFor(connection.id);
+      if (csrfToken == null || csrfToken.isEmpty) {
+        final sessions = await _sessionDiscovery.discover();
+        for (final session in sessions) {
+          if (session.port == port) {
+            csrfToken = session.csrfToken;
+            runtimeConfig?.setCsrfToken(connection.id, csrfToken);
+            break;
+          }
+        }
+      }
+      if (csrfToken == null || csrfToken.isEmpty) {
+        return _error(
+          connection.id,
+          DateTime.now().toUtc(),
+          'Antigravity language server session unavailable',
+        );
+      }
       final headers = {
-        'X-Codeium-Csrf-Token': providerData['csrfToken'] as String? ?? '',
+        'X-Codeium-Csrf-Token': csrfToken,
         'Connect-Protocol-Version': '1',
       };
       for (final endpoint in const [

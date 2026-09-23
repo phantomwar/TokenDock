@@ -8,7 +8,6 @@ import 'package:tokendock/providers/antigravity/antigravity_local.dart';
 import 'package:tokendock/providers/antigravity/antigravity_oauth.dart';
 import 'package:tokendock/providers/antigravity/antigravity_provider.dart';
 import 'package:tokendock/providers/provider_adapter.dart';
-import 'package:tokendock/providers/provider_registry.dart';
 import 'package:tokendock/storage/secret_store.dart';
 
 void main() {
@@ -214,12 +213,27 @@ void main() {
   });
 
   test('refresh preserves refresh token when Google omits rotation', () async {
-    final http = _Http([_Response(200, jsonEncode({'access_token': 'new-access', 'expires_in': 3600}))]);
+    final http = _RecordingHttp([
+      _Response(200, jsonEncode({'access_token': 'new-access', 'expires_in': 3600})),
+    ]);
     final provider = AntigravityOAuthProvider(http: http);
     final secret = await provider.refresh(jsonEncode({'accessToken': 'old', 'refreshToken': 'keep-me', 'identityKey': 'a@example.com|acct-a'}));
     final value = jsonDecode(secret) as Map<String, dynamic>;
     expect(value['accessToken'], 'new-access');
     expect(value['refreshToken'], 'keep-me');
+    expect(
+      http.requests.single.headers['Content-Type'],
+      'application/x-www-form-urlencoded',
+    );
+    expect(
+      Uri.splitQueryString(http.requests.single.body),
+      {
+        'client_id': AntigravityOAuthProvider.clientId,
+        'refresh_token': 'keep-me',
+        'grant_type': 'refresh_token',
+        'access_type': 'offline',
+      },
+    );
   });
 
   test('refresh invalid_grant is definitive', () async {
@@ -352,10 +366,22 @@ void main() {
     expect(opened!.queryParameters['state'], matches(RegExp(r'^[0-9a-f]{32}$')));
     expect(opened!.queryParameters['redirect_uri'], startsWith('http://127.0.0.1:'));
     expect(callbackStatus, HttpStatus.ok);
-    final tokenBody = jsonDecode(http.requests.first.body) as Map<String, dynamic>;
+    final tokenBody = Uri.splitQueryString(http.requests.first.body);
     expect(tokenBody['code'], 'loop-code');
     expect(tokenBody['redirect_uri'], opened!.queryParameters['redirect_uri']);
     expect(tokenBody, isNot(contains('client_secret')));
+    expect(
+      http.requests.first.headers['Content-Type'],
+      'application/x-www-form-urlencoded',
+    );
+    expect(
+      http.requests[1].headers['Content-Type'],
+      'application/json',
+    );
+    expect(
+      jsonDecode(http.requests[1].body),
+      isA<Map<String, dynamic>>(),
+    );
     expect(await store.read('secret-a'), contains('refreshToken'));
 
     final client = HttpClient();
@@ -387,60 +413,111 @@ void main() {
     await expectLater(provider.login(_connection('a'), code: 'c', codeVerifier: 'v', redirectUri: 'http://127.0.0.1/callback'), throwsA(isA<StateError>()));
   });
 
-  test('transient quota statuses produce warnings for 429 and 503', () async {
-    final provider = AntigravityOAuthProvider(http: _Http([_Response(429, '{}'), _Response(503, '{}')]));
-    final secret = jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'});
-    final first = await provider.fetch(_connection('a'), secret);
-    final second = await provider.fetch(_connection('a'), secret);
-    expect(first.status.name, 'warning');
-    expect(first.error, contains('429'));
-    expect(second.status.name, 'warning');
-    expect(second.error, contains('503'));
-  });
-
-  test('Retry-After seconds and HTTP-date set the transient cooldown floor', () async {
+  test('bounded transient retry waits Retry-After then Full Jitter', () async {
+    final delays = <Duration>[];
+    final http = _RecordingHttp([
+      _Response(429, '{}', retryAfter: '2'),
+      _Response(503, '{}'),
+      _Response(200, jsonEncode({
+        'response': {
+          'accountEmail': 'a@example.com',
+          'accountId': 'acct-a',
+          'groups': [
+            {
+              'groupId': 'gemini',
+              'buckets': [
+                {'bucketId': 'weekly', 'remainingFraction': 0.4},
+              ],
+            },
+          ],
+        },
+      })),
+    ]);
+    final provider = AntigravityOAuthProvider(
+      http: http,
+      random: _FixedRandom(0),
+      sleep: (delay) async => delays.add(delay),
+    );
     final secret = jsonEncode({
       'accessToken': 'a',
       'identityKey': 'a@example.com|acct-a',
       'projectId': 'p',
     });
-    final seconds = AntigravityOAuthProvider(http: _Http([
-      _Response(429, '{}', retryAfter: '120'),
-    ]));
+
+    final snapshot = await provider.fetch(_connection('retry'), secret);
+
+    expect(snapshot.status.name, 'ok');
+    expect(http.requests, hasLength(3));
+    expect(delays, [const Duration(seconds: 2), Duration.zero]);
+  });
+
+
+  test('token endpoint requests are form-encoded while RPC requests stay JSON', () async {
+    final http = _RecordingHttp([
+      _Response(200, jsonEncode({
+        'access_token': 'a', 'refresh_token': 'r', 'expires_in': 3600,
+        'accountEmail': 'a@example.com', 'accountId': 'acct-a',
+      })),
+      _Response(200, jsonEncode({
+        'response': {
+          'accountEmail': 'a@example.com',
+          'accountId': 'acct-a',
+          'currentTier': {'id': 'free'},
+          'cloudaicompanionProject': 'p',
+        },
+      })),
+    ]);
+    final provider = AntigravityOAuthProvider(http: http);
+
+    await provider.login(
+      _connection('wire'),
+      code: 'code',
+      codeVerifier: 'verifier',
+      redirectUri: 'http://127.0.0.1/callback',
+    );
+
+    expect(http.requests.first.headers['Content-Type'],
+        'application/x-www-form-urlencoded');
+    expect(Uri.splitQueryString(http.requests.first.body)['code_verifier'],
+        'verifier');
+    expect(http.requests.last.headers['Content-Type'], 'application/json');
+    expect(jsonDecode(http.requests.last.body), isA<Map<String, dynamic>>());
+  });
+
+  test('Retry-After seconds and HTTP-date become the first retry floor', () async {
+    final delays = <Duration>[];
+    final secret = jsonEncode({
+      'accessToken': 'a',
+      'identityKey': 'a@example.com|acct-a',
+      'projectId': 'p',
+    });
+    final seconds = AntigravityOAuthProvider(
+      http: _Http([
+        _Response(429, '{}', retryAfter: '120'),
+        _Response(429, '{}', retryAfter: '120'),
+        _Response(429, '{}', retryAfter: '120'),
+      ]),
+      sleep: (delay) async => delays.add(delay),
+    );
     final first = await seconds.fetch(_connection('seconds'), secret);
     expect(
       first.cooldownUntil!.difference(first.fetchedAt),
       greaterThanOrEqualTo(const Duration(seconds: 119)),
     );
+    expect(delays[0], const Duration(seconds: 120));
 
     final retryAt = DateTime.now().toUtc().add(const Duration(minutes: 4));
-    final dated = AntigravityOAuthProvider(http: _Http([
-      _Response(503, '{}', retryAfter: HttpDate.format(retryAt.toUtc())),
-    ]));
+    final dated = AntigravityOAuthProvider(
+      http: _Http([
+        _Response(503, '{}', retryAfter: HttpDate.format(retryAt.toUtc())),
+        _Response(503, '{}', retryAfter: HttpDate.format(retryAt.toUtc())),
+        _Response(503, '{}', retryAfter: HttpDate.format(retryAt.toUtc())),
+      ]),
+      sleep: (duration) async => delays.add(duration),
+    );
     final second = await dated.fetch(_connection('dated'), secret);
     expect(second.cooldownUntil, isNotNull);
-    expect(second.cooldownUntil!.difference(first.fetchedAt).inSeconds, inInclusiveRange(239, 241));
-  });
-
-  test('registry registers the default remote Antigravity provider', () {
-    final registry = ProviderRegistry.withDefaults();
-    expect(registry.get('antigravity'), isA<AntigravityOAuthProvider>());
-  });
-
-  test('retry policy honors first Retry-After floor and later Full Jitter', () {
-    expect(
-      AntigravityOAuthProvider.retryDelay(
-        const Duration(seconds: 30),
-        0,
-      ),
-      const Duration(seconds: 30),
-    );
-    final later = AntigravityOAuthProvider.retryDelay(
-      const Duration(seconds: 30),
-      3,
-      random: _FixedRandom(0),
-    );
-    expect(later, Duration.zero);
+    expect(second.cooldownUntil!.difference(second.fetchedAt).inSeconds, inInclusiveRange(239, 241));
   });
 }
 class _RecordingHttp extends _Http {

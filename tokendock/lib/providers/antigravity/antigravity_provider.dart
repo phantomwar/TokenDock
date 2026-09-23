@@ -11,10 +11,20 @@ class AntigravityProvider extends AntigravityOAuthProvider {
   AntigravityProvider({
     super.http,
     super.secretStore,
+    super.launchExternalBrowser,
+    super.sleep,
+    super.random,
     AntigravityLocalReader? localReader,
-  }) : _localReader = localReader ?? AntigravityLocalReader();
+    AntigravityLocalRuntimeConfig? localRuntime,
+  })  : _localRuntime = localRuntime ?? AntigravityLocalRuntimeConfig(),
+        _localReader = localReader ??
+            AntigravityLocalReader(runtimeConfig: localRuntime);
 
+  final AntigravityLocalRuntimeConfig _localRuntime;
   final AntigravityLocalReader _localReader;
+
+  AntigravityLocalRuntimeConfig get localRuntime => _localRuntime;
+
 
   @override
   Future<ProviderSnapshot> fetch(Connection connection, String secret) {

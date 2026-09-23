@@ -152,32 +152,40 @@ void main() {
     }
   });
 
-  test('language server fetch accepts persisted composite account identity', () async {
+
+  test('language server discovers CSRF in memory and never reads providerData', () async {
+    final http = _FakeHttpRunner([
+      AntigravityHttpResponse(statusCode: 200, body: jsonEncode({
+        'response': {
+          'groups': [
+            {'groupId': 'gemini', 'buckets': [
+              {'bucketId': 'weekly', 'remainingFraction': 0.4},
+            ]},
+          ],
+        },
+      })),
+    ]);
+    final runtime = AntigravityLocalRuntimeConfig();
     final reader = AntigravityLocalReader(
-      httpRunner: _FakeHttpRunner([
-        AntigravityHttpResponse(statusCode: 200, body: jsonEncode({
-          'response': {
-            'accountEmail': 'selected@example.com',
-            'accountId': 'acct-a',
-            'groups': [
-              {
-                'groupId': 'gemini',
-                'buckets': [
-                  {'bucketId': 'weekly', 'remainingFraction': 0.4},
-                ],
-              },
-            ],
-          },
-        })),
+      httpRunner: http,
+      runtimeConfig: runtime,
+      sessionDiscovery: _FakeSessionDiscovery(const [
+        AntigravityLocalSession(port: 9999, csrfToken: 'wrong-session'),
+        AntigravityLocalSession(port: 1234, csrfToken: 'discovered-only'),
       ]),
     );
 
     final snapshot = await reader.fetchSnapshot(connection(
-      identityKey: 'selected@example.com|acct-a',
-      providerData: jsonEncode({'source': 'language-server', 'port': 1234}),
+      providerData: jsonEncode({
+        'source': 'language-server',
+        'port': 1234,
+        'csrfToken': 'must-not-be-used',
+      }),
     ));
 
     expect(snapshot.status, ConnectionStatus.ok);
+    expect(http.headers.single['X-Codeium-Csrf-Token'], 'discovered-only');
+    expect(runtime.csrfTokenFor('agy-1'), 'discovered-only');
   });
 
   test('availability-only payload is reported as Limits not available', () {
@@ -218,14 +226,18 @@ void main() {
         },
       })),
     ]);
-    final reader = AntigravityLocalReader(httpRunner: http);
+    final reader = AntigravityLocalReader(
+      httpRunner: http,
+      csrfTokenFor: (_, _) => 'memory-only',
+    );
 
     final snapshot = await reader.fetchSnapshot(connection(providerData: jsonEncode({
-      'source': 'language-server', 'port': 1234, 'csrfToken': 'memory-only',
+      'source': 'language-server', 'port': 1234,
     })));
 
     expect(snapshot.status, ConnectionStatus.ok);
     expect(http.paths, ['/RetrieveUserQuotaSummary', '/GetUserStatus', '/GetCommandModelConfigs']);
+    expect(http.headers, everyElement(containsPair('X-Codeium-Csrf-Token', 'memory-only')));
   });
   test('quota summary without identity continues through status and configs', () async {
     final http = _FakeHttpRunner([
@@ -251,7 +263,10 @@ void main() {
         },
       })),
     ]);
-    final reader = AntigravityLocalReader(httpRunner: http);
+    final reader = AntigravityLocalReader(
+      httpRunner: http,
+      csrfTokenFor: (_, _) => 'memory-only',
+    );
 
     final snapshot = await reader.fetchSnapshot(connection(
       identityKey: 'selected@example.com',
@@ -394,10 +409,12 @@ void main() {
   });
 }
 
+
 class _FakeHttpRunner implements AntigravityHttpRunner {
   _FakeHttpRunner(this.results);
   final List<AntigravityHttpResponse> results;
   final List<String> paths = [];
+  final List<Map<String, String>> headers = [];
 
   @override
   Future<AntigravityHttpResponse> post(
@@ -406,8 +423,16 @@ class _FakeHttpRunner implements AntigravityHttpRunner {
     required String body,
   }) async {
     paths.add(uri.path);
+    this.headers.add(Map.of(headers));
     return results.removeAt(0);
   }
+}
+
+class _FakeSessionDiscovery implements AntigravitySessionDiscovery {
+  _FakeSessionDiscovery(this.sessions);
+  final List<AntigravityLocalSession> sessions;
+  @override
+  Future<List<AntigravityLocalSession>> discover() async => sessions;
 }
 
 class _ProcessResult {

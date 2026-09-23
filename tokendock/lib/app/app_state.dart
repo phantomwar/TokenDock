@@ -10,7 +10,9 @@ import '../models/test_result.dart';
 import '../providers/provider_adapter.dart';
 import '../providers/provider_registry.dart';
 import '../services/refresh_service.dart';
+import '../providers/antigravity/antigravity_local.dart';
 import '../providers/antigravity/antigravity_oauth.dart';
+import '../services/credential_events.dart';
 import '../storage/connection_health_repository.dart';
 import '../storage/connection_repository.dart';
 import '../storage/quota_cache_repository.dart';
@@ -54,9 +56,11 @@ class AppState implements ChangeNotifier {
     this.settingsRepository,
     RefreshService? refreshService,
     bool autoStartRefreshTimer = false,
+    this.antigravityLocalRuntime,
   }) : _staticLoading = false,
        _staticAccounts = const [],
        _notifier = _StateNotifier(isLoading, accounts),
+       _reconnectConnectionIds = <String>{},
        _refreshService =
            refreshService ??
            ((connectionRepository != null &&
@@ -74,6 +78,7 @@ class AppState implements ChangeNotifier {
                  )
                : null) {
     _refreshService?.addSnapshotListener(_handleSnapshotUpdate);
+    _refreshService?.addDisabledListener(_handleCredentialDisabled);
   }
 
   const AppState.loading()
@@ -86,7 +91,9 @@ class AppState implements ChangeNotifier {
       secretStore = null,
       providerRegistry = null,
       settingsRepository = null,
-      _refreshService = null;
+      _refreshService = null,
+      _reconnectConnectionIds = null,
+      antigravityLocalRuntime = null;
 
   const AppState.empty()
     : _staticLoading = false,
@@ -98,7 +105,9 @@ class AppState implements ChangeNotifier {
       secretStore = null,
       providerRegistry = null,
       settingsRepository = null,
-      _refreshService = null;
+      _refreshService = null,
+      _reconnectConnectionIds = null,
+      antigravityLocalRuntime = null;
 
   const AppState.pure({
     bool isLoading = false,
@@ -112,7 +121,9 @@ class AppState implements ChangeNotifier {
        secretStore = null,
        providerRegistry = null,
        settingsRepository = null,
-       _refreshService = null;
+       _refreshService = null,
+       _reconnectConnectionIds = null,
+      antigravityLocalRuntime = null;
 
   /// Factory for creating an [AppState] configured for tests with no active timers.
   factory AppState.test({
@@ -125,6 +136,7 @@ class AppState implements ChangeNotifier {
     RefreshService? refreshService,
     List<AccountItem> accounts = const [],
     bool isLoading = false,
+    AntigravityLocalRuntimeConfig? antigravityLocalRuntime,
   }) {
     return AppState(
       isLoading: isLoading,
@@ -137,6 +149,7 @@ class AppState implements ChangeNotifier {
       settingsRepository: settingsRepository,
       refreshService: refreshService,
       autoStartRefreshTimer: false,
+      antigravityLocalRuntime: antigravityLocalRuntime,
     );
   }
   final bool _staticLoading;
@@ -161,6 +174,11 @@ class AppState implements ChangeNotifier {
   final ProviderRegistry? providerRegistry;
   final SettingsRepository? settingsRepository;
   final RefreshService? _refreshService;
+  final Set<String>? _reconnectConnectionIds;
+  final AntigravityLocalRuntimeConfig? antigravityLocalRuntime;
+
+  bool requiresReconnect(String connectionId) =>
+      _reconnectConnectionIds?.contains(connectionId) ?? false;
 
   RefreshService? get refreshService => _refreshService;
 
@@ -194,6 +212,7 @@ class AppState implements ChangeNotifier {
   @override
   void dispose() {
     _refreshService?.removeSnapshotListener(_handleSnapshotUpdate);
+    _refreshService?.removeDisabledListener(_handleCredentialDisabled);
     _refreshService?.dispose();
     _effectiveNotifier.dispose();
   }
@@ -214,6 +233,11 @@ class AppState implements ChangeNotifier {
       _effectiveNotifier.accounts = updatedList;
       _effectiveNotifier.notify();
     }
+  }
+
+  void _handleCredentialDisabled(CredentialDisabledEvent event) {
+    _reconnectConnectionIds?.add(event.connectionId);
+    _effectiveNotifier.notify();
   }
 
   /// Refreshes quotas for a single connection.
@@ -275,6 +299,7 @@ class AppState implements ChangeNotifier {
     required String secret,
     String? plan,
     List<Quota> initialQuotas = const [],
+    String? providerData,
   }) async {
     final store = secretStore;
     final repo = connectionRepository;
@@ -298,6 +323,7 @@ class AppState implements ChangeNotifier {
       plan: plan,
       credentialRef: secretRef,
       enabled: true,
+      providerData: providerData,
     );
 
     // 3: Save connection
@@ -389,6 +415,7 @@ class AppState implements ChangeNotifier {
     String? newSecret,
     String? plan,
     List<Quota>? newQuotas,
+    bool clearSchemaQuarantine = false,
   }) async {
     final store = secretStore;
     final repo = connectionRepository;
@@ -418,7 +445,9 @@ class AppState implements ChangeNotifier {
       enabled: existing.enabled,
       authType: existing.authType,
       identityKey: existing.identityKey,
-      providerData: existing.providerData,
+      providerData: clearSchemaQuarantine
+          ? _withoutSchemaQuarantine(existing.providerData)
+          : existing.providerData,
     );
 
     var rowSaved = false;
@@ -453,6 +482,8 @@ class AppState implements ChangeNotifier {
     }
 
     await load();
+    _reconnectConnectionIds?.remove(existing.id);
+    _effectiveNotifier.notify();
     return updatedConnection;
   }
 
@@ -556,6 +587,8 @@ class AppState implements ChangeNotifier {
     required String secret,
     String? id,
     ProviderAdapter? customAdapter,
+    Connection? connection,
+    bool preferStoredSecret = false,
   }) async {
     final normalizedProvider = provider.trim().toLowerCase();
     final adapter =
@@ -567,15 +600,35 @@ class AppState implements ChangeNotifier {
     if (adapter == null) {
       return TestResult.failure(error: 'Unknown provider "$provider"');
     }
-    final connection = Connection(
-      id: id ?? 'temp-test-connection',
-      provider: normalizedProvider,
-      displayName: displayName,
-      group: group,
-      plan: null,
-      credentialRef: '',
-      enabled: true,
+    final testConnection = connection ??
+        Connection(
+          id: id ?? 'temp-test-connection',
+          provider: normalizedProvider,
+          displayName: displayName,
+          group: group,
+          plan: null,
+          credentialRef: '',
+          enabled: true,
+        );
+    final service = _refreshService;
+    if (service == null) return adapter.test(testConnection, secret);
+    return service.testAdapter(
+      adapter: adapter,
+      connection: testConnection,
+      secret: secret,
+      preferStoredSecret: preferStoredSecret,
     );
-    return adapter.test(connection, secret);
+  }
+}
+
+String? _withoutSchemaQuarantine(String? providerData) {
+  if (providerData == null || providerData.isEmpty) return providerData;
+  try {
+    final decoded = jsonDecode(providerData);
+    if (decoded is! Map) return providerData;
+    return jsonEncode(Map<String, dynamic>.from(decoded)
+      ..remove('quotaSourceDisabled'));
+  } catch (_) {
+    return providerData;
   }
 }

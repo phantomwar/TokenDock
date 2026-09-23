@@ -63,12 +63,23 @@ class AntigravitySelectedAccountGuard {
 }
 
 class AntigravityOAuthProvider implements ProviderAdapter {
-  AntigravityOAuthProvider({AntigravityOAuthHttpRunner? http, this._secretStore, Future<void> Function(Uri url)? launchExternalBrowser})
-      : _http = http ?? _HttpClientRunner(), launchExternalBrowser = launchExternalBrowser ?? launchWindowsBrowser;
+  AntigravityOAuthProvider({
+    AntigravityOAuthHttpRunner? http,
+    this._secretStore,
+    Future<void> Function(Uri url)? launchExternalBrowser,
+    Future<void> Function(Duration delay)? sleep,
+    Random? random,
+  })  : _http = http ?? _HttpClientRunner(),
+        launchExternalBrowser = launchExternalBrowser ?? launchWindowsBrowser,
+        _sleep = sleep ?? Future<void>.delayed,
+        _random = random ?? Random.secure();
   final AntigravityOAuthHttpRunner _http;
   final SecretStore? _secretStore;
   final Future<void> Function(Uri url) launchExternalBrowser;
+  final Future<void> Function(Duration delay) _sleep;
+  final Random _random;
   final Set<String> _rotatedRefreshTokens = {};
+  static const _maximumTransientAttempts = 3;
 
   static Future<void> launchWindowsBrowser(Uri url) async {
     if (Platform.isWindows) {
@@ -107,7 +118,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   }
 
   Future<AntigravityOAuthLoginResult> login(Connection connection, {required String code, required String codeVerifier, required String redirectUri}) async {
-    final token = await _postJson(Uri.parse(tokenEndpoint), {
+    final token = await _postForm(Uri.parse(tokenEndpoint), {
       'client_id': clientId, 'code': code, 'code_verifier': codeVerifier, 'redirect_uri': redirectUri, 'grant_type': 'authorization_code',
     });
     final access = (token['access_token'] ?? '').toString().trim();
@@ -345,7 +356,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     }
     final reused = _rotatedRefreshTokens.contains(refreshToken);
     try {
-      final response = await _postJson(Uri.parse(tokenEndpoint), {
+      final response = await _postForm(Uri.parse(tokenEndpoint), {
         'client_id': clientId,
         'refresh_token': refreshToken,
         'grant_type': 'refresh_token',
@@ -382,44 +393,75 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     } catch (_) {}
   }
 
+  Future<Map<String, dynamic>> _postForm(
+    Uri uri,
+    Map<String, dynamic> body,
+  ) async {
+    return _post(
+      uri,
+      headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: Uri(queryParameters: body.map((key, value) => MapEntry(key, '$value'))).query,
+    );
+  }
+
   Future<Map<String, dynamic>> _postJson(
     Uri uri,
     Map<String, dynamic> body, {
     String? bearer,
+  }) {
+    return _post(
+      uri,
+      headers: {
+        if (bearer != null && bearer.isNotEmpty) 'Authorization': 'Bearer $bearer',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode(body),
+    );
+  }
+
+  Future<Map<String, dynamic>> _post(
+    Uri uri, {
+    required Map<String, String> headers,
+    required String body,
   }) async {
-    AntigravityOAuthHttpResponse response;
-    try {
-      response = await _http.post(
-        uri,
-        headers: {
-          if (bearer != null && bearer.isNotEmpty) 'Authorization': 'Bearer $bearer',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(body),
-      );
-    } catch (error) {
-      throw AntigravityTransportFailure(error);
-    }
-    if (response.statusCode == 429 || response.statusCode >= 500) {
-      final fetchedAt = DateTime.now().toUtc();
-      final retryAt = _parseRetryAfter(response.retryAfter, fetchedAt);
-      throw AntigravityTransientFailure(
-        response.statusCode,
-        cooldownUntil: retryAt ?? fetchedAt.add(const Duration(minutes: 1)),
-      );
-    }
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      if (response.statusCode == 401) throw StateError('401');
-      if (response.statusCode == 400 && response.body.contains('invalid_grant')) {
-        throw StateError('invalid_grant');
+    for (var attempt = 0; attempt < _maximumTransientAttempts; attempt++) {
+      AntigravityOAuthHttpResponse response;
+      try {
+        response = await _http.post(uri, headers: headers, body: body);
+      } catch (error) {
+        throw AntigravityTransportFailure(error);
       }
-      throw StateError('HTTP ${response.statusCode}');
+      if (response.statusCode == 429 || response.statusCode >= 500) {
+        final now = DateTime.now().toUtc();
+        final retryAt = _parseRetryAfter(response.retryAfter, now);
+        if (attempt + 1 < _maximumTransientAttempts) {
+          final floor = retryAt == null
+              ? Duration.zero
+              : retryAt.difference(now).isNegative
+                  ? Duration.zero
+                  : retryAt.difference(now);
+          await _sleep(retryDelay(floor, attempt, random: _random));
+          continue;
+        }
+        throw AntigravityTransientFailure(
+          response.statusCode,
+          cooldownUntil: retryAt ?? now.add(const Duration(minutes: 1)),
+        );
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (response.statusCode == 401) throw StateError('401');
+        if (response.statusCode == 400 && response.body.contains('invalid_grant')) {
+          throw StateError('invalid_grant');
+        }
+        throw StateError('HTTP ${response.statusCode}');
+      }
+      try {
+        return _map(jsonDecode(response.body));
+      } catch (_) {
+        throw const AntigravitySchemaChanged();
+      }
     }
-    try {
-      return _map(jsonDecode(response.body));
-    } catch (_) {
-      throw const AntigravitySchemaChanged();
-    }
+    throw StateError('HTTP retry budget exhausted');
   }
 
   static DateTime? _parseRetryAfter(String? value, DateTime now) {

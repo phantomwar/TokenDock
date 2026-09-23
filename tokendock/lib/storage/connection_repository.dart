@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite_common/sqlite_api.dart';
 import 'package:tokendock/models/connection.dart';
 
@@ -55,7 +57,7 @@ class SqliteConnectionRepository implements ConnectionRepository {
         'updated_at': now,
         'auth_type': connection.authType,
         'identity_key': connection.identityKey,
-        'provider_data': connection.providerData,
+        'provider_data': _sanitizeProviderData(connection.providerData),
       };
 
       if (existing.isNotEmpty) {
@@ -87,5 +89,17 @@ class SqliteConnectionRepository implements ConnectionRepository {
       );
       await txn.delete('connections', where: 'id = ?', whereArgs: [id]);
     });
+  }
+}
+
+String? _sanitizeProviderData(String? value) {
+  if (value == null || value.isEmpty) return value;
+  try {
+    final decoded = jsonDecode(value);
+    if (decoded is! Map) return null;
+    return jsonEncode(Map<String, dynamic>.from(decoded)
+      ..removeWhere((key, _) => key.toLowerCase().contains('csrf')));
+  } catch (_) {
+    return null;
   }
 }

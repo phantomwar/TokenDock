@@ -7,6 +7,12 @@ import 'package:tokendock/storage/connection_repository.dart';
 
 import '../support/memory_secret_store.dart';
 import '../support/test_app.dart';
+import 'package:tokendock/models/connection_status.dart';
+import 'package:tokendock/models/provider_snapshot.dart';
+import 'package:tokendock/services/refresh_service.dart';
+import 'package:tokendock/ui/settings/connections_screen.dart';
+
+import '../support/controlled_provider.dart';
 
 class FailingConnectionRepository implements ConnectionRepository {
   @override
@@ -242,6 +248,7 @@ void main() {
               .onPressed,
           isNull);
     });
+
   });
 
   group('ConnectionsScreen - Credential Compensation Transactions', () {
@@ -482,6 +489,55 @@ void main() {
 
       final conns = await connectionRepo.getAll();
       expect(conns.first.enabled, isFalse);
+
+      const reconnectConnection = Connection(
+        id: 'conn-reconnect',
+        provider: 'antigravity',
+        displayName: 'Antigravity account',
+        group: null,
+        plan: null,
+        credentialRef: 'secret-reconnect',
+        enabled: true,
+      );
+      const cached = Quota(
+        id: 'cached', label: 'Cached quota', percent: 20, remaining: 80,
+        limit: 100, unit: null, resetAt: null,
+      );
+      final reconnectRepo = MemoryConnectionRepository([reconnectConnection]);
+      final reconnectCache = MemoryQuotaCacheRepository({
+        reconnectConnection.id: const [cached],
+      });
+      final provider = ControlledProvider(id: 'antigravity')
+        ..onFetch = (_, _) async => ProviderSnapshot(
+          connectionId: reconnectConnection.id,
+          status: ConnectionStatus.authError,
+          quotas: const [],
+          balance: null,
+          fetchedAt: DateTime.now().toUtc(),
+          error: '401',
+          failureCause: ProviderFailureCause.invalidCredential,
+        );
+      final reconnectState = AppState.test(
+        connectionRepository: reconnectRepo,
+        quotaCacheRepository: reconnectCache,
+        secretStore: MemorySecretStore({'secret-reconnect': 'secret'}),
+        refreshService: RefreshService.forTest(
+          provider: provider,
+          connectionRepository: reconnectRepo,
+          quotaCacheRepository: reconnectCache,
+          secretStore: MemorySecretStore({'secret-reconnect': 'secret'}),
+        ),
+      );
+      addTearDown(reconnectState.dispose);
+      await tester.pumpWidget(
+        MaterialApp(home: ConnectionsScreen(appState: reconnectState)),
+      );
+      await tester.pumpAndSettle();
+      await reconnectState.refreshOne(reconnectConnection.id);
+      await tester.pump();
+      expect(find.byIcon(Icons.link_off), findsOneWidget);
+      expect(find.text('Reconnect'), findsOneWidget);
+      expect(reconnectState.accounts.single.snapshot.quotas.single.label, 'Cached quota');
     });
   });
 

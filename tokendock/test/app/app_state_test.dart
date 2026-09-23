@@ -1,5 +1,9 @@
+
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tokendock/app/app_state.dart';
+import 'package:tokendock/providers/antigravity/antigravity_local.dart';
 import 'package:tokendock/models/connection.dart';
 import 'package:tokendock/models/connection_health.dart';
 import 'package:tokendock/models/connection_status.dart';
@@ -11,6 +15,7 @@ import 'package:tokendock/models/test_result.dart';
 import 'package:tokendock/services/refreshable_credential.dart';
 import 'package:tokendock/storage/quota_cache_repository.dart';
 
+import '../support/controlled_provider.dart';
 import '../support/memory_secret_store.dart';
 import '../support/test_database.dart';
 
@@ -72,6 +77,7 @@ class _RotatingCredential implements RefreshableCredential {
 }
 
 void main() {
+
   test('load restores cached quotas and persisted cooldown health', () async {
     final testDb = await TestDatabase.create();
     addTearDown(testDb.close);
@@ -161,45 +167,112 @@ void main() {
       expect(state.accounts.single.snapshot.status, ConnectionStatus.warning);
     },
   );
-  test('edit and toggle preserve connection metadata', () async {
+  test('metadata, SQLite CSRF custody, and disabled-event state remain correct', () async {
     final testDb = await TestDatabase.create();
     addTearDown(testDb.close);
-    const connection = Connection(
+    final connection = Connection(
       id: 'conn-metadata-preserved',
-      provider: 'openrouter',
+      provider: 'antigravity',
       displayName: 'Original',
       group: null,
       plan: null,
       authType: 'oauth',
       identityKey: 'account-id',
-      providerData: '{"workspace":"production"}',
+      providerData: jsonEncode({
+        'workspace': 'production',
+        'csrfToken': 'must-not-persist',
+      }),
       credentialRef: 'secret-metadata-preserved',
       enabled: true,
     );
     await testDb.connectionRepository.save(connection);
-
+    final runtime = AntigravityLocalRuntimeConfig();
     final state = AppState.test(
       connectionRepository: testDb.connectionRepository,
       secretStore: MemorySecretStore(),
+      antigravityLocalRuntime: runtime,
     );
     addTearDown(state.dispose);
 
-    await state.updateConnection(
-      existing: connection,
-      displayName: 'Edited',
-    );
+    await state.updateConnection(existing: connection, displayName: 'Edited');
     final edited = (await testDb.connectionRepository.getAll()).single;
     expect(edited.displayName, 'Edited');
     expect(edited.authType, 'oauth');
     expect(edited.identityKey, 'account-id');
-    expect(edited.providerData, '{"workspace":"production"}');
+    expect(edited.providerData, isNot(contains('must-not-persist')));
+    expect(edited.providerData, isNot(contains('csrf')));
 
     await state.toggleConnectionEnabled(connection.id, false);
     final toggled = (await testDb.connectionRepository.getAll()).single;
     expect(toggled.enabled, isFalse);
     expect(toggled.authType, 'oauth');
     expect(toggled.identityKey, 'account-id');
-    expect(toggled.providerData, '{"workspace":"production"}');
+    expect(toggled.providerData, isNot(contains('must-not-persist')));
+
+    final quarantined = Connection(
+      id: connection.id,
+      provider: connection.provider,
+      displayName: connection.displayName,
+      group: connection.group,
+      plan: connection.plan,
+      authType: connection.authType,
+      identityKey: connection.identityKey,
+      providerData: jsonEncode({
+        'workspace': 'production',
+        'quotaSourceDisabled': 'quota_source_changed',
+      }),
+      credentialRef: connection.credentialRef,
+      enabled: false,
+    );
+    await testDb.connectionRepository.save(quarantined);
+    final revalidated = await state.updateConnection(
+      existing: quarantined,
+      displayName: 'Revalidated',
+      clearSchemaQuarantine: true,
+    );
+    expect(revalidated.enabled, isFalse);
+    expect(revalidated.providerData, isNot(contains('quotaSourceDisabled')));
+    await testDb.connectionRepository.save(toggled);
+
+    final provider = ControlledProvider(id: 'antigravity')
+      ..onFetch = (_, _) async => ProviderSnapshot(
+        connectionId: connection.id,
+        status: ConnectionStatus.authError,
+        quotas: const [],
+        balance: null,
+        fetchedAt: DateTime.now().toUtc(),
+        error: '401',
+        failureCause: ProviderFailureCause.invalidCredential,
+      );
+    const cached = Quota(
+      id: 'cached', label: 'Cached quota', percent: 20, remaining: 80,
+      limit: 100, unit: null, resetAt: null,
+    );
+    await testDb.quotaCacheRepository.saveAll(connection.id, const [cached]);
+    final service = RefreshService.forTest(
+      provider: provider,
+      connectionRepository: testDb.connectionRepository,
+      quotaCacheRepository: testDb.quotaCacheRepository,
+      secretStore: MemorySecretStore({'secret-metadata-preserved': 'secret'}),
+    );
+    final eventState = AppState.test(
+      connectionRepository: testDb.connectionRepository,
+      quotaCacheRepository: testDb.quotaCacheRepository,
+      secretStore: MemorySecretStore({'secret-metadata-preserved': 'secret'}),
+      refreshService: service,
+    );
+    addTearDown(eventState.dispose);
+    await eventState.load();
+    await eventState.refreshOne(connection.id);
+    expect(eventState.requiresReconnect(connection.id), isTrue);
+    expect(eventState.accounts.single.snapshot.quotas.single.id, cached.id);
+    expect(eventState.accounts.single.snapshot.quotas.single.label, cached.label);
+    await eventState.updateConnection(
+      existing: eventState.accounts.single.connection,
+      displayName: 'Reconnected',
+      newSecret: 'replacement-secret',
+    );
+    expect(eventState.requiresReconnect(connection.id), isFalse);
   });
 
   test('editing after credential rotation keeps the current credential ref', () async {

@@ -4,6 +4,7 @@ import '../models/connection.dart';
 import '../models/connection_health.dart';
 import '../models/connection_status.dart';
 import '../models/provider_snapshot.dart';
+import '../models/test_result.dart';
 import '../models/quota.dart';
 import '../providers/provider_adapter.dart';
 import '../providers/provider_registry.dart';
@@ -175,10 +176,8 @@ class RefreshService {
     if (_isDisposed) return Future.value();
     final existing = _inFlight[connectionId];
     if (existing != null) {
-      if (existing.tokenResult != null) {
-        return existing.completion.then((_) => refreshOne(connectionId));
-      }
-      return existing.refreshResult!;
+      if (existing.refreshResult != null) return existing.refreshResult!;
+      return existing.completion.then((_) => refreshOne(connectionId));
     }
 
     final future = _performRefreshOne(connectionId);
@@ -195,19 +194,17 @@ class RefreshService {
   }
 
   /// Runs [operation] once for [connectionId] while refresh or token work is in flight.
-  Future<String> runTokenOperation({
+  Future<T> runConnectionOperation<T>({
     required String connectionId,
-    required Future<String> Function() operation,
+    required Future<T> Function() operation,
   }) {
     if (_isDisposed) {
-      return Future<String>.error(StateError('RefreshService is disposed'));
+      return Future<T>.error(StateError('RefreshService is disposed'));
     }
     final existing = _inFlight[connectionId];
     if (existing != null) {
-      final tokenResult = existing.tokenResult;
-      if (tokenResult != null) return tokenResult;
       return existing.completion.then(
-        (_) => runTokenOperation(
+        (_) => runConnectionOperation(
           connectionId: connectionId,
           operation: operation,
         ),
@@ -217,7 +214,7 @@ class RefreshService {
     final future = operation();
     final entry = _InFlightConnectionOperation(
       future.then<void>((_) {}, onError: (_, _) {}),
-      tokenResult: future,
+      sharedResult: future,
     );
     _inFlight[connectionId] = entry;
     return future.whenComplete(() {
@@ -226,6 +223,48 @@ class RefreshService {
       }
     });
   }
+
+  Future<String> runTokenOperation({
+    required String connectionId,
+    required Future<String> Function() operation,
+  }) {
+    final existing = _inFlight[connectionId];
+    final shared = existing?.sharedResult;
+    if (shared is Future<String>) return shared;
+    return runConnectionOperation(connectionId: connectionId, operation: operation)
+        .whenComplete(() {});
+  }
+
+  Future<TestResult> testAdapter({
+    required ProviderAdapter adapter,
+    required Connection connection,
+    required String secret,
+    bool preferStoredSecret = false,
+  }) => runConnectionOperation(
+    connectionId: connection.id,
+    operation: () async {
+      var effectiveConnection = connection;
+      var effectiveSecret = secret;
+      if (preferStoredSecret) {
+        final connections = await _connectionRepository.getAll();
+        final stored = connections.where((value) => value.id == connection.id).firstOrNull;
+        if (stored != null) {
+          effectiveConnection = stored;
+          effectiveSecret = await _secretStore.read(stored.credentialRef) ?? secret;
+        }
+      }
+      final result = await adapter.test(effectiveConnection, effectiveSecret);
+      if (result.isSuccess && _isAntigravitySchemaQuarantined(effectiveConnection)) {
+        return TestResult.success(
+          plan: result.plan,
+          quotas: result.quotas,
+          replacementSecret: result.replacementSecret,
+          schemaRevalidated: true,
+        );
+      }
+      return result;
+    },
+  );
 
   Future<void> _performRefreshOne(String connectionId) async {
     if (_isDisposed) return;
@@ -280,6 +319,18 @@ class RefreshService {
       return;
     }
     var connection = foundConnection;
+    if (_isAntigravitySchemaQuarantined(connection)) {
+      await _persistHealthAndPublish(ProviderSnapshot(
+        connectionId: connectionId,
+        status: ConnectionStatus.error,
+        quotas: cachedQuotas,
+        balance: null,
+        fetchedAt: DateTime.now().toUtc(),
+        error: 'quota_source_changed',
+        connection: connection,
+      ));
+      return;
+    }
 
     final adapter = _providerRegistry.get(connection.provider);
     if (adapter == null) {
@@ -329,6 +380,7 @@ class RefreshService {
       }
     }
     final currentSecret = secret ?? '';
+    final activeSecrets = <String>{currentSecret};
 
     ProviderSnapshot providerSnapshot = ProviderSnapshot(connectionId: connectionId, status: ConnectionStatus.error, quotas: cachedQuotas, balance: null, fetchedAt: DateTime.now().toUtc(), error: 'Refresh failed');
     String? definitiveCause;
@@ -339,6 +391,7 @@ class RefreshService {
         final refreshedSecret = await refreshable.refresh(currentSecret);
         connection = await _rotateCredential(connection, refreshedSecret);
         secret = refreshedSecret;
+        activeSecrets.add(refreshedSecret);
       } catch (error) {
         definitiveCause = definitiveOAuthFailureCause(error);
         providerSnapshot = ProviderSnapshot(
@@ -347,7 +400,7 @@ class RefreshService {
           quotas: cachedQuotas,
           balance: null,
           fetchedAt: DateTime.now().toUtc(),
-          error: definitiveCause ?? redactSecret(error.toString(), [currentSecret]),
+          error: definitiveCause ?? redactSecret(error.toString(), activeSecrets.toList()),
         );
         if (definitiveCause == 'invalid_grant') {
           await _deleteCredentialBestEffort(connection);
@@ -361,6 +414,7 @@ class RefreshService {
           final refreshedSecret = await refreshable.refresh(secret ?? currentSecret);
           connection = await _rotateCredential(connection, refreshedSecret);
           secret = refreshedSecret;
+          activeSecrets.add(refreshedSecret);
           providerSnapshot = await adapter.fetch(connection, secret);
         }
       } catch (error) {
@@ -371,7 +425,7 @@ class RefreshService {
           quotas: cachedQuotas,
           balance: null,
           fetchedAt: DateTime.now().toUtc(),
-          error: definitiveCause ?? redactSecret(error.toString(), [currentSecret]),
+          error: definitiveCause ?? redactSecret(error.toString(), activeSecrets.toList()),
           failureCause: definitiveCause == 'bare_401'
               ? ProviderFailureCause.invalidCredential
               : null,
@@ -409,6 +463,11 @@ class RefreshService {
         failureCause: ProviderFailureCause.invalidCredential,
       );
     }
+
+    if (providerSnapshot.failureCause == ProviderFailureCause.quotaSourceChanged &&
+        connection.provider == 'antigravity') {
+      connection = await _quarantineAntigravitySchema(connection);
+    }
     if (definitiveCause != null) {
       _publishCredentialDisabled(connection, definitiveCause);
     }
@@ -423,7 +482,7 @@ class RefreshService {
             fetchedAt: providerSnapshot.fetchedAt,
             error: providerSnapshot.error == null
                 ? null
-                : redactSecret(providerSnapshot.error!, [currentSecret]),
+                : redactSecret(providerSnapshot.error!, activeSecrets.toList()),
             failureCause: providerSnapshot.failureCause,
             cooldownUntil: providerSnapshot.cooldownUntil,
           );
@@ -447,6 +506,42 @@ class RefreshService {
       }
     }
     await _persistHealthAndPublish(snapshot.copyWith(connection: connection));
+  }
+
+
+  bool _isAntigravitySchemaQuarantined(Connection connection) {
+    if (connection.providerData == null) return false;
+    try {
+      final data = jsonDecode(connection.providerData!);
+      return data is Map && data['quotaSourceDisabled'] == 'quota_source_changed';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Connection> _quarantineAntigravitySchema(Connection connection) async {
+    var data = <String, dynamic>{};
+    if (connection.providerData != null) {
+      try {
+        final decoded = jsonDecode(connection.providerData!);
+        if (decoded is Map) data = Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    data['quotaSourceDisabled'] = 'quota_source_changed';
+    final quarantined = Connection(
+      id: connection.id,
+      provider: connection.provider,
+      displayName: connection.displayName,
+      group: connection.group,
+      plan: connection.plan,
+      credentialRef: connection.credentialRef,
+      enabled: connection.enabled,
+      authType: connection.authType,
+      identityKey: connection.identityKey,
+      providerData: jsonEncode(data),
+    );
+    await _connectionRepository.save(quarantined);
+    return quarantined;
   }
 
   bool _isLocalAntigravitySource(Connection connection) {
@@ -649,12 +744,12 @@ class _InFlightConnectionOperation {
   _InFlightConnectionOperation(
     this.completion, {
     this.refreshResult,
-    this.tokenResult,
+    this.sharedResult,
   });
 
   final Future<void> completion;
   final Future<void>? refreshResult;
-  final Future<String>? tokenResult;
+  final Future<Object?>? sharedResult;
 }
 
 class _InMemoryConnectionRepository implements ConnectionRepository {

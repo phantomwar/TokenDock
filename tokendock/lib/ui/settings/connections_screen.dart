@@ -196,6 +196,24 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
                 ),
                 const SizedBox(height: 4),
                 StatusIndicator(status: account.snapshot.status),
+                if (_state.requiresReconnect(conn.id)) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.link_off, size: 18),
+                      const SizedBox(width: 6),
+                      const Expanded(
+                        child: Text('Reconnect required. Cached quotas remain available.'),
+                      ),
+                      TextButton.icon(
+                        key: Key('reconnectConnection_${conn.id}'),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Reconnect'),
+                        onPressed: () => _openDialog(context, existing: conn),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
             trailing: Row(
@@ -344,17 +362,18 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       final providerId =
           providerRaw.toLowerCase() == 'openrouter' ? 'openrouter' : providerRaw;
 
-      final testConn = Connection(
-        id: widget.existing?.id ?? 'test-connection-id',
-        provider: providerId,
-        displayName: _displayNameController.text.trim(),
-        group: _groupController.text.trim().isNotEmpty
-            ? _groupController.text.trim()
-            : null,
-        plan: widget.existing?.plan,
-        credentialRef: widget.existing?.credentialRef ?? '',
-        enabled: widget.existing?.enabled ?? true,
-      );
+      final testConn = widget.existing ??
+          Connection(
+            id: 'test-connection-id',
+            provider: providerId,
+            displayName: _displayNameController.text.trim(),
+            group: _groupController.text.trim().isNotEmpty
+                ? _groupController.text.trim()
+                : null,
+            plan: null,
+            credentialRef: '',
+            enabled: true,
+          );
 
       final adapter = widget.adapter ??
           widget.providerRegistry?.get(providerId) ??
@@ -372,7 +391,16 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
         return;
       }
 
-      final result = await adapter.test(testConn, secretToTest);
+      final result = await widget.appState.testConnection(
+        provider: providerId,
+        displayName: testConn.displayName,
+        group: testConn.group,
+        secret: secretToTest,
+        id: testConn.id,
+        customAdapter: adapter,
+        connection: testConn,
+        preferStoredSecret: widget.existing != null,
+      );
 
       if (!mounted) return;
 
@@ -444,6 +472,8 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
               : replacementSecret,
           plan: _testResult?.plan ?? widget.existing!.plan,
           newQuotas: _testResult?.quotas,
+          clearSchemaQuarantine:
+              _testResult?.schemaRevalidated ?? false,
         );
       }
 
