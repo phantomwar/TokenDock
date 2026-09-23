@@ -97,7 +97,7 @@ class RefreshService {
   final Map<String, ConnectionHealth> _healthFallback = {};
 
   final List<void Function(ProviderSnapshot snapshot)> _snapshotListeners = [];
-  final Map<String, Future<Object?>> _inFlight = {};
+  final Map<String, _InFlightConnectionOperation> _inFlight = {};
 
   Timer? _periodicTimer;
   int? _currentIntervalMinutes;
@@ -135,36 +135,57 @@ class RefreshService {
   /// On failure, preserves previously cached quotas and publishes an error snapshot.
   Future<void> refreshOne(String connectionId) {
     if (_isDisposed) return Future.value();
-    final key = 'refresh:$connectionId';
-    final existing = _inFlight[key];
+    final existing = _inFlight[connectionId];
     if (existing != null) {
-      return existing.then((_) {});
+      if (existing.tokenResult != null) {
+        return existing.completion.then((_) => refreshOne(connectionId));
+      }
+      return existing.refreshResult!;
     }
 
     final future = _performRefreshOne(connectionId);
-    _inFlight[key] = future;
+    final entry = _InFlightConnectionOperation(
+      future.then<void>((_) {}, onError: (_, _) {}),
+      refreshResult: future,
+    );
+    _inFlight[connectionId] = entry;
     return future.whenComplete(() {
-      _inFlight.remove(key);
+      if (identical(_inFlight[connectionId], entry)) {
+        _inFlight.remove(connectionId);
+      }
     });
   }
 
-  /// Runs [operation] once per provider and connection while work is in flight.
-  Future<T> runTokenOperation<T>({
-    required String provider,
+  /// Runs [operation] once for [connectionId] while refresh or token work is in flight.
+  Future<String> runTokenOperation({
     required String connectionId,
-    required Future<T> Function() operation,
+    required Future<String> Function() operation,
   }) {
-    if (_isDisposed) return Future.value(null as T);
-    final key = 'token:$provider:$connectionId';
-    final existing = _inFlight[key];
+    if (_isDisposed) {
+      return Future<String>.error(StateError('RefreshService is disposed'));
+    }
+    final existing = _inFlight[connectionId];
     if (existing != null) {
-      return existing.then((value) => value as T);
+      final tokenResult = existing.tokenResult;
+      if (tokenResult != null) return tokenResult;
+      return existing.completion.then(
+        (_) => runTokenOperation(
+          connectionId: connectionId,
+          operation: operation,
+        ),
+      );
     }
 
     final future = operation();
-    _inFlight[key] = future;
+    final entry = _InFlightConnectionOperation(
+      future.then<void>((_) {}, onError: (_, _) {}),
+      tokenResult: future,
+    );
+    _inFlight[connectionId] = entry;
     return future.whenComplete(() {
-      _inFlight.remove(key);
+      if (identical(_inFlight[connectionId], entry)) {
+        _inFlight.remove(connectionId);
+      }
     });
   }
 
@@ -439,6 +460,18 @@ class RefreshService {
     _healthFallback.clear();
     _snapshotListeners.clear();
   }
+}
+
+class _InFlightConnectionOperation {
+  _InFlightConnectionOperation(
+    this.completion, {
+    this.refreshResult,
+    this.tokenResult,
+  });
+
+  final Future<void> completion;
+  final Future<void>? refreshResult;
+  final Future<String>? tokenResult;
 }
 
 class _InMemoryConnectionRepository implements ConnectionRepository {

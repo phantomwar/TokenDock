@@ -151,15 +151,14 @@ void main() {
     });
 
     test(
-      'token operations are single-flight by provider and connection',
+      'token operations are single-flight and return the token value',
       () async {
         final service = RefreshService.forTest(provider: ControlledProvider());
         final gate = Completer<void>();
         var calls = 0;
 
-        Future<String> run(String provider, String connectionId) {
-          return service.runTokenOperation<String>(
-            provider: provider,
+        Future<String> run(String connectionId) {
+          return service.runTokenOperation(
             connectionId: connectionId,
             operation: () async {
               calls++;
@@ -169,26 +168,76 @@ void main() {
           );
         }
 
-        final first = run('provider-a', 'conn-a');
-        final duplicate = run('provider-a', 'conn-a');
-        final otherConnection = run('provider-a', 'conn-b');
-        final otherProvider = run('provider-b', 'conn-a');
+        final first = run('conn-a');
+        final duplicate = run('conn-a');
+        final otherConnection = run('conn-b');
         gate.complete();
 
+        Future<String> typedResult = first;
         expect(
-          await Future.wait([
-            first,
-            duplicate,
-            otherConnection,
-            otherProvider,
-          ]),
-          ['secret-conn-a', 'secret-conn-a', 'secret-conn-b', 'secret-conn-a'],
+          await Future.wait([typedResult, duplicate, otherConnection]),
+          ['secret-conn-a', 'secret-conn-a', 'secret-conn-b'],
         );
-        expect(calls, 3);
+        expect(calls, 2);
 
         service.dispose();
       },
     );
+
+    test(
+      'refreshOne waits for an in-flight token operation on the same connection',
+      () async {
+        final controlled = ControlledProvider();
+        final tokenGate = Completer<void>();
+        var tokenCalls = 0;
+        final service = RefreshService.forTest(
+          provider: controlled,
+          connectionRepository: _FakeConnectionRepository([
+            createConnection(id: 'conn-a'),
+          ]),
+          secretStore: MemorySecretStore({'cred-conn-a': 'sk-test-secret'}),
+        );
+
+        final token = service.runTokenOperation(
+          connectionId: 'conn-a',
+          operation: () async {
+            tokenCalls++;
+            await tokenGate.future;
+            return 'new-secret';
+          },
+        );
+        final refresh = service.refreshOne('conn-a');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(tokenCalls, 1);
+        expect(controlled.fetchCalls, 0);
+
+        tokenGate.complete();
+        expect(await token, 'new-secret');
+        await refresh;
+        expect(controlled.fetchCalls, 1);
+
+        service.dispose();
+      },
+    );
+
+    test('runTokenOperation fails after dispose without starting work', () async {
+      final service = RefreshService.forTest(provider: ControlledProvider());
+      var calls = 0;
+      service.dispose();
+
+      await expectLater(
+        service.runTokenOperation(
+          connectionId: 'conn-a',
+          operation: () async {
+            calls++;
+            return 'new-secret';
+          },
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(calls, 0);
+    });
 
     test('concurrency cap: refreshAll() with multiple accounts executes at most 4 simultaneous provider requests', () async {
       final controlled = ControlledProvider();
