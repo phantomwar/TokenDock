@@ -1,0 +1,12 @@
+{
+  "quotaInfo": {
+    "gemini": {
+      "remainingFraction": 0.8,
+      "resetTime": "2026-10-01T00:00:00Z"
+    },
+    "claude-gpt": {
+      "remainingFraction": 0.3,
+      "resetTime": 1790000000
+    }
+  }
+}
