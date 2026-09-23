@@ -319,12 +319,12 @@ class RefreshService {
     }
 
     ProviderSnapshot providerSnapshot;
+    String? definitiveCause;
     try {
       providerSnapshot = await adapter.fetch(connection, secret);
     } catch (error) {
-      final definitiveCause = definitiveOAuthFailureCause(error);
+      definitiveCause = definitiveOAuthFailureCause(error);
       if (definitiveCause != null) {
-        _publishCredentialDisabled(connection, definitiveCause);
         providerSnapshot = ProviderSnapshot(
           connectionId: connectionId,
           status: ConnectionStatus.authError,
@@ -343,6 +343,22 @@ class RefreshService {
           error: redactSecret(error.toString(), [secret]),
         );
       }
+    }
+    if (definitiveCause == null &&
+        providerSnapshot.status == ConnectionStatus.authError) {
+      definitiveCause = 'bare_401';
+      providerSnapshot = ProviderSnapshot(
+        connectionId: providerSnapshot.connectionId,
+        status: ConnectionStatus.authError,
+        quotas: providerSnapshot.quotas,
+        balance: providerSnapshot.balance,
+        fetchedAt: providerSnapshot.fetchedAt,
+        error: definitiveCause,
+        cooldownUntil: providerSnapshot.cooldownUntil,
+      );
+    }
+    if (definitiveCause != null) {
+      _publishCredentialDisabled(connection, definitiveCause);
     }
 
     final snapshot = providerSnapshot.status == ConnectionStatus.ok

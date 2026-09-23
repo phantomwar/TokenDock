@@ -131,6 +131,67 @@ void main() {
     service.dispose();
   });
 
+  test('returned HTTP 401 emits stable tombstone and preserves cache', () async {
+    const connectionId = 'conn-openrouter';
+    const identityKey = 'person@example.test|openrouter';
+    const secret = 'sk-must-never-leak';
+    const cachedQuota = Quota(
+      id: 'credits',
+      label: 'Credits',
+      percent: 25,
+      remaining: 25,
+      limit: 100,
+      unit: 'USD',
+      resetAt: null,
+    );
+    final provider = ControlledProvider(id: 'openrouter')
+      ..onFetch = (connection, secret) async => ProviderSnapshot(
+        connectionId: connection.id,
+        status: ConnectionStatus.authError,
+        quotas: const [],
+        balance: null,
+        fetchedAt: DateTime.now().toUtc(),
+        error: 'Invalid API key',
+      );
+    final connections = _ConnectionRepository(
+      Connection(
+        id: connectionId,
+        provider: 'openrouter',
+        displayName: 'OpenRouter account',
+        group: null,
+        plan: null,
+        credentialRef: 'credential-ref',
+        enabled: true,
+        authType: 'apiKey',
+        identityKey: identityKey,
+      ),
+    );
+    final cache = _QuotaCacheRepository([cachedQuota]);
+    final health = _HealthRepository();
+    final events = <CredentialDisabledEvent>[];
+    final service = RefreshService.forTest(
+      provider: provider,
+      connectionRepository: connections,
+      quotaCacheRepository: cache,
+      connectionHealthRepository: health,
+      secretStore: MemorySecretStore({'credential-ref': secret}),
+    );
+    service.addDisabledListener(events.add);
+
+    await service.refreshOne(connectionId);
+
+    expect(cache.quotas, [cachedQuota]);
+    expect(events, hasLength(1));
+    expect(events.single.cause, 'bare_401');
+    expect(events.single.identityKey, identityKey);
+    expect(events.single.toString(), isNot(contains(secret)));
+    expect(health.health?.status, ConnectionStatus.authError);
+    expect(health.health?.error, 'bare_401');
+    expect(health.health?.error, isNot(contains(secret)));
+
+    service.dispose();
+  });
+
   test('bare 401 is definitive but unrelated failures are retryable', () {
     expect(isDefinitiveOAuthFailure(StateError('401')), isTrue);
     expect(isDefinitiveOAuthFailure(StateError('invalid_grant')), isTrue);
