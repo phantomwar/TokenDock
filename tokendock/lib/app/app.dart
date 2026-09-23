@@ -28,7 +28,8 @@ class RefreshAction extends Action<RefreshIntent> {
     if (focus == null) return true;
     final context = focus.context;
     if (context == null) return true;
-    if (context.findAncestorWidgetOfExactType<EditableText>() != null ||
+    if (context.widget is EditableText ||
+        context.findAncestorWidgetOfExactType<EditableText>() != null ||
         context.findAncestorStateOfType<EditableTextState>() != null) {
       return false;
     }
@@ -111,19 +112,22 @@ class _AppRootShell extends StatelessWidget {
         actions: <Type, Action<Intent>>{
           RefreshIntent: RefreshAction(() => state.refreshAll()),
         },
-        child: Scaffold(
-          body: child ??
-              ListenableBuilder(
-                listenable: state,
-                builder: (context, _) {
-                  return TokenDockWidget(
-                    state: state,
-                    onAddConnection: () => _openConnections(context),
-                    onOpenConnections: () => _openConnections(context),
-                    onRefreshAll: () => state.refreshAll(),
-                  );
-                },
-              ),
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            body: child ??
+                ListenableBuilder(
+                  listenable: state,
+                  builder: (context, _) {
+                    return TokenDockWidget(
+                      state: state,
+                      onAddConnection: () => _openConnections(context),
+                      onOpenConnections: () => _openConnections(context),
+                      onRefreshAll: () => state.refreshAll(),
+                    );
+                  },
+                ),
+          ),
         ),
       ),
     );

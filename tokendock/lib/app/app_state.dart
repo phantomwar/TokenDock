@@ -214,7 +214,6 @@ class AppState implements ChangeNotifier {
   /// from [QuotaCacheRepository].
   Future<void> load() async {
     _effectiveNotifier.isLoading = true;
-    _effectiveNotifier.notify();
 
     try {
       final repo = connectionRepository;
