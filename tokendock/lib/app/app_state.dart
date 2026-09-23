@@ -352,6 +352,9 @@ class AppState implements ChangeNotifier {
       plan: plan ?? existing.plan,
       credentialRef: targetSecretRef,
       enabled: existing.enabled,
+      authType: existing.authType,
+      identityKey: existing.identityKey,
+      providerData: existing.providerData,
     );
 
     try {
@@ -462,6 +465,9 @@ class AppState implements ChangeNotifier {
       plan: target.plan,
       credentialRef: target.credentialRef,
       enabled: enabled,
+      authType: target.authType,
+      identityKey: target.identityKey,
+      providerData: target.providerData,
     );
     await repo.save(updated);
     await load();

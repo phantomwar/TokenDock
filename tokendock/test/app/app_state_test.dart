@@ -99,4 +99,45 @@ void main() {
       expect(state.accounts.single.snapshot.status, ConnectionStatus.warning);
     },
   );
+  test('edit and toggle preserve connection metadata', () async {
+    final testDb = await TestDatabase.create();
+    addTearDown(testDb.close);
+    const connection = Connection(
+      id: 'conn-metadata-preserved',
+      provider: 'openrouter',
+      displayName: 'Original',
+      group: null,
+      plan: null,
+      authType: 'oauth',
+      identityKey: 'account-id',
+      providerData: '{"workspace":"production"}',
+      credentialRef: 'secret-metadata-preserved',
+      enabled: true,
+    );
+    await testDb.connectionRepository.save(connection);
+
+    final state = AppState.test(
+      connectionRepository: testDb.connectionRepository,
+      secretStore: MemorySecretStore(),
+    );
+    addTearDown(state.dispose);
+
+    await state.updateConnection(
+      existing: connection,
+      displayName: 'Edited',
+    );
+    final edited = (await testDb.connectionRepository.getAll()).single;
+    expect(edited.displayName, 'Edited');
+    expect(edited.authType, 'oauth');
+    expect(edited.identityKey, 'account-id');
+    expect(edited.providerData, '{"workspace":"production"}');
+
+    await state.toggleConnectionEnabled(connection.id, false);
+    final toggled = (await testDb.connectionRepository.getAll()).single;
+    expect(toggled.enabled, isFalse);
+    expect(toggled.authType, 'oauth');
+    expect(toggled.identityKey, 'account-id');
+    expect(toggled.providerData, '{"workspace":"production"}');
+  });
+
 }
