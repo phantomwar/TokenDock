@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:tokendock/app/app.dart';
 import 'package:tokendock/app/app_state.dart';
@@ -88,9 +89,15 @@ class MemoryConnectionRepository implements ConnectionRepository {
 
 /// In-memory implementation of [QuotaCacheRepository] for testing.
 class MemoryQuotaCacheRepository implements QuotaCacheRepository {
-  MemoryQuotaCacheRepository();
+  MemoryQuotaCacheRepository([Map<String, List<Quota>>? initialData])
+      : _storage = initialData != null
+            ? {
+                for (final e in initialData.entries)
+                  e.key: List<Quota>.from(e.value),
+              }
+            : <String, List<Quota>>{};
 
-  final Map<String, List<Quota>> _storage = {};
+  final Map<String, List<Quota>> _storage;
 
   @override
   Future<List<Quota>> getAll(String connectionId) async {
@@ -203,25 +210,282 @@ class TestConnectionsScreen extends StatelessWidget {
 }
 
 /// Test harness for the overall app or widget surface.
-class TestApp extends StatelessWidget {
+/// Response simulation modes for [TestApp.withConnections] and [FixtureProviderAdapter].
+enum FixtureResponse {
+  success,
+  limited,
+  timeout,
+  authError,
+  error,
+}
+
+class _FixtureTimeoutException implements TimeoutException {
+  const _FixtureTimeoutException([this.message = 'Timeout']);
+
+  @override
+  final String? message;
+
+  @override
+  Duration? get duration => null;
+
+  @override
+  String toString() => message ?? 'Timeout';
+}
+
+/// Fixture-backed [ProviderAdapter] that maps connections to predefined [FixtureResponse]s.
+class FixtureProviderAdapter implements ProviderAdapter {
+  FixtureProviderAdapter({
+    this.id = 'openrouter',
+    this.name = 'OpenRouter',
+    required this.responses,
+  });
+
+  @override
+  final String id;
+
+  @override
+  final String name;
+
+  final Map<String, FixtureResponse> responses;
+
+  FixtureResponse _responseFor(Connection connection) {
+    return responses[connection.displayName] ??
+        responses[connection.id] ??
+        FixtureResponse.success;
+  }
+
+  @override
+  Future<TestResult> test(Connection connection, String secret) async {
+    final resp = _responseFor(connection);
+    return switch (resp) {
+      FixtureResponse.success => TestResult.success(
+          quotas: const [
+            Quota(
+              id: 'key-limit',
+              label: 'Key limit',
+              percent: 75.0,
+              remaining: 2.5,
+              limit: 10.0,
+              unit: 'USD',
+              resetAt: null,
+            ),
+          ],
+        ),
+      FixtureResponse.limited =>
+        TestResult.failure(error: 'Key limit exceeded'),
+      FixtureResponse.timeout =>
+        TestResult.failure(error: 'Timeout'),
+      FixtureResponse.authError =>
+        TestResult.failure(error: 'Invalid API key'),
+      FixtureResponse.error =>
+        TestResult.failure(error: 'Provider unavailable'),
+    };
+  }
+
+  @override
+  Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
+    final resp = _responseFor(connection);
+    final now = DateTime.now().toUtc();
+    return switch (resp) {
+      FixtureResponse.success => ProviderSnapshot(
+          connectionId: connection.id,
+          status: ConnectionStatus.ok,
+          quotas: const [
+            Quota(
+              id: 'key-limit',
+              label: 'Key limit',
+              percent: 75.0,
+              remaining: 2.5,
+              limit: 10.0,
+              unit: 'USD',
+              resetAt: null,
+            ),
+          ],
+          balance: null,
+          fetchedAt: now,
+          error: null,
+        ),
+      FixtureResponse.limited => ProviderSnapshot(
+          connectionId: connection.id,
+          status: ConnectionStatus.limited,
+          quotas: const [],
+          balance: null,
+          fetchedAt: now,
+          error: 'Key limit exceeded',
+        ),
+      FixtureResponse.timeout =>
+        throw const _FixtureTimeoutException('Timeout'),
+      FixtureResponse.authError => ProviderSnapshot(
+          connectionId: connection.id,
+          status: ConnectionStatus.authError,
+          quotas: const [],
+          balance: null,
+          fetchedAt: now,
+          error: 'Invalid API key',
+        ),
+      FixtureResponse.error => ProviderSnapshot(
+          connectionId: connection.id,
+          status: ConnectionStatus.error,
+          quotas: const [],
+          balance: null,
+          fetchedAt: now,
+          error: 'Provider unavailable',
+        ),
+    };
+  }
+}
+
+/// Test harness for the overall app or widget surface.
+class TestApp extends StatefulWidget {
   TestApp({
     super.key,
     AppState? state,
     this.child,
-  }) : state = state ?? createTestAppState();
+  })  : state = state ?? createTestAppState(),
+        autoLoadAndRefresh = false;
 
   TestApp.empty({super.key})
       : state = createTestAppState(accounts: const [], isLoading: false),
-        child = null;
+        child = null,
+        autoLoadAndRefresh = false;
+
+  const TestApp._internal({
+    super.key,
+    required this.state,
+    this.child,
+    this.autoLoadAndRefresh = true,
+  });
 
   final AppState state;
   final Widget? child;
+  final bool autoLoadAndRefresh;
+
+  /// Creates a test app pre-configured with the specified [connections]
+  /// and mapped fixture [responses].
+  static Widget withConnections({
+    required List<String> connections,
+    required Map<String, FixtureResponse> responses,
+    Map<String, List<Quota>>? initialCachedQuotas,
+    AppState? appState,
+  }) {
+    final connectionList = <Connection>[];
+    final secretMap = <String, String>{};
+    final quotaMap = <String, List<Quota>>{};
+
+    for (final name in connections) {
+      final id = 'conn-${name.toLowerCase().replaceAll(RegExp(r'\s+'), '_')}';
+      final secretRef = 'cred-$id';
+      final conn = Connection(
+        id: id,
+        provider: 'openrouter',
+        displayName: name,
+        group: null,
+        plan: 'OpenRouter',
+        credentialRef: secretRef,
+        enabled: true,
+      );
+      connectionList.add(conn);
+      secretMap[secretRef] = 'sk-test-$name';
+
+      final quotas = initialCachedQuotas?[name] ??
+          initialCachedQuotas?[id] ??
+          const <Quota>[];
+      if (quotas.isNotEmpty) {
+        quotaMap[id] = quotas;
+        quotaMap[name] = quotas;
+      }
+    }
+
+    if (appState != null) {
+      if (appState.connectionRepository is MemoryConnectionRepository) {
+        final repo =
+            appState.connectionRepository as MemoryConnectionRepository;
+        for (final conn in connectionList) {
+          repo.save(conn);
+        }
+      }
+      if (appState.secretStore is MemorySecretStore) {
+        final store = appState.secretStore as MemorySecretStore;
+        for (final entry in secretMap.entries) {
+          store.write(entry.key, entry.value);
+        }
+      }
+      if (appState.quotaCacheRepository is MemoryQuotaCacheRepository) {
+        final cache =
+            appState.quotaCacheRepository as MemoryQuotaCacheRepository;
+        for (final entry in quotaMap.entries) {
+          cache.saveAll(entry.key, entry.value);
+        }
+      }
+    }
+
+    final connRepo = appState?.connectionRepository ??
+        MemoryConnectionRepository(connectionList);
+    final quotaCacheRepo = appState?.quotaCacheRepository ??
+        MemoryQuotaCacheRepository(quotaMap);
+    final secretStore =
+        appState?.secretStore ?? MemorySecretStore(secretMap);
+    final registry = appState?.providerRegistry ??
+        (ProviderRegistry(registerDefaults: false)
+          ..register(FixtureProviderAdapter(responses: responses)));
+
+    if (registry.get('openrouter') is! FixtureProviderAdapter) {
+      registry.register(FixtureProviderAdapter(responses: responses));
+    }
+
+    final initialAccounts = <AccountItem>[];
+    for (final conn in connectionList) {
+      final quotas = quotaMap[conn.id] ?? const <Quota>[];
+      final snapshot = ProviderSnapshot(
+        connectionId: conn.id,
+        status: ConnectionStatus.ok,
+        quotas: quotas,
+        balance: null,
+        fetchedAt: DateTime.now().toUtc(),
+        error: null,
+      );
+      initialAccounts.add(AccountItem(connection: conn, snapshot: snapshot));
+    }
+
+    final effectiveState = appState ??
+        AppState(
+          isLoading: false,
+          accounts: initialAccounts,
+          connectionRepository: connRepo,
+          quotaCacheRepository: quotaCacheRepo,
+          secretStore: secretStore,
+          providerRegistry: registry,
+          autoStartRefreshTimer: false,
+        );
+
+    return TestApp._internal(
+      state: effectiveState,
+      autoLoadAndRefresh: true,
+    );
+  }
+
+  @override
+  State<TestApp> createState() => _TestAppState();
+}
+
+class _TestAppState extends State<TestApp> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoLoadAndRefresh) {
+      widget.state.load().then((_) {
+        if (mounted) {
+          widget.state.refreshAll();
+        }
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return TokenDockApp(
-      appState: state,
-      child: child,
+      appState: widget.state,
+      child: widget.child,
     );
   }
 }
