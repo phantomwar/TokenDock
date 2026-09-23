@@ -4,7 +4,7 @@ Windows 10/11 x64 desktop widget that tracks up to three independent OpenRouter 
 
 ## Status
 
-First functional slice implemented on `master` (`7154db3`). OpenRouter quota hardening merged on `master` (`17d489e`): error taxonomy 401/402/403/429/503, documented `Retry-After`, per-connection persisted health/cooldown (`Migration002`, `user_version = 2`), cache preserved on failure, current secret redacted from provider errors, cooldown cleared on success. Dependencies upgraded 2026-09-23: `flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3` (fake in `test/storage/secret_store_test.dart` migrated `IOSOptions/MacOsOptions` → `AppleOptions`; no `lib/` change). Live OpenRouter end-to-end against real keys was not exercised; see the review record in `../.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md` (git-ignored working notes).
+Login adaptation implemented in the current worktree (`c0acaef`). Registered providers are `openrouter` (`AuthKind.apiKey`) and `antigravity` (`AuthKind.oauth`, per-account remote OAuth). `Migration003` persists `auth_type`, `identity_key`, and `provider_data` and sets SQLite `user_version = 3`. Antigravity Appendix A provides opt-in local read-only quota via `AntigravityLocalReader`; Appendix B provides isolated per-account remote OAuth with loopback PKCE, refreshable secrets, selected-account guards, onboarding handling, and quota retrieval. OpenRouter quota hardening remains: error taxonomy 401/402/403/429/503, documented `Retry-After`, persisted health/cooldown, cache preservation, and current-secret redaction. Dependencies upgraded 2026-09-23: `flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3` (fake in `test/storage/secret_store_test.dart` migrated `IOSOptions/MacOsOptions` → `AppleOptions`; no `lib/` change). Live provider end-to-end against real keys was not exercised; see the review record in `../.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md` (git-ignored working notes).
 
 ## Run
 
@@ -17,9 +17,9 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-- `flutter test`: 109 widget/unit tests.
+- `flutter test --no-pub`: 165/165 tests passed.
 - `flutter test integration_test/multi_account_flow_test.dart`: Windows integration build requires symlink support/Developer Mode; pending in this environment (baseline had 3 fixture-backed proofs: independent restore, cache replacement on success, cache preservation on timeout, restart restore from cache).
-- `flutter analyze`: 0 errors, 0 warnings, 5 informational `prefer_initializing_formals` diagnostics in `RefreshService`.
+- `flutter analyze`: 0 errors, 2 warnings, and 14 informational diagnostics. The info set includes six `prefer_initializing_formals` diagnostics in `RefreshService` (the plan recorded five before this implementation; the current run reports six), plus diagnostics in the new Antigravity/provider/test code.
 - `flutter run -d windows`: frameless 360x600 widget; first run shows `No connections yet` with one `Add Connection` action.
 - Release smoke: `%LOCALAPPDATA%\TokenDock\tokendock.db` is created; close hides the window to the tray; Exit terminates.
 
