@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tokendock/models/connection.dart';
 import 'package:tokendock/providers/antigravity/antigravity_oauth.dart';
+import 'package:tokendock/providers/provider_registry.dart';
 import 'package:tokendock/providers/provider_adapter.dart';
 import 'package:tokendock/storage/secret_store.dart';
 
@@ -46,6 +47,149 @@ void main() {
     final provider = AntigravityOAuthProvider(http: http, secretStore: store);
     await expectLater(provider.login(_connection('a'), code: 'code', codeVerifier: 'verifier', redirectUri: 'http://127.0.0.1/callback'), throwsA(isA<AntigravityOnboardingRequired>()));
   });
+  test('quota schema rejects malformed remaining and reset but accepts reset-only bucket', () async {
+    final provider = AntigravityOAuthProvider(http: _Http([
+      _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'groups': [
+        {'groupId': 'gemini', 'buckets': [
+          {'bucketId': 'bad-remaining', 'remaining': 'not-a-map', 'resetTime': '2030-01-01T00:00:00Z'},
+        ]},
+      ]}})),
+    ]));
+    final malformed = await provider.fetch(_connection('a'), jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'}));
+    expect(malformed.error, 'quota_source_changed');
+
+    final valid = AntigravityOAuthProvider(http: _Http([
+      _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'groups': [
+        {'groupId': 'gemini', 'buckets': [
+          {'bucketId': 'weekly', 'resetTime': '2030-01-01T00:00:00Z'},
+        ]},
+      ]}})),
+    ]));
+    final resetOnly = await valid.fetch(_connection('a'), jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'}));
+    expect(resetOnly.error, isNull);
+    expect(resetOnly.quotas.single.remaining, isNull);
+
+    final badReset = AntigravityOAuthProvider(http: _Http([
+      _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'groups': [
+        {'groupId': 'gemini', 'buckets': [
+          {'bucketId': 'weekly', 'resetTime': 'not-a-date'},
+        ]},
+      ]}})),
+    ]));
+    expect((await badReset.fetch(_connection('a'), jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'}))).error, 'quota_source_changed');
+  });
+
+  test('legacy model envelope merges nested quotaInfo before parsing', () async {
+    final provider = AntigravityOAuthProvider(http: _Http([
+      _Response(404, '{}'),
+      _Response(404, '{}'),
+      _Response(200, jsonEncode({'response': {'models': [
+        {'name': 'gemini', 'quotaInfo': {'gemini': {'remainingFraction': 0.5}}},
+      ]}})),
+      _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'quotaInfo': {}}})),
+    ]));
+    final snapshot = await provider.fetch(_connection('a'), jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'}));
+    expect(snapshot.error, isNull);
+    expect(snapshot.quotas.single.remaining, 0.5);
+  });
+
+  test('refresh preserves refresh token when Google omits rotation', () async {
+    final http = _Http([_Response(200, jsonEncode({'access_token': 'new-access', 'expires_in': 3600}))]);
+    final provider = AntigravityOAuthProvider(http: http);
+    final secret = await provider.refresh(jsonEncode({'accessToken': 'old', 'refreshToken': 'keep-me', 'identityKey': 'a@example.com|acct-a'}));
+    final value = jsonDecode(secret) as Map<String, dynamic>;
+    expect(value['accessToken'], 'new-access');
+    expect(value['refreshToken'], 'keep-me');
+  });
+
+  test('refresh invalid_grant is definitive', () async {
+    final provider = AntigravityOAuthProvider(http: _Http([_Response(400, '{"error":"invalid_grant"}')]));
+    await expectLater(provider.refresh(jsonEncode({'refreshToken': 'revoked'})), throwsA(isA<StateError>()));
+  });
+
+  test('two accounts keep independent OAuth secrets', () async {
+    final store = _Store();
+    final a = AntigravityOAuthProvider(http: _Http([
+      _Response(200, jsonEncode({'access_token': 'access-a', 'refresh_token': 'refresh-a', 'expires_in': 3600, 'accountEmail': 'a@example.com', 'accountId': 'acct-a'})),
+      _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'currentTier': {'id': 'free'}, 'cloudaicompanionProject': 'project-a'}})),
+    ]), secretStore: store);
+    final b = AntigravityOAuthProvider(http: _Http([
+      _Response(200, jsonEncode({'access_token': 'access-b', 'refresh_token': 'refresh-b', 'expires_in': 3600, 'accountEmail': 'b@example.com', 'accountId': 'acct-b'})),
+      _Response(200, jsonEncode({'response': {'accountEmail': 'b@example.com', 'accountId': 'acct-b', 'currentTier': {'id': 'free'}, 'cloudaicompanionProject': 'project-b'}})),
+    ]), secretStore: store);
+    await a.login(_connection('a'), code: 'a', codeVerifier: 'a', redirectUri: 'http://127.0.0.1/callback');
+    await b.login(_connection('b'), code: 'b', codeVerifier: 'b', redirectUri: 'http://127.0.0.1/callback');
+    expect(await store.read('secret-a'), contains('access-a'));
+    expect(await store.read('secret-b'), contains('access-b'));
+    expect(await store.read('secret-a'), isNot(contains('access-b')));
+  });
+
+  test('login uses external browser, persists secret, and sends no client secret', () async {
+    final store = _Store();
+    final http = _RecordingHttp([
+      _Response(200, jsonEncode({'access_token': 'a', 'refresh_token': 'r', 'expires_in': 3600, 'accountEmail': 'a@example.com', 'accountId': 'acct-a'})),
+      _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'currentTier': {'id': 'free'}, 'cloudaicompanionProject': 'p'}})),
+    ]);
+    Uri? opened;
+    final provider = AntigravityOAuthProvider(http: http, secretStore: store, launchExternalBrowser: (url) async => opened = url);
+    final result = await provider.login(_connection('a'), code: 'c', codeVerifier: 'v', redirectUri: 'http://127.0.0.1/callback');
+    expect(result.identityKey, 'a@example.com|acct-a');
+    expect(opened, isNull);
+    expect(jsonDecode(http.requests.first.body), isNot(contains('client_secret')));
+    expect(await store.read('secret-a'), contains('refreshToken'));
+  });
+
+  test('loadCodeAssist falls back from production transport failure to daily', () async {
+    final http = _HostHttp({
+      'https://oauth2.googleapis.com/token': _Response(200, jsonEncode({'access_token': 'a', 'refresh_token': 'r', 'expires_in': 3600, 'accountEmail': 'a@example.com', 'accountId': 'acct-a'})),
+      'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist': AntigravityTransportFailure(Exception('offline')),
+      'https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist': _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'currentTier': {'id': 'free'}, 'cloudaicompanionProject': 'p'}})),
+    });
+    final provider = AntigravityOAuthProvider(http: http);
+    final result = await provider.login(_connection('a'), code: 'c', codeVerifier: 'v', redirectUri: 'http://127.0.0.1/callback');
+    expect(result.projectId, 'p');
+  });
+
+  test('onboarding identity mismatch is rejected', () async {
+    final provider = AntigravityOAuthProvider(http: _Http([
+      _Response(200, jsonEncode({'access_token': 'a', 'refresh_token': 'r', 'expires_in': 3600, 'accountEmail': 'a@example.com', 'accountId': 'acct-a'})),
+      _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'cloudaicompanionProject': 'p'}})),
+      _Response(200, jsonEncode({'response': {'accountEmail': 'other@example.com', 'accountId': 'acct-a', 'currentTier': {'id': 'free'}, 'cloudaicompanionProject': 'p'}})),
+    ]));
+    await expectLater(provider.login(_connection('a'), code: 'c', codeVerifier: 'v', redirectUri: 'http://127.0.0.1/callback'), throwsA(isA<StateError>()));
+  });
+
+  test('transient quota status produces warning and no schema tombstone', () async {
+    final provider = AntigravityOAuthProvider(http: _Http([_Response(429, '{}'), _Response(503, '{}')]));
+    final snapshot = await provider.fetch(_connection('a'), jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'}));
+    expect(snapshot.status.name, 'warning');
+    expect(snapshot.error, contains('429'));
+  });
+
+  test('registry registers the default remote Antigravity provider', () {
+    final registry = ProviderRegistry.withDefaults();
+    expect(registry.get('antigravity'), isA<AntigravityOAuthProvider>());
+  });
+}
+class _RecordingHttp extends _Http {
+  _RecordingHttp(super.responses);
+  final requests = <({Uri uri, Map<String, String> headers, String body})>[];
+  @override
+  Future<AntigravityOAuthHttpResponse> post(Uri uri, {required Map<String, String> headers, required String body}) async {
+    requests.add((uri: uri, headers: headers, body: body));
+    return super.post(uri, headers: headers, body: body);
+  }
+}
+class _HostHttp implements AntigravityOAuthHttpRunner {
+  _HostHttp(this.responses);
+  final Map<String, dynamic> responses;
+  @override
+  Future<AntigravityOAuthHttpResponse> post(Uri uri, {required Map<String, String> headers, required String body}) async {
+    final value = responses[uri.toString()];
+    if (value is AntigravityTransportFailure) throw value.cause;
+    if (value is Exception) throw value;
+    return AntigravityOAuthHttpResponse(statusCode: (value as _Response).statusCode, body: (value as _Response).body);
+  }
 }
 
 Connection _connection(String id) => Connection(id: id, provider: 'antigravity', displayName: 'Antigravity', group: null, plan: null, credentialRef: 'secret-$id', enabled: true);

@@ -168,10 +168,11 @@ class AntigravityOAuthProvider implements ProviderAdapter {
           if (rawBucket is! Map) throw const AntigravitySchemaChanged();
           final bucket = Map<String, dynamic>.from(rawBucket);
           final bucketId = (bucket['bucketId'] ?? bucket['id'])?.toString() ?? '';
+          if (bucket.containsKey('remaining') && bucket['remaining'] is! Map) throw const AntigravitySchemaChanged();
           final remaining = bucket['remaining'] is Map ? Map<String, dynamic>.from(bucket['remaining'] as Map) : bucket;
           final fraction = remaining['remainingFraction'];
-          final reset = bucket['resetTime'] ?? bucket['resetAt'];
-          if (bucketId.isEmpty || (fraction is! num && double.tryParse('$fraction') == null) || (reset != null && reset.toString().isEmpty)) throw const AntigravitySchemaChanged();
+          final reset = bucket['resetTime'] ?? bucket['resetAt'] ?? remaining['resetTime'] ?? remaining['resetAt'];
+          if (bucketId.isEmpty || (fraction != null && fraction is! num && double.tryParse('$fraction') == null) || (reset != null && !_validReset(reset)) || (fraction == null && reset == null)) throw const AntigravitySchemaChanged();
         }
       }
       return;
@@ -184,8 +185,9 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         final value = Map<String, dynamic>.from(raw);
         final fraction = value['remainingFraction'];
         final reset = value['resetTime'] ?? value['resetAt'];
-        if (fraction is! num && double.tryParse('$fraction') == null) throw const AntigravitySchemaChanged();
-        if (reset != null && reset.toString().isEmpty) throw const AntigravitySchemaChanged();
+        if (fraction != null && fraction is! num && double.tryParse('$fraction') == null) throw const AntigravitySchemaChanged();
+        if (reset != null && !_validReset(reset)) throw const AntigravitySchemaChanged();
+        if (fraction == null && reset == null) throw const AntigravitySchemaChanged();
       }
       return;
     }
@@ -196,6 +198,12 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       return;
     }
     throw const AntigravitySchemaChanged();
+  }
+
+  static bool _validReset(dynamic value) {
+    if (value is num) return true;
+    final text = value.toString().trim();
+    return text.isNotEmpty && (DateTime.tryParse(text) != null || int.tryParse(text) != null);
   }
 
   @override Future<TestResult> test(Connection connection, String secret) async {
@@ -233,8 +241,8 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     final models = _unwrapEnvelope(modelsEnvelope);
     final quota = _unwrapEnvelope(quotaEnvelope);
     if (!const AntigravitySelectedAccountGuard().accepts(expected: expected, payload: quota)) return _error(connection.id, 'Account mismatch');
-    _requireQuotaSchema(quota, legacy: true);
     final quotaInfo = _mergeLegacyModels(quota, models);
+    _requireQuotaSchema({'quotaInfo': quotaInfo}, legacy: true);
     return AntigravityLocalReader.parseQuotaSummary(body: jsonEncode({'response': {'quotaInfo': quotaInfo, 'accountEmail': quota['accountEmail'], 'accountId': quota['accountId']}}), connectionId: connection.id);
   }
   static Map<String, dynamic> _unwrapEnvelope(Map<String, dynamic> value) => value['response'] is Map ? Map<String, dynamic>.from(value['response'] as Map) : value;
@@ -246,7 +254,9 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         if (raw is! Map) continue;
         final model = Map<String, dynamic>.from(raw);
         final name = (model['name'] ?? model['model'] ?? model['id'])?.toString();
-        if (name != null && name.isNotEmpty) quotaInfo.putIfAbsent(name, () => model);
+        final nested = _map(model['quotaInfo']);
+        if (name != null && name.isNotEmpty && nested.isEmpty) quotaInfo.putIfAbsent(name, () => model);
+        nested.forEach((key, value) => quotaInfo.putIfAbsent(key, () => value));
       }
     } else {
       for (final entry in _map(rawModels).entries) quotaInfo.putIfAbsent(entry.key, () => entry.value);

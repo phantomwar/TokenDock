@@ -100,7 +100,7 @@ class RefreshService {
   final List<void Function(CredentialDisabledEvent)> _disabledListeners = [];
   final Map<String, _InFlightConnectionOperation> _inFlight = {};
   final List<String> _credentialCleanupWarnings = [];
-  final Map<String, String> _pendingSecretCleanup = {};
+  final Set<String> _pendingSecretCleanup = <String>{};
   Timer? _periodicTimer;
   Timer? _secretCleanupTimer;
   int? _currentIntervalMinutes;
@@ -425,7 +425,7 @@ class RefreshService {
     try {
       await _secretStore.delete(connection.credentialRef);
     } catch (_) {
-      _pendingSecretCleanup[connection.id] = connection.credentialRef;
+      _pendingSecretCleanup.add(connection.credentialRef);
       _credentialCleanupWarnings.add('Old credential cleanup pending for ${connection.id}');
       _scheduleSecretCleanup();
     }
@@ -435,10 +435,10 @@ class RefreshService {
   void _scheduleSecretCleanup() {
     _secretCleanupTimer ??= Timer(const Duration(minutes: 1), () async {
       _secretCleanupTimer = null;
-      for (final entry in Map.of(_pendingSecretCleanup).entries) {
-        try { await _secretStore.delete(entry.value); _pendingSecretCleanup.remove(entry.key); } catch (_) {}
+      for (final ref in List.of(_pendingSecretCleanup)) {
+        try { await _secretStore.delete(ref); _pendingSecretCleanup.remove(ref); } catch (_) {}
       }
-      if (_pendingSecretCleanup.isNotEmpty) _scheduleSecretCleanup();
+      if (!_isDisposed && _pendingSecretCleanup.isNotEmpty) _scheduleSecretCleanup();
     });
   }
 
@@ -564,6 +564,8 @@ class RefreshService {
     _isDisposed = true;
     _periodicTimer?.cancel();
     _periodicTimer = null;
+    _secretCleanupTimer?.cancel();
+    _secretCleanupTimer = null;
     _inFlight.clear();
     _healthFallback.clear();
     _disabledListeners.clear();
