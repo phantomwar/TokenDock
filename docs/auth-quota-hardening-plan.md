@@ -13,19 +13,11 @@ adivinhados; cache-first (falha nunca apaga valor); SQLite só com `secret_ref`.
 
 ## 1. Onde estamos (base)
 
-Slice OpenRouter funcional: `ProviderAdapter.test()/fetch()`
-(`lib/providers/provider_adapter.dart`), registro só-`openrouter`
-(`lib/providers/provider_registry.dart`), `SecretStore` + UUIDv4 + `maskSecret`
-(`lib/storage/secret_store.dart`), DPAPI via flutter_secure_storage v11
-(`lib/storage/secure_secret_store.dart`), `Migration001` (`user_version = 1`),
-`RefreshService` (≤4 concorrentes, coalescência por conexão, timer 1/3/5/10/manual),
-gate test-before-save (`lib/ui/settings/connections_screen.dart`), erro mapeado
-em `lib/providers/openrouter/openrouter_response.dart:mapHttpStatus`,
-96+3 testes, `analyze` limpo, `build windows` ok.
+- Slice OpenRouter funcional mais hardening mesclado em `master` (`17d489e`): `ProviderAdapter.test()/fetch()` (`lib/providers/provider_adapter.dart`), registro só-`openrouter` (`lib/providers/provider_registry.dart`), `SecretStore` + UUIDv4 + `maskSecret` (`lib/storage/secret_store.dart`), DPAPI via flutter_secure_storage v11 (`lib/storage/secure_secret_store.dart`), `Migration001` + `Migration002` (`user_version = 2`; a `Migration002` grava `last_status`, `last_checked_at`, `cooldown_until` e `last_error` em `connections`), `RefreshService` (≤4 concorrentes, coalescência por conexão, timer 1/3/5/10/manual), gate test-before-save (`lib/ui/settings/connections_screen.dart`), erro mapeado em `lib/providers/openrouter/openrouter_response.dart:mapHttpStatus`, 109 testes, `analyze` com 0 erros/0 warnings/5 infos, integração Windows pendente por symlink/Developer Mode.
 
 ### Implementação e escopo desta revisão (2026-09-23)
 
-- Entregue no slice OpenRouter: classificação 401/402/403/429/503; `Retry-After` em segundos ou HTTP-date para 429/503 e para 402 somente quando `metadata.limit_source=openrouter_in_flight_budget`; cooldown e estado de saúde persistidos por conexão; falhas preservam o cache; segredo atual removido de erros do provider antes de publicar/persistir; sucesso limpa o cooldown.
+- Entregue e mesclado em `master` (`17d489e`): classificação 401/402/403/429/503; `Retry-After` em segundos ou HTTP-date para 429/503 e para 402 somente quando `metadata.limit_source=openrouter_in_flight_budget`; cooldown e estado de saúde persistidos por conexão; falhas preservam o cache; segredo atual removido de erros do provider antes de publicar/persistir; sucesso limpa o cooldown.
 - `Migration002` adiciona `last_status`, `last_checked_at`, `cooldown_until` e `last_error` em `connections`. O `RefreshService` pula somente uma conexão com cooldown futuro; `AppState.load()` restaura status, erro, data e cooldown.
 - Não implementado: polling adaptativo, retry automático/jitter, helper geral de redação, `AuthKind`, credenciais renováveis/OAuth e fallback entre contas. Esses itens não foram necessários para o hardening aprovado; TokenDock continua sendo monitor, não roteador de inferência.
 - MiniMax: a FAQ oficial publica `GET https://www.minimax.io/v1/token_plan/remains`, Bearer Subscription Key e janelas rolling de 5h + semanal, mas não publica o schema da resposta. Adapter bloqueado até contrato de resposta documentado.

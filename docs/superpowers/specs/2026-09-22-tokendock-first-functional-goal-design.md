@@ -4,12 +4,12 @@
 
 **Source:** `PRD.txt`, sections 1–41, 67–71, 83–90, and 94–97.
 
-## Implementation status — complete (2026-09-23, `master` `7154db3`); deps upgraded same day (`flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3`)
+## Implementation status — first slice complete (2026-09-23, `master` `7154db3`); deps upgraded same day (`flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3`); OpenRouter quota hardening merged later the same day (`master` `17d489e`)
 
-- All contracts above are implemented in `tokendock/` and verified: 96 widget/unit tests, 3 fixture-backed integration proofs, `flutter analyze` clean, and a Windows release build that runs. Re-verified after the v11 upgrade: 96/96 + 3/3 + analyze 0 errors (5 pre-existing infos) + release build ok.
+- All contracts above are implemented in `tokendock/` and verified: 96 widget/unit tests, 3 fixture-backed integration proofs, `flutter analyze` clean, and a Windows release build that runs. Re-verified after the v11 upgrade: 96/96 + 3/3 + analyze 0 errors (5 pre-existing infos) + release build ok. Hardening merged at `17d489e`: classification 401/402/403/429/503, documented `Retry-After`, per-connection persisted health/cooldown (`Migration002`, `user_version = 2`), cache preservation, secret redaction, cooldown cleared on success; re-verified `flutter test --no-pub` 109/109, `analyze` 0 errors/0 warnings/5 infos, Windows integration pending on symlink/Developer Mode.
 - Deviations from this design text: `secure_secret_store.dart` is the shipped filename for the adapter this document calls `dpapi_secret_store.dart`; production never renders the original five-provider mock data — first run shows skeleton rows, then `No connections yet` with one `Add Connection` action; seeded fixtures live only in `test/fixtures/` and `test/support/`.
 - Live-provider end-to-end against three real OpenRouter keys was not exercised; see the scope guard and the review record in `.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md`.
-- Post-slice research (planned, not implemented): `docs/auth-research-oh-my-pi-9router.md`, `docs/auth-quota-hardening-plan.md`.
+- Post-slice research: `docs/auth-research-oh-my-pi-9router.md`; hardening implemented and merged per `docs/auth-quota-hardening-plan.md`.
 
 ## Scope
 
@@ -130,7 +130,7 @@ SQLite resides at `%LOCALAPPDATA%\\TokenDock\\tokendock.db` and begins at `schem
 - `quota_cache`: connection_id, quota_key, label, percent, remaining, limit_value, unit, reset_at, status, updated_at.
 - `settings`: key and value.
 
-`Migration001` is the sole schema migration. It creates the tables and appropriate primary keys/indexes needed to query connection quotas efficiently; there is no ORM.
+- `Migration001` creates the initial tables and appropriate primary keys/indexes needed to query connection quotas efficiently; there is no ORM. `Migration002` adds `last_status`, `last_checked_at`, `cooldown_until`, and `last_error` to `connections`; the database is at `user_version = 2`.
 
 Adding or editing a connection validates the credential before it can be saved. Saving generates a UUID reference, writes the secret through `SecretStore`, then saves the connection's `secret_ref`. If database persistence fails after writing a newly generated secret, delete that secret before surfacing the failure. Replacing an existing secret writes a new reference first, commits the connection, then deletes the previous reference.
 

@@ -1,10 +1,10 @@
 # TokenDock
 
-Windows 10/11 x64 desktop widget that tracks up to three independent OpenRouter API-key connections: quota, reset time, connection health, and cached state. See `../PRODUCT.md` and `../PRD.txt`.
+Windows 10/11 x64 desktop widget that tracks up to three independent OpenRouter API-key connections: quota, reset time, persisted per-connection health/cooldown, and cached state. See `../PRODUCT.md` and `../PRD.txt`.
 
 ## Status
 
-First functional slice implemented on `master` (`7154db3`). Dependencies upgraded 2026-09-23: `flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3` (fake in `test/storage/secret_store_test.dart` migrated `IOSOptions/MacOsOptions` → `AppleOptions`; no `lib/` change). Live OpenRouter end-to-end against real keys was not exercised; see the review record in `../.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md` (git-ignored working notes).
+First functional slice implemented on `master` (`7154db3`). OpenRouter quota hardening merged on `master` (`17d489e`): error taxonomy 401/402/403/429/503, documented `Retry-After`, per-connection persisted health/cooldown (`Migration002`, `user_version = 2`), cache preserved on failure, current secret redacted from provider errors, cooldown cleared on success. Dependencies upgraded 2026-09-23: `flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3` (fake in `test/storage/secret_store_test.dart` migrated `IOSOptions/MacOsOptions` → `AppleOptions`; no `lib/` change). Live OpenRouter end-to-end against real keys was not exercised; see the review record in `../.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md` (git-ignored working notes).
 
 ## Run
 
@@ -17,9 +17,9 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-- `flutter test`: 96 widget/unit tests.
-- `flutter test integration_test/multi_account_flow_test.dart`: 3 fixture-backed proofs (independent restore, cache replacement on success, cache preservation on timeout, restart restore from cache).
-- `flutter analyze`: 0 errors, 0 warnings.
+- `flutter test`: 109 widget/unit tests.
+- `flutter test integration_test/multi_account_flow_test.dart`: Windows integration build requires symlink support/Developer Mode; pending in this environment (baseline had 3 fixture-backed proofs: independent restore, cache replacement on success, cache preservation on timeout, restart restore from cache).
+- `flutter analyze`: 0 errors, 0 warnings, 5 informational `prefer_initializing_formals` diagnostics in `RefreshService`.
 - `flutter run -d windows`: frameless 360x600 widget; first run shows `No connections yet` with one `Add Connection` action.
 - Release smoke: `%LOCALAPPDATA%\TokenDock\tokendock.db` is created; close hides the window to the tray; Exit terminates.
 
@@ -45,4 +45,4 @@ No installer, portable ZIP, auto-start, charts, history, notifications, command 
 ## Further reading
 
 - `../docs/auth-research-oh-my-pi-9router.md` — auth patterns from `can1357/oh-my-pi` and `decolua/9router`.
-- `../docs/auth-quota-hardening-plan.md` — phased auth/secrets/quota hardening plan (planned, not implemented).
+- `../docs/auth-quota-hardening-plan.md` — implemented OpenRouter auth/secrets/quota hardening merged in `master` (`17d489e`).
