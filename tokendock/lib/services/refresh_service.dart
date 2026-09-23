@@ -12,6 +12,7 @@ import '../storage/connection_repository.dart';
 import '../storage/quota_cache_repository.dart';
 import '../storage/secret_store.dart';
 import '../storage/settings_repository.dart';
+import 'log_redaction.dart';
 
 /// Service orchestrating quota refreshing with request coalescing,
 /// bounded concurrency, and cache-first resilience.
@@ -254,7 +255,7 @@ class RefreshService {
         quotas: const [],
         balance: null,
         fetchedAt: DateTime.now().toUtc(),
-        error: error.toString().replaceAll(secret, '[REDACTED]'),
+        error: redactSecret(error.toString(), [secret]),
       );
     }
 
@@ -266,7 +267,9 @@ class RefreshService {
             quotas: cachedQuotas,
             balance: providerSnapshot.balance,
             fetchedAt: providerSnapshot.fetchedAt,
-            error: providerSnapshot.error?.replaceAll(secret, '[REDACTED]'),
+            error: providerSnapshot.error == null
+                ? null
+                : redactSecret(providerSnapshot.error!, [secret]),
             cooldownUntil: providerSnapshot.cooldownUntil,
           );
 

@@ -314,7 +314,7 @@ void main() {
         final latest = publishedSnapshots.last;
         expect(latest.status, ConnectionStatus.error);
         expect(latest.quotas, [initialQuota]);
-        expect(latest.error, contains('Authorization: Bearer [REDACTED]'));
+        expect(latest.error, contains('Authorization: Bearer [redacted]'));
         expect(latest.error, isNot(contains(secret)));
 
         service.dispose();
