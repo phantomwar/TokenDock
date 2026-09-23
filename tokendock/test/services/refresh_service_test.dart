@@ -736,16 +736,21 @@ void main() {
         provider: provider,
         connectionRepository: connections,
         secretStore: store,
-        secretCleanupInterval: const Duration(milliseconds: 1),
+        secretCleanupInterval: const Duration(milliseconds: 100),
       );
 
       await service.refreshOne('conn-cleanup');
+      final firstOrphanRef = (await connections.getAll()).single.credentialRef;
       await service.refreshOne('conn-cleanup');
-      final orphanRefs = store.deleteAttempts.take(2).toList();
+      final orphanRefs = <String>{'cred-conn-cleanup', firstOrphanRef};
       expect(orphanRefs, hasLength(2));
-      expect(orphanRefs[0], 'cred-conn-cleanup');
 
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await Future<void>.delayed(const Duration(milliseconds: 110));
+      final firstCleanupPass = store.deleteAttempts.take(orphanRefs.length).toSet();
+      expect(firstCleanupPass, hasLength(2));
+      expect(firstCleanupPass, containsAll(orphanRefs));
+
+      await Future<void>.delayed(const Duration(milliseconds: 110));
       for (final ref in orphanRefs) {
         expect(store.deleteAttempts.where((attempt) => attempt == ref).length, greaterThanOrEqualTo(2));
       }
@@ -754,7 +759,7 @@ void main() {
 
       service.dispose();
       final attemptsAtDispose = store.deleteAttempts.length;
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await Future<void>.delayed(const Duration(milliseconds: 120));
       expect(store.deleteAttempts.length, attemptsAtDispose);
     });
 

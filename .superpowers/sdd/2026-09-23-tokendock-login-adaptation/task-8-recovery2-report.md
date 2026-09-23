@@ -15,6 +15,7 @@
 - RefreshService now invokes the refreshable credential directly from its own refresh operation, avoiding the prior self-wait through `runTokenOperation()` while preserving one refresh per `refreshOne()`.
 - Cleanup retry interval is injectable; the focused lifecycle test records each orphan-ref delete, proves both old refs retry before disposal, then proves disposal prevents later attempts.
 - GREEN follow-up: `flutter test --no-pub test/services/refresh_service_test.dart` passed (15 tests).
+- GREEN follow-up: the cleanup lifecycle test now captures the first post-rotation cleanup pass and asserts its two distinct refs before checking retries; `flutter test --no-pub test/services/refresh_service_test.dart` passed (15 tests).
 - No project-wide validation was run.
 
 ## Commit
