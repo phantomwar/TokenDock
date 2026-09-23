@@ -97,9 +97,22 @@ String? _sanitizeProviderData(String? value) {
   try {
     final decoded = jsonDecode(value);
     if (decoded is! Map) return null;
-    return jsonEncode(Map<String, dynamic>.from(decoded)
-      ..removeWhere((key, _) => key.toLowerCase().contains('csrf')));
+    return jsonEncode(_withoutCsrfFields(Map<String, dynamic>.from(decoded)));
   } catch (_) {
     return null;
   }
+}
+
+dynamic _withoutCsrfFields(dynamic value) {
+  if (value is Map) {
+    return <String, dynamic>{
+      for (final entry in value.entries)
+        if (!(entry.key as String).toLowerCase().contains('csrf'))
+          entry.key as String: _withoutCsrfFields(entry.value),
+    };
+  }
+  if (value is List) {
+    return value.map(_withoutCsrfFields).toList();
+  }
+  return value;
 }

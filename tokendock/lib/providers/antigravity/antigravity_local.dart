@@ -137,8 +137,14 @@ abstract interface class AntigravitySessionDiscovery {
 }
 
 class AntigravityLocalSession {
-  const AntigravityLocalSession({required this.port, required this.csrfToken});
+  const AntigravityLocalSession({
+    required this.port,
+    required this.processId,
+    required this.csrfToken,
+  });
+
   final int port;
+  final int processId;
   final String csrfToken;
 }
 
@@ -152,7 +158,13 @@ Get-CimInstance Win32_Process |
   ForEach-Object {
     $port = if ($_.CommandLine -match '--extension_server_port[= ]+(\d+)') { $Matches[1] } else { $null }
     $csrf = if ($_.CommandLine -match '--csrf_token[= ]+"?([^"\s]+)') { $Matches[1] } else { $null }
-    if ($port -and $csrf) { [pscustomobject]@{ port = [int]$port; csrfToken = $csrf } }
+    if ($port -and $csrf) {
+      [pscustomobject]@{
+        port = [int]$port
+        processId = [int]$_.ProcessId
+        csrfToken = $csrf
+      }
+    }
   } | ConvertTo-Json -Compress''';
     final result = await Process.run(
       'powershell.exe',
@@ -168,31 +180,72 @@ Get-CimInstance Win32_Process |
     for (final value in values) {
       if (value is! Map) continue;
       final port = (value['port'] as num?)?.toInt();
+      final processId = (value['processId'] as num?)?.toInt();
       final csrfToken = value['csrfToken']?.toString();
-      if (port != null && csrfToken != null && csrfToken.isNotEmpty) {
-        sessions.add(AntigravityLocalSession(port: port, csrfToken: csrfToken));
+      if (port != null &&
+          processId != null &&
+          csrfToken != null &&
+          csrfToken.isNotEmpty) {
+        sessions.add(AntigravityLocalSession(
+          port: port,
+          processId: processId,
+          csrfToken: csrfToken,
+        ));
       }
     }
     return sessions;
   }
 }
 
-class AntigravityLocalRuntimeConfig {
-  AntigravityLocalRuntimeConfig({
-    Map<String, String> csrfTokensByConnectionId = const {},
-  }) : _csrfTokensByConnectionId = Map.of(csrfTokensByConnectionId);
+class _CachedCsrfSession {
+  const _CachedCsrfSession({
+    required this.port,
+    required this.processId,
+    required this.token,
+  });
 
-  final Map<String, String> _csrfTokensByConnectionId;
+  final int port;
+  final int processId;
+  final String token;
+}
+
+class AntigravityLocalRuntimeConfig {
+  final Map<String, _CachedCsrfSession> _csrfSessionsByConnectionId = {};
 
   String? csrfTokenFor(String connectionId) =>
-      _csrfTokensByConnectionId[connectionId];
+      _csrfSessionsByConnectionId[connectionId]?.token;
 
-  void setCsrfToken(String connectionId, String token) {
-    _csrfTokensByConnectionId[connectionId] = token;
+  String? csrfTokenForSession(
+    String connectionId, {
+    required int port,
+    required int processId,
+  }) {
+    final cached = _csrfSessionsByConnectionId[connectionId];
+    if (cached == null || cached.port != port || cached.processId != processId) {
+      return null;
+    }
+    return cached.token;
+  }
+
+  void setCsrfToken(
+    String connectionId, {
+    required String token,
+    required int port,
+    required int processId,
+  }) {
+    _csrfSessionsByConnectionId[connectionId] = _CachedCsrfSession(
+      port: port,
+      processId: processId,
+      token: token,
+    );
+  }
+
+  void invalidateCsrfToken(String connectionId) {
+    _csrfSessionsByConnectionId.remove(connectionId);
   }
 
   void remove(String connectionId) {
-    _csrfTokensByConnectionId.remove(connectionId);
+    invalidateCsrfToken(connectionId);
   }
 }
 
@@ -332,17 +385,15 @@ class AntigravityLocalReader {
     final port = providerData['port'] as int?;
     var accountMatched = false;
     if (port != null) {
-      var csrfToken = csrfTokenFor?.call(connection, port) ??
-          runtimeConfig?.csrfTokenFor(connection.id);
-      if (csrfToken == null || csrfToken.isEmpty) {
-        final sessions = await _sessionDiscovery.discover();
-        for (final session in sessions) {
-          if (session.port == port) {
-            csrfToken = session.csrfToken;
-            runtimeConfig?.setCsrfToken(connection.id, csrfToken);
-            break;
-          }
-        }
+      var session = await _sessionForPort(port);
+      var csrfToken = session?.csrfToken ?? csrfTokenFor?.call(connection, port);
+      if (session != null) {
+        runtimeConfig?.setCsrfToken(
+          connection.id,
+          token: session.csrfToken,
+          port: session.port,
+          processId: session.processId,
+        );
       }
       if (csrfToken == null || csrfToken.isEmpty) {
         return _error(
@@ -351,41 +402,95 @@ class AntigravityLocalReader {
           'Antigravity language server session unavailable',
         );
       }
-      final headers = {
-        'X-Codeium-Csrf-Token': csrfToken,
-        'Connect-Protocol-Version': '1',
-      };
+      final shouldRediscover = runtimeConfig != null || session != null;
       for (final endpoint in const [
         'RetrieveUserQuotaSummary',
         'GetUserStatus',
         'GetCommandModelConfigs',
       ]) {
-        try {
-          final response = await _httpRunner.post(
-            Uri.parse('https://127.0.0.1:$port/$endpoint'),
-            headers: headers,
-            body: '{}',
-          );
-          if (response.statusCode >= 200 && response.statusCode < 300) {
-            if (_accountMatches(response.body, connection.identityKey)) accountMatched = true;
-            final snapshot = parseQuotaSummary(
-              body: response.body,
-              connectionId: connection.id,
-              expectedAccountKey: accountMatched ? connection.identityKey : null,
+        var retriedCurrentSession = false;
+        while (true) {
+          try {
+            final response = await _httpRunner.post(
+              Uri.parse('https://127.0.0.1:$port/$endpoint'),
+              headers: {
+                'X-Codeium-Csrf-Token': csrfToken!,
+                'Connect-Protocol-Version': '1',
+              },
+              body: '{}',
             );
-            if (snapshot.quotas.isNotEmpty &&
-                (connection.identityKey == null ||
-                    connection.identityKey!.isEmpty ||
-                    accountMatched)) {
-              return snapshot;
+            if (response.statusCode >= 200 && response.statusCode < 300) {
+              if (_accountMatches(response.body, connection.identityKey)) {
+                accountMatched = true;
+              }
+              final snapshot = parseQuotaSummary(
+                body: response.body,
+                connectionId: connection.id,
+                expectedAccountKey: accountMatched ? connection.identityKey : null,
+              );
+              if (snapshot.quotas.isNotEmpty &&
+                  (connection.identityKey == null ||
+                      connection.identityKey!.isEmpty ||
+                      accountMatched)) {
+                return snapshot;
+              }
+              break;
             }
+          } catch (_) {
+            // Invalidate below, then retry only if discovery found a new session.
           }
-        } catch (_) {
-          // Try the next local language-server method, then agy.
+
+          runtimeConfig?.invalidateCsrfToken(connection.id);
+          if (!shouldRediscover) break;
+          final refreshedSession = await _sessionForPort(port);
+          final refreshedToken =
+              refreshedSession?.csrfToken ?? csrfTokenFor?.call(connection, port);
+          final sessionChanged = !_sameSession(session, refreshedSession) ||
+              csrfToken != refreshedToken;
+          if (!retriedCurrentSession &&
+              sessionChanged &&
+              refreshedToken != null &&
+              refreshedToken.isNotEmpty) {
+            csrfToken = refreshedToken;
+            session = refreshedSession;
+            if (session != null) {
+              runtimeConfig?.setCsrfToken(
+                connection.id,
+                token: session.csrfToken,
+                port: session.port,
+                processId: session.processId,
+              );
+            }
+            retriedCurrentSession = true;
+            continue;
+          }
+          break;
         }
       }
     }
     return _fetchAgy(connection, providerData);
+  }
+
+  Future<AntigravityLocalSession?> _sessionForPort(int port) async {
+    try {
+      final sessions = await _sessionDiscovery.discover();
+      for (final session in sessions) {
+        if (session.port == port) {
+          return session;
+        }
+      }
+    } catch (_) {
+      // A failed discovery must not authorize reuse of an unverified token.
+    }
+    return null;
+  }
+
+  bool _sameSession(
+    AntigravityLocalSession? first,
+    AntigravityLocalSession? second,
+  ) {
+    return first?.port == second?.port &&
+        first?.processId == second?.processId;
   }
   Future<ProviderSnapshot> _fetchAgy(Connection connection, Map<String, dynamic> data) async {
     final executable = data['agyBin'] as String? ?? 'agy';

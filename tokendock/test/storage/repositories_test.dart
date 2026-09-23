@@ -231,6 +231,29 @@ void main() {
       expect(updated.providerData, '{"workspace":"staging"}');
     });
 
+    test('recursively strips CSRF fields from provider data before persistence', () async {
+      const connection = Connection(
+        id: 'conn-nested-csrf',
+        provider: 'antigravity',
+        displayName: 'Nested CSRF',
+        group: null,
+        plan: null,
+        credentialRef: 'secret-nested-csrf',
+        enabled: true,
+        providerData: '{"workspace":"production","servers":[{"name":"primary"},{"name":"secondary","settings":{"X-Csrf-Token":"nested-list-secret"}}],"nested":{"serverCsrfToken":"nested-map-secret"}}',
+      );
+
+      await testDb.connectionRepository.save(connection);
+
+      final persisted = (await testDb.connectionRepository.getAll()).single.providerData;
+      expect(
+        persisted,
+        '{"workspace":"production","servers":[{"name":"primary"},{"name":"secondary","settings":{}}],"nested":{}}',
+      );
+      expect(persisted, isNot(contains('nested-list-secret')));
+      expect(persisted, isNot(contains('nested-map-secret')));
+    });
+
     test('saving a connection update preserves health and cooldown', () async {
       const original = Connection(
         id: 'conn-health-update',

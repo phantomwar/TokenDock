@@ -170,8 +170,16 @@ void main() {
       httpRunner: http,
       runtimeConfig: runtime,
       sessionDiscovery: _FakeSessionDiscovery(const [
-        AntigravityLocalSession(port: 9999, csrfToken: 'wrong-session'),
-        AntigravityLocalSession(port: 1234, csrfToken: 'discovered-only'),
+        AntigravityLocalSession(
+          port: 9999,
+          processId: 1001,
+          csrfToken: 'wrong-session',
+        ),
+        AntigravityLocalSession(
+          port: 1234,
+          processId: 1002,
+          csrfToken: 'discovered-only',
+        ),
       ]),
     );
 
@@ -187,7 +195,6 @@ void main() {
     expect(http.headers.single['X-Codeium-Csrf-Token'], 'discovered-only');
     expect(runtime.csrfTokenFor('agy-1'), 'discovered-only');
   });
-
   test('availability-only payload is reported as Limits not available', () {
     final snapshot = AntigravityLocalReader.parseQuotaSummary(
       body: fixture('antigravity_availability_only.json'),
@@ -200,36 +207,103 @@ void main() {
     expect(snapshot.quotas.single.percent, isNull);
   });
 
-  test('requires explicit source opt-in', () async {
+  test('same-port session restart replaces the cached CSRF token', () async {
+    final http = _FakeHttpRunner([
+      _quotaResponse(),
+      _quotaResponse(),
+    ]);
+    final discovery = _SequencedSessionDiscovery([
+      const [
+        AntigravityLocalSession(
+          port: 1234,
+          processId: 2001,
+          csrfToken: 'old-session-token',
+        ),
+      ],
+      const [
+        AntigravityLocalSession(
+          port: 1234,
+          processId: 2002,
+          csrfToken: 'new-session-token',
+        ),
+      ],
+    ]);
+    final runtime = AntigravityLocalRuntimeConfig();
     final reader = AntigravityLocalReader(
-      processRunner: _FakeProcessRunner([]),
-      httpRunner: _FakeHttpRunner([]),
+      httpRunner: http,
+      runtimeConfig: runtime,
+      sessionDiscovery: discovery,
+    );
+    final localConnection = connection(providerData: jsonEncode({
+      'source': 'language-server',
+      'port': 1234,
+    }));
+
+    expect((await reader.fetchSnapshot(localConnection)).status, ConnectionStatus.ok);
+    expect((await reader.fetchSnapshot(localConnection)).status, ConnectionStatus.ok);
+
+    expect(
+      http.headers.map((headers) => headers['X-Codeium-Csrf-Token']),
+      ['old-session-token', 'new-session-token'],
+    );
+    expect(discovery.calls, 2);
+    expect(runtime.csrfTokenFor('agy-1'), 'new-session-token');
+  });
+
+  test('endpoint failure invalidates CSRF and rediscovers the current session', () async {
+    final http = _FakeHttpRunner([
+      const AntigravityHttpResponse(statusCode: 401, body: ''),
+      _quotaResponse(),
+    ]);
+    final discovery = _SequencedSessionDiscovery([
+      const [
+        AntigravityLocalSession(
+          port: 1234,
+          processId: 3001,
+          csrfToken: 'rejected-token',
+        ),
+      ],
+      const [
+        AntigravityLocalSession(
+          port: 1234,
+          processId: 3002,
+          csrfToken: 'replacement-token',
+        ),
+      ],
+    ]);
+    final runtime = AntigravityLocalRuntimeConfig();
+    final reader = AntigravityLocalReader(
+      httpRunner: http,
+      runtimeConfig: runtime,
+      sessionDiscovery: discovery,
     );
 
-    final snapshot = await reader.fetchSnapshot(connection());
+    final snapshot = await reader.fetchSnapshot(connection(providerData: jsonEncode({
+      'source': 'language-server',
+      'port': 1234,
+    })));
 
-    expect(snapshot.status, ConnectionStatus.error);
-    expect(snapshot.error, 'Antigravity source is not enabled');
+    expect(snapshot.status, ConnectionStatus.ok);
+    expect(
+      http.headers.map((headers) => headers['X-Codeium-Csrf-Token']),
+      ['rejected-token', 'replacement-token'],
+    );
+    expect(discovery.calls, 2);
+    expect(runtime.csrfTokenFor('agy-1'), 'replacement-token');
   });
 
   test('language server tries quota summary, status, then model configs before agy', () async {
     final http = _FakeHttpRunner([
       const AntigravityHttpResponse(statusCode: 404, body: ''),
       const AntigravityHttpResponse(statusCode: 404, body: ''),
-      AntigravityHttpResponse(statusCode: 200, body: jsonEncode({
-        'response': {
-          'groups': [
-            {'groupId': 'gemini', 'buckets': [
-              {'bucketId': 'weekly', 'remainingFraction': 0.4},
-            ]},
-          ],
-        },
-      })),
+      _quotaResponse(),
     ]);
     final reader = AntigravityLocalReader(
       httpRunner: http,
       csrfTokenFor: (_, _) => 'memory-only',
     );
+
+
 
     final snapshot = await reader.fetchSnapshot(connection(providerData: jsonEncode({
       'source': 'language-server', 'port': 1234,
@@ -409,6 +483,23 @@ void main() {
   });
 }
 
+AntigravityHttpResponse _quotaResponse() => AntigravityHttpResponse(
+      statusCode: 200,
+      body: jsonEncode({
+        'response': {
+          'groups': [
+            {
+              'groupId': 'gemini',
+              'buckets': [
+                {'bucketId': 'weekly', 'remainingFraction': 0.4},
+              ],
+            },
+          ],
+        },
+      }),
+    );
+
+
 
 class _FakeHttpRunner implements AntigravityHttpRunner {
   _FakeHttpRunner(this.results);
@@ -433,6 +524,19 @@ class _FakeSessionDiscovery implements AntigravitySessionDiscovery {
   final List<AntigravityLocalSession> sessions;
   @override
   Future<List<AntigravityLocalSession>> discover() async => sessions;
+}
+
+class _SequencedSessionDiscovery implements AntigravitySessionDiscovery {
+  _SequencedSessionDiscovery(this.results);
+  final List<List<AntigravityLocalSession>> results;
+  int calls = 0;
+
+  @override
+  Future<List<AntigravityLocalSession>> discover() async {
+    final sessions = results.removeAt(0);
+    calls++;
+    return sessions;
+  }
 }
 
 class _ProcessResult {
