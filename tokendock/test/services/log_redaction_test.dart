@@ -19,6 +19,13 @@ void main() {
     );
   });
 
+  test('redacts overlapping secrets without leaking their suffix', () {
+    expect(
+      redactSecret('failed with secret-value', ['secret', 'secret-value']),
+      'failed with [redacted]',
+    );
+  });
+
   test('redacts sensitive header values and preserves safe headers', () {
     expect(
       redactHeaders({
@@ -40,6 +47,17 @@ void main() {
     expect(
       redactUrl('https://example.test/path?token=abc&x=1'),
       'https://example.test/path',
+    );
+  });
+
+  test('preserves URL fragments while removing preceding query strings', () {
+    expect(
+      redactUrl('https://example.test/path?token=abc#usage'),
+      'https://example.test/path#usage',
+    );
+    expect(
+      redactUrl('https://example.test/path#usage?literal=true'),
+      'https://example.test/path#usage?literal=true',
     );
   });
 }

@@ -5,10 +5,10 @@ final _sensitiveHeader = RegExp(
 
 String redactSecret(String input, [List<String> secrets = const []]) {
   var redacted = input;
-  for (final secret in secrets) {
-    if (secret.isNotEmpty) {
-      redacted = redacted.replaceAll(secret, '[redacted]');
-    }
+  final orderedSecrets = secrets.where((secret) => secret.isNotEmpty).toList()
+    ..sort((left, right) => right.length.compareTo(left.length));
+  for (final secret in orderedSecrets) {
+    redacted = redacted.replaceAll(secret, '[redacted]');
   }
   return redacted.replaceAllMapped(
     RegExp(r'''(Bearer\s+)[^\s"',}]+''', caseSensitive: false),
@@ -27,5 +27,11 @@ Map<String, String> redactHeaders(Map<String, String> headers) {
 
 String redactUrl(String url) {
   final queryStart = url.indexOf('?');
-  return queryStart == -1 ? url : url.substring(0, queryStart);
+  final fragmentStart = url.indexOf('#');
+  if (queryStart == -1 ||
+      (fragmentStart != -1 && queryStart > fragmentStart)) {
+    return url;
+  }
+  final queryEnd = fragmentStart == -1 ? url.length : fragmentStart;
+  return url.replaceRange(queryStart, queryEnd, '');
 }
