@@ -97,23 +97,30 @@ class TokenDockWidget extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        IconButton(
-          key: const Key('headerRefreshButton'),
-          icon: Icon(Icons.refresh, size: 18, color: colors.mutedInk),
-          tooltip: 'Refresh All',
-          onPressed: () {
-            if (onRefreshAll != null) {
-              onRefreshAll!();
-            } else {
-              state.refreshAll();
-            }
-          },
+        Semantics(
+          label: 'Refresh All',
+          button: true,
+          child: IconButton(
+            key: const Key('headerRefreshButton'),
+            icon: Icon(Icons.refresh, size: 18, color: colors.mutedInk),
+            onPressed: () {
+              if (onRefreshAll != null) {
+                onRefreshAll!();
+              } else {
+                state.refreshAll();
+              }
+            },
+          ),
         ),
-        IconButton(
-          key: const Key('headerSettingsButton'),
-          icon: Icon(Icons.settings_outlined, size: 18, color: colors.mutedInk),
-          tooltip: 'Connections',
-          onPressed: () => _openConnections(context),
+        Semantics(
+          label: 'Connections',
+          button: true,
+          child: IconButton(
+            key: const Key('headerSettingsButton'),
+            icon:
+                Icon(Icons.settings_outlined, size: 18, color: colors.mutedInk),
+            onPressed: () => _openConnections(context),
+          ),
         ),
       ],
     );
