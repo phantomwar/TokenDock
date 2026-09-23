@@ -7,7 +7,6 @@ import 'package:tokendock/models/connection.dart';
 import 'package:tokendock/models/connection_status.dart';
 import 'package:tokendock/providers/openrouter/openrouter_provider.dart';
 import 'package:tokendock/providers/openrouter/openrouter_response.dart';
-import 'package:tokendock/providers/provider_adapter.dart';
 import 'package:tokendock/providers/provider_registry.dart';
 
 String loadFixture(String name) {

@@ -98,19 +98,18 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
 
   Future<void> _deleteConnection(
       BuildContext context, Connection connection) async {
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final warning = await _state.removeConnection(connection.id);
-      if (warning != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      if (warning != null) {
+        messenger.showSnackBar(
           SnackBar(content: Text(warning)),
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to delete connection: $e')),
-        );
-      }
+      messenger.showSnackBar(
+        SnackBar(content: Text('Failed to delete connection: $e')),
+      );
     }
   }
 
@@ -173,7 +172,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
       policy: ReadingOrderTraversalPolicy(),
       child: ListView.separated(
         itemCount: accounts.length,
-        separatorBuilder: (_, __) => Divider(color: colors.hairline, height: 1),
+        separatorBuilder: (_, _) => Divider(color: colors.hairline, height: 1),
         itemBuilder: (context, index) {
           final account = accounts[index];
           final conn = account.connection;

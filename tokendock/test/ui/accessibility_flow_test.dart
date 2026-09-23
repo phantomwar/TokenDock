@@ -135,11 +135,11 @@ void main() {
       // Verify high-contrast ramp is resolved
       expect(colors, equals(TokenDockTheme.highContrast));
 
-      // Verify all colors in the ramp are fully opaque (alpha == 255)
+      // Verify all colors in the ramp are fully opaque (alpha == 1.0)
       for (final color in colors.values) {
         expect(
-          color.alpha,
-          equals(255),
+          color.a,
+          equals(1.0),
           reason: 'Color $color must be fully opaque in high-contrast mode',
         );
       }

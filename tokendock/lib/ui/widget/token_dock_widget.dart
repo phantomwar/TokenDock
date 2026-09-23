@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_state.dart';
 import '../../app/theme.dart';
-import '../../models/connection_status.dart';
 import '../components/account_header.dart';
 import '../components/compact_account_row.dart';
 import '../components/quota_row.dart';

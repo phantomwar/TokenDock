@@ -6,6 +6,8 @@ import 'package:tokendock/models/connection_status.dart';
 import 'package:tokendock/models/provider_snapshot.dart';
 import 'package:tokendock/models/quota.dart';
 import 'package:tokendock/services/refresh_service.dart';
+import 'package:tokendock/storage/connection_repository.dart';
+import 'package:tokendock/storage/quota_cache_repository.dart';
 
 import '../support/controlled_provider.dart';
 import '../support/memory_secret_store.dart';

@@ -4,7 +4,6 @@ import 'package:tokendock/app/app_state.dart';
 import 'package:tokendock/models/connection.dart';
 import 'package:tokendock/models/quota.dart';
 import 'package:tokendock/storage/connection_repository.dart';
-import 'package:tokendock/storage/secret_store.dart';
 
 import '../support/memory_secret_store.dart';
 import '../support/test_app.dart';

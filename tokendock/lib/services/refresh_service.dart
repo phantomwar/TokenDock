@@ -11,11 +11,6 @@ import '../storage/quota_cache_repository.dart';
 import '../storage/secret_store.dart';
 import '../storage/settings_repository.dart';
 
-export '../storage/connection_repository.dart';
-export '../storage/quota_cache_repository.dart';
-export '../storage/secret_store.dart';
-export '../storage/settings_repository.dart';
-
 /// Service orchestrating quota refreshing with request coalescing,
 /// bounded concurrency, and cache-first resilience.
 class RefreshService {

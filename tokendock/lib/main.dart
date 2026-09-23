@@ -33,7 +33,7 @@ Future<void> main() async {
   final appState = AppState(
     connectionRepository: db.connectionRepository,
     quotaCacheRepository: db.quotaCacheRepository,
-    secretStore: const SecureSecretStore(),
+    secretStore: SecureSecretStore(),
     settingsRepository: db.settingsRepository,
     providerRegistry: ProviderRegistry.instance,
     autoStartRefreshTimer: true,

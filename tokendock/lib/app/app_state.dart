@@ -135,7 +135,7 @@ class AppState implements ChangeNotifier {
       Expando<_StateNotifier>();
 
   _StateNotifier get _effectiveNotifier {
-    if (_notifier != null) return _notifier!;
+    if (_notifier != null) return _notifier;
     return _fallbackNotifiers[this] ??=
         _StateNotifier(_staticLoading, _staticAccounts);
   }

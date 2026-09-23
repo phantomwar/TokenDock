@@ -350,11 +350,9 @@ class TestApp extends StatefulWidget {
         autoLoadAndRefresh = false;
 
   const TestApp._internal({
-    super.key,
     required this.state,
-    this.child,
     this.autoLoadAndRefresh = true,
-  });
+  }) : child = null;
 
   final AppState state;
   final Widget? child;

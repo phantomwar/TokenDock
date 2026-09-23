@@ -26,7 +26,7 @@ double _contrast(Color a, Color b) {
 void main() {
   test('high-contrast ramp is fully opaque', () {
     for (final color in TokenDockTheme.highContrast.values) {
-      expect(color.opacity, 1.0, reason: 'high-contrast $color must be opaque');
+      expect(color.a, 1.0, reason: 'high-contrast $color must be opaque');
     }
   });
 
