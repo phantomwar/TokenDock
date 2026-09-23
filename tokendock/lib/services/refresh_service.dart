@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'credential_events.dart';
 import '../models/connection.dart';
 import '../models/connection_health.dart';
 import '../models/connection_status.dart';
@@ -97,6 +98,7 @@ class RefreshService {
   final Map<String, ConnectionHealth> _healthFallback = {};
 
   final List<void Function(ProviderSnapshot snapshot)> _snapshotListeners = [];
+  final List<void Function(CredentialDisabledEvent)> _disabledListeners = [];
   final Map<String, _InFlightConnectionOperation> _inFlight = {};
 
   Timer? _periodicTimer;
@@ -119,6 +121,35 @@ class RefreshService {
     void Function(ProviderSnapshot snapshot) listener,
   ) {
     _snapshotListeners.remove(listener);
+  }
+
+  /// Adds a listener notified when a credential is definitively rejected.
+  void addDisabledListener(
+    void Function(CredentialDisabledEvent event) listener,
+  ) {
+    _disabledListeners.add(listener);
+  }
+
+  /// Removes an active credential-disabled listener.
+  void removeDisabledListener(
+    void Function(CredentialDisabledEvent event) listener,
+  ) {
+    _disabledListeners.remove(listener);
+  }
+
+  void _publishCredentialDisabled(
+    Connection connection,
+    String cause,
+  ) {
+    if (_isDisposed) return;
+    final event = CredentialDisabledEvent(
+      connectionId: connection.id,
+      cause: cause,
+      identityKey: connection.identityKey,
+    );
+    for (final listener in List.of(_disabledListeners)) {
+      listener(event);
+    }
   }
 
   void _publishSnapshot(ProviderSnapshot snapshot) {
@@ -291,14 +322,27 @@ class RefreshService {
     try {
       providerSnapshot = await adapter.fetch(connection, secret);
     } catch (error) {
-      providerSnapshot = ProviderSnapshot(
-        connectionId: connectionId,
-        status: ConnectionStatus.error,
-        quotas: const [],
-        balance: null,
-        fetchedAt: DateTime.now().toUtc(),
-        error: redactSecret(error.toString(), [secret]),
-      );
+      final definitiveCause = definitiveOAuthFailureCause(error);
+      if (definitiveCause != null) {
+        _publishCredentialDisabled(connection, definitiveCause);
+        providerSnapshot = ProviderSnapshot(
+          connectionId: connectionId,
+          status: ConnectionStatus.authError,
+          quotas: const [],
+          balance: null,
+          fetchedAt: DateTime.now().toUtc(),
+          error: definitiveCause,
+        );
+      } else {
+        providerSnapshot = ProviderSnapshot(
+          connectionId: connectionId,
+          status: ConnectionStatus.error,
+          quotas: const [],
+          balance: null,
+          fetchedAt: DateTime.now().toUtc(),
+          error: redactSecret(error.toString(), [secret]),
+        );
+      }
     }
 
     final snapshot = providerSnapshot.status == ConnectionStatus.ok
@@ -458,6 +502,7 @@ class RefreshService {
     _periodicTimer = null;
     _inFlight.clear();
     _healthFallback.clear();
+    _disabledListeners.clear();
     _snapshotListeners.clear();
   }
 }
