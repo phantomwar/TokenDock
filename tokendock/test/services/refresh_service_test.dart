@@ -150,6 +150,46 @@ void main() {
       service.dispose();
     });
 
+    test(
+      'token operations are single-flight by provider and connection',
+      () async {
+        final service = RefreshService.forTest(provider: ControlledProvider());
+        final gate = Completer<void>();
+        var calls = 0;
+
+        Future<String> run(String provider, String connectionId) {
+          return service.runTokenOperation<String>(
+            provider: provider,
+            connectionId: connectionId,
+            operation: () async {
+              calls++;
+              await gate.future;
+              return 'secret-$connectionId';
+            },
+          );
+        }
+
+        final first = run('provider-a', 'conn-a');
+        final duplicate = run('provider-a', 'conn-a');
+        final otherConnection = run('provider-a', 'conn-b');
+        final otherProvider = run('provider-b', 'conn-a');
+        gate.complete();
+
+        expect(
+          await Future.wait([
+            first,
+            duplicate,
+            otherConnection,
+            otherProvider,
+          ]),
+          ['secret-conn-a', 'secret-conn-a', 'secret-conn-b', 'secret-conn-a'],
+        );
+        expect(calls, 3);
+
+        service.dispose();
+      },
+    );
+
     test('concurrency cap: refreshAll() with multiple accounts executes at most 4 simultaneous provider requests', () async {
       final controlled = ControlledProvider();
       // Introduce an asynchronous delay to ensure concurrent overlap

@@ -97,7 +97,7 @@ class RefreshService {
   final Map<String, ConnectionHealth> _healthFallback = {};
 
   final List<void Function(ProviderSnapshot snapshot)> _snapshotListeners = [];
-  final Map<String, Future<void>> _inFlight = {};
+  final Map<String, Future<Object?>> _inFlight = {};
 
   Timer? _periodicTimer;
   int? _currentIntervalMinutes;
@@ -135,15 +135,36 @@ class RefreshService {
   /// On failure, preserves previously cached quotas and publishes an error snapshot.
   Future<void> refreshOne(String connectionId) {
     if (_isDisposed) return Future.value();
-    final existing = _inFlight[connectionId];
+    final key = 'refresh:$connectionId';
+    final existing = _inFlight[key];
     if (existing != null) {
-      return existing;
+      return existing.then((_) {});
     }
 
     final future = _performRefreshOne(connectionId);
-    _inFlight[connectionId] = future;
+    _inFlight[key] = future;
     return future.whenComplete(() {
-      _inFlight.remove(connectionId);
+      _inFlight.remove(key);
+    });
+  }
+
+  /// Runs [operation] once per provider and connection while work is in flight.
+  Future<T> runTokenOperation<T>({
+    required String provider,
+    required String connectionId,
+    required Future<T> Function() operation,
+  }) {
+    if (_isDisposed) return Future.value(null as T);
+    final key = 'token:$provider:$connectionId';
+    final existing = _inFlight[key];
+    if (existing != null) {
+      return existing.then((value) => value as T);
+    }
+
+    final future = operation();
+    _inFlight[key] = future;
+    return future.whenComplete(() {
+      _inFlight.remove(key);
     });
   }
 
