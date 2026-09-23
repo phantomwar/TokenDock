@@ -48,7 +48,7 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 
 ## Implementation Status
 
-- Status: login adaptation and final-review recovery implemented in the current worktree; Windows 10/11 x64 only.
+- Status: login adaptation and final-review recovery are merged in `master` at `b03190e`; Windows 10/11 x64 only.
 - Provider list: `openrouter` and `antigravity` are registered. OpenRouter uses `AuthKind.apiKey`; Antigravity uses `AuthKind.oauth` and dispatches only explicit `providerData.source` values `language-server` or `agy-cli` to the local reader. Remote is the default and remains available when source is absent or `remote`.
 - `Migration001` creates `auth_type`; `Migration003` adds `identity_key` and `provider_data` and sets SQLite `user_version = 3`. `AppDatabase.open` runs `Migration001`–`Migration003`.
 - OpenRouter retains quota hardening: 401 invalid credentials, 402 insufficient credits except documented in-flight-budget responses with `Retry-After`, 403 forbidden, and 429/503 honoring valid `Retry-After`; failures preserve cached quotas and redact current credential fields.
@@ -64,7 +64,7 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 
 - Baseline evidence at `7154db3`: `flutter test` 96/96; `flutter test integration_test/multi_account_flow_test.dart` 3/3; `flutter analyze` 0 errors and 0 warnings; Windows release build succeeds.
 - Covered: compact/normal/expanded layouts, light/dark/high-contrast themes, keyboard-only flows (Tab/Enter/Space reach Add Connection), reduced motion, test-before-save CRUD with credential compensation, refresh concurrency and coalescing, cache preservation, and three-account isolation.
-- Current final-review evidence: focused Antigravity/OAuth/loopback/RefreshService/redaction/AppState/ConnectionsScreen suites pass (98 tests in the recorded focused command); full `flutter test --no-pub` passes (197 tests). `flutter analyze` reports 0 errors and 0 warnings, with 7 pre-existing informational diagnostics and exits nonzero. No real Google integration, external browser launch, or Antigravity process was exercised; tests use sanitized fake HTTP/process fixtures. Windows integration remains pending on symlink support/Developer Mode.
+- Current final-review evidence: focused Antigravity/OAuth/loopback/RefreshService/redaction/AppState/ConnectionsScreen suites pass (98 tests in the recorded focused command); full `flutter test --no-pub` passes (197 tests). `flutter analyze` reports 0 errors and 0 warnings, with 7 pre-existing informational diagnostics and exits nonzero. No real Google integration, external browser launch, or Antigravity process was exercised; tests use sanitized fake HTTP/process fixtures. Windows integration is currently blocked by the native build error `C1083: atlstr.h not found` from `flutter_secure_storage_windows`; install the Visual Studio C++ ATL component before retrying.
 
 ## Product Principles
 

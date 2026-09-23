@@ -1,6 +1,6 @@
 # TokenDock Login Adaptation Design — AuthKind + Refreshable + Loopback
 
-**Date:** 2026-09-23. **Status:** approved design, not implemented. **Scope:** generic login infrastructure adapted from `can1357/oh-my-pi` and `decolua/9router`, a provider-neutral OAuth loopback flow tested with a fake provider, plus Appendices A (unofficial local read-only quota) and B (user-approved per-account remote OAuth, CodexBar-pattern). The core spec still defers Antigravity as a concrete provider on official contracts; Appendix B is an explicit, user-approved exception that accepts the private `v1internal:*` surface with the mitigations below.
+**Date:** 2026-09-23. **Status:** approved design and implementation merged in `master` (`b03190e`). **Scope:** generic login infrastructure adapted from `can1357/oh-my-pi` and `decolua/9router`, provider-neutral OAuth loopback, local read-only Antigravity Appendix A, and user-approved per-account remote Antigravity Appendix B. The core policy still requires official contracts; Appendix B is the explicit exception for the unofficial Antigravity surface, with the mitigations and quarantine behavior below.
 
 **Source:** `PRD.txt` (multi-account roadmap, second functional goal §85), `PRODUCT.md` (single process, single SQLite, DPAPI secrets, cache-first, official contracts only), `docs/auth-research-oh-my-pi-9router.md` (reference patterns), `docs/auth-quota-hardening-plan.md` (phases 0–6, implemented through hardening at `17d489e`).
 

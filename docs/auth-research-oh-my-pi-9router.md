@@ -4,6 +4,8 @@ Pesquisa de 2026-09-23 sobre autenticação/credenciais em dois repos de referê
 focada no que é adaptável ao TokenDock na hora de autenticar (API keys hoje,
 OAuth amanhã: MiniMax, Antigravity multi-account).
 
+> **Status (2026-09-23):** pesquisa de referência mantida como snapshot histórico. A implementação posterior está registrada em `docs/auth-quota-hardening-plan.md`, `docs/superpowers/specs/2026-09-23-tokendock-login-adaptation-design.md` e no checkpoint `docs/checkpoints/2026-09-23-login-adaptation-checkpoint.md`.
+
 - `can1357/oh-my-pi` — harness Oh My Pi (TS+Bun+Rust). Auth centralizada em
   `AuthStorage` (`packages/ai/src/auth-storage.ts`, ~8k linhas) sobre
   `AuthCredentialStore` com implementação SQLite default

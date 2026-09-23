@@ -13,13 +13,21 @@ adivinhados; cache-first (falha nunca apaga valor); SQLite só com `secret_ref`.
 
 ## 1. Onde estamos (base)
 
-- Login adaptation and final-review recovery are implemented in the current worktree: `AuthKind` distinguishes `apiKey`, `oauth`, `structuredBearer`, and `none`; the registry exposes `openrouter` and `antigravity`; `Migration001` creates `auth_type`; `Migration003` adds `identity_key` and `provider_data` and sets SQLite `user_version = 3`.
+- Login adaptation and final-review recovery are merged in `master` (`b03190e`): `AuthKind` distinguishes `apiKey`, `oauth`, `structuredBearer`, and `none`; the registry exposes `openrouter` and `antigravity`; `Migration001` creates `auth_type`; `Migration003` adds `identity_key` and `provider_data` and sets SQLite `user_version = 3`.
 - OpenRouter hardening remains implemented: 401/402/403/429/503 classification, `Retry-After` seconds/HTTP-date for 429/503, per-connection cooldown/health persistence, cache preservation, and named credential-field redaction.
 - Antigravity Appendix A is backend/test-only, explicit opt-in local read-only quota. `AntigravityProvider` dispatches only `language-server` and `agy-cli` to `AntigravityLocalReader`; absent/`remote` source remains remote OAuth. CSRF is supplied only through in-memory runtime configuration and stripped from SQLite `provider_data`. The Connections UI is not wired to select local mode.
 - Antigravity Appendix B is backend/test-only per-account remote OAuth: external loopback + PKCE, form-encoded Google token requests, least scopes, typed failure causes, selected-account guard, quota retrieval, onboarding prompt, per-connection test-time locking, rotated-token reuse revocation, bounded Full Jitter retries, and durable schema quarantine preserving cache. The Connections UI is not wired to launch login; definitive credential failures do surface a Reconnect action while cached quotas remain available.
 - Refreshable credentials use per-connection single-flight coordination and rotate/delete the current credential reference. Invalid-grant/reuse deletes the local pair best effort and forces interactive re-login while preserving quota cache.
-- Current evidence: the recorded focused command passes 98 tests; full `flutter test --no-pub` passes 197 tests. `flutter analyze` reports 0 errors and 0 warnings with 7 pre-existing informational diagnostics and exits nonzero. No real Google integration, external browser launch, or Antigravity process was exercised; fixtures are sanitized. Windows integration remains blocked by symlink support/Developer Mode.
+- Current evidence: the recorded focused command passes 98 tests; full `flutter test --no-pub` passes 197 tests. `flutter analyze` reports 0 errors and 0 warnings with 7 pre-existing informational diagnostics and exits nonzero. No real Google integration, external browser launch, or Antigravity process was exercised; fixtures are sanitized. Windows integration is blocked at native build by `C1083: atlstr.h not found` from `flutter_secure_storage_windows`; install the Visual Studio C++ ATL component before retrying.
 - MiniMax remains blocked because its official FAQ does not publish a response schema. OpenCode Go remains deferred because no verified public subscription-quota API exists. The three-provider product target is still unmet because only OpenRouter and Antigravity are registered.
+
+### Checkpoint de retomada (2026-09-23)
+
+- Branch de trabalho mesclada em `master`; nenhum worktree de implementação registrado.
+- Próximo bloqueio de ambiente: instalar **C++ ATL for latest v143 build tools (x86 & x64)** e repetir `flutter test integration_test/multi_account_flow_test.dart --no-pub`.
+- Próximo produto: expor o login Antigravity e a seleção `language-server`/`agy-cli` na Connections UI.
+- Próxima validação: login Google real, browser externo real, processo Antigravity real e integração Windows.
+- Meta de três providers continua pendente: MiniMax permanece bloqueado por schema oficial ausente.
 
 ## 2. O que 2026 confirma, corrige ou acrescenta ao relatório prévio
 

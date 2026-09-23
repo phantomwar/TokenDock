@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-23-tokendock-login-adaptation-design.md` (core + Appendix A + Appendix B)
 
+**Execution status (2026-09-23):** completed and merged into `master` (`b03190e`). The implementation required direct `crypto` and `url_launcher` dependencies and Windows ATL for the native integration build; the final code/test counts and remaining work are recorded in `docs/checkpoints/2026-09-23-login-adaptation-checkpoint.md`.
+
 ## Global Constraints
 
 - One local process, one local SQLite database, no server, cloud service, analytics, or plugin system.
