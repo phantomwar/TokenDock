@@ -43,7 +43,23 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 - Product requirements: `PRD.txt`.
 - Approved technical design: `docs/superpowers/specs/2026-09-22-tokendock-first-functional-goal-design.md`.
 - Visual references: `docs/imagens/windows-tray-dashboard.png`, `docs/imagens/HS0mcVHagAAQYiG.jpg`, `docs/imagens/HS0mbP5agAEg0nP.png`, `docs/imagens/HSzxw_Sb0AARFwe.png`, and `docs/imagens/HSzxv9UaIAAOXbw.jpg`.
-- No production screenshots, provider fixtures, user research, commercial claims, or final brand assets exist yet.
+- Sanitized OpenRouter fixtures exist at `tokendock/test/fixtures/` (finite, unlimited, malformed, and 402 payloads). No real API key exists in source control or tests. No installer, portable ZIP, Start Menu entries, auto-start behavior, user research, commercial claims, or final brand assets exist yet.
+
+## Implementation Status
+
+- Status: first functional slice implemented in `tokendock/` on `master` (`7154db3`), Windows 10/11 x64 only.
+- Live provider: OpenRouter only. `OpenRouterProvider.id == 'openrouter'` calls `GET https://openrouter.ai/api/v1/key` with `Authorization: Bearer <secret>` on one reusable `HttpClient` (10s connection, 15s response timeout). No inference calls, no Management API.
+- Refresh: manual, Ctrl+R/Cmd+R (disabled while a text field has focus), tray action, and one periodic timer (default 3 minutes; 1/3/5/10/manual), at most four concurrent connection refreshes with same-ID coalescing.
+- Cache-first: cached quotas render immediately; refresh failures preserve prior values and show `Last updated <relative age>`; past resets render `Resetting…`.
+- Window/tray: frameless 360x600 window, hide-to-tray on close, explicit Exit; tray menu exposes Open TokenDock, Refresh All, Always on Top, Connections, and Exit, with double-click restoring the widget.
+- Credentials: UUIDv4 references in `%LOCALAPPDATA%\TokenDock\tokendock.db` (`Migration001`, `user_version = 1`); secret values only in DPAPI-backed `flutter_secure_storage`. Saved credentials display a masked preview (leading characters plus last four), never the full secret.
+
+## Verification Evidence
+
+- `flutter test`: 96/96. `flutter test integration_test/multi_account_flow_test.dart`: 3/3 (three independent accounts; cache replacement on success; cache preservation on timeout; restart restore from cache with all providers unreachable).
+- `flutter analyze`: 0 errors, 0 warnings.
+- `flutter build windows --release`: succeeds. The release binary launches the frameless first-run surface, creates the `%LOCALAPPDATA%` database, and hides to the tray on close.
+- Covered: compact/normal/expanded layouts, light/dark/high-contrast themes, keyboard-only flows (Tab/Enter/Space reach Add Connection), reduced motion, test-before-save CRUD with credential compensation, refresh concurrency and coalescing, cache preservation, and three-account isolation.
 
 ## Product Principles
 

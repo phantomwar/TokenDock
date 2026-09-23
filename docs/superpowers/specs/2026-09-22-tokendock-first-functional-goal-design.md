@@ -4,6 +4,12 @@
 
 **Source:** `PRD.txt`, sections 1–41, 67–71, 83–90, and 94–97.
 
+## Implementation status — complete (2026-09-23, `master` `7154db3`)
+
+- All contracts above are implemented in `tokendock/` and verified: 96 widget/unit tests, 3 fixture-backed integration proofs, `flutter analyze` clean, and a Windows release build that runs.
+- Deviations from this design text: `secure_secret_store.dart` is the shipped filename for the adapter this document calls `dpapi_secret_store.dart`; production never renders the original five-provider mock data — first run shows skeleton rows, then `No connections yet` with one `Add Connection` action; seeded fixtures live only in `test/fixtures/` and `test/support/`.
+- Live-provider end-to-end against three real OpenRouter keys was not exercised; see the scope guard and the review record in `.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md`.
+
 ## Scope
 
 This design implements the approved first functional slice. OpenRouter replaces OpenCode Go as the first live provider because it exposes an official API-key quota contract; the technical architecture and multi-account validation goal remain unchanged.

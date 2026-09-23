@@ -10,6 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-22-tokendock-first-functional-goal-design.md`
 
+## Implementation status — complete (2026-09-23, `master` `7154db3`)
+
+- All 12 tasks executed (subagent-driven; Task 12 finished inline after two provider-quota dispatch failures).
+- Verification: `flutter test` 96/96; `flutter test integration_test/multi_account_flow_test.dart` 3/3; `flutter analyze` 0 errors, 0 warnings; `flutter build windows --release` succeeds; the release run created the real `%LOCALAPPDATA%` database, rendered the first-run state, and hid to the tray on close.
+- Record: `.superpowers/sdd/tokendock-openrouter-first-goal/` (ledger `progress.md`, per-task briefs/reports/reviews). Tasks 1–11 independently reviewed; Task 12 self-reviewed by the controller after subagent quota exhaustion.
+- Known deviations from the constraints above: `sqflite_common` is declared alongside `sqflite_common_ffi` (four storage files import it directly); `integration_test` SDK dev dependency was added because this plan's own verification command runs `flutter test integration_test/...`.
+
 ## Global Constraints
 
 - Target Windows 10/11 x64 only. Do not enable mobile, web, macOS, or Linux targets.
