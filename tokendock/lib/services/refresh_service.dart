@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import '../models/connection.dart';
+import '../models/connection_health.dart';
 import '../models/connection_status.dart';
 import '../models/provider_snapshot.dart';
 import '../models/quota.dart';
 import '../providers/provider_adapter.dart';
 import '../providers/provider_registry.dart';
+import '../storage/connection_health_repository.dart';
 import '../storage/connection_repository.dart';
 import '../storage/quota_cache_repository.dart';
 import '../storage/secret_store.dart';
@@ -19,18 +21,21 @@ class RefreshService {
     required QuotaCacheRepository quotaCacheRepository,
     required SecretStore secretStore,
     required ProviderRegistry providerRegistry,
+    ConnectionHealthRepository? connectionHealthRepository,
     SettingsRepository? settingsRepository,
     void Function(ProviderSnapshot snapshot)? onSnapshotUpdated,
     int maximumConcurrent = 4,
     int defaultIntervalMinutes = 3,
     bool autoStartTimer = true,
     Duration? timerInterval,
-  })  : _connectionRepository = connectionRepository,
-        _quotaCacheRepository = quotaCacheRepository,
-        _secretStore = secretStore,
-        _providerRegistry = providerRegistry,
-        _settingsRepository = settingsRepository,
-        _maximumConcurrent = maximumConcurrent {
+  }) : _connectionRepository = connectionRepository,
+       _connectionHealthRepository =
+           connectionHealthRepository ?? _InMemoryConnectionHealthRepository(),
+       _quotaCacheRepository = quotaCacheRepository,
+       _secretStore = secretStore,
+       _providerRegistry = providerRegistry,
+       _settingsRepository = settingsRepository,
+       _maximumConcurrent = maximumConcurrent {
     if (onSnapshotUpdated != null) {
       _snapshotListeners.add(onSnapshotUpdated);
     }
@@ -50,6 +55,7 @@ class RefreshService {
   factory RefreshService.forTest({
     required ProviderAdapter provider,
     ConnectionRepository? connectionRepository,
+    ConnectionHealthRepository? connectionHealthRepository,
     QuotaCacheRepository? quotaCacheRepository,
     SecretStore? secretStore,
     ProviderRegistry? providerRegistry,
@@ -66,6 +72,7 @@ class RefreshService {
     return RefreshService(
       connectionRepository:
           connectionRepository ?? _InMemoryConnectionRepository(),
+      connectionHealthRepository: connectionHealthRepository,
       quotaCacheRepository:
           quotaCacheRepository ?? _InMemoryQuotaCacheRepository(),
       secretStore: secretStore ?? _InMemorySecretStore(),
@@ -80,11 +87,13 @@ class RefreshService {
   }
 
   final ConnectionRepository _connectionRepository;
+  final ConnectionHealthRepository _connectionHealthRepository;
   final QuotaCacheRepository _quotaCacheRepository;
   final SecretStore _secretStore;
   final ProviderRegistry _providerRegistry;
   final SettingsRepository? _settingsRepository;
   final int _maximumConcurrent;
+  final Map<String, ConnectionHealth> _healthFallback = {};
 
   final List<void Function(ProviderSnapshot snapshot)> _snapshotListeners = [];
   final Map<String, Future<void>> _inFlight = {};
@@ -106,7 +115,8 @@ class RefreshService {
 
   /// Removes an active snapshot update listener.
   void removeSnapshotListener(
-      void Function(ProviderSnapshot snapshot) listener) {
+    void Function(ProviderSnapshot snapshot) listener,
+  ) {
     _snapshotListeners.remove(listener);
   }
 
@@ -138,82 +148,173 @@ class RefreshService {
 
   Future<void> _performRefreshOne(String connectionId) async {
     if (_isDisposed) return;
-
-    // 1. Read existing cached quotas to maintain display continuity
     final cachedQuotas = await _quotaCacheRepository.getAll(connectionId);
 
-    // 2. Publish transient updating presentation state without clearing cached quotas
-    _publishSnapshot(ProviderSnapshot(
-      connectionId: connectionId,
-      status: ConnectionStatus.updating,
-      quotas: cachedQuotas,
-      balance: null,
-      fetchedAt: DateTime.now().toUtc(),
-      error: null,
-    ));
+    final storedHealth = await _connectionHealthRepository.get(connectionId);
+    final health = _healthFallback[connectionId] ?? storedHealth;
+    final cooldownUntil = health?.cooldownUntil;
+    if (health != null &&
+        cooldownUntil != null &&
+        cooldownUntil.isAfter(DateTime.now().toUtc())) {
+      _publishSnapshot(
+        ProviderSnapshot(
+          connectionId: connectionId,
+          status: health.status,
+          quotas: cachedQuotas,
+          balance: null,
+          fetchedAt: health.lastCheckedAt,
+          error: health.error,
+          cooldownUntil: cooldownUntil,
+        ),
+      );
+      return;
+    }
 
-    // 3. Find connection metadata
+    _publishSnapshot(
+      ProviderSnapshot(
+        connectionId: connectionId,
+        status: ConnectionStatus.updating,
+        quotas: cachedQuotas,
+        balance: null,
+        fetchedAt: DateTime.now().toUtc(),
+        error: null,
+      ),
+    );
+
     final connections = await _connectionRepository.getAll();
-    final connection =
-        connections.where((c) => c.id == connectionId).firstOrNull;
+    final connection = connections
+        .where((c) => c.id == connectionId)
+        .firstOrNull;
     if (connection == null) {
-      _publishSnapshot(ProviderSnapshot(
-        connectionId: connectionId,
-        status: ConnectionStatus.error,
-        quotas: cachedQuotas,
-        balance: null,
-        fetchedAt: DateTime.now().toUtc(),
-        error: 'Connection not found: $connectionId',
-      ));
+      _publishSnapshot(
+        ProviderSnapshot(
+          connectionId: connectionId,
+          status: ConnectionStatus.error,
+          quotas: cachedQuotas,
+          balance: null,
+          fetchedAt: DateTime.now().toUtc(),
+          error: 'Connection not found: $connectionId',
+        ),
+      );
       return;
     }
 
-    // 4. Read secret from secret store
-    final secret = await _secretStore.read(connection.credentialRef);
+    String? secret;
+    try {
+      secret = await _secretStore.read(connection.credentialRef);
+    } catch (_) {
+      await _persistHealthAndPublish(
+        ProviderSnapshot(
+          connectionId: connectionId,
+          status: ConnectionStatus.error,
+          quotas: cachedQuotas,
+          balance: null,
+          fetchedAt: DateTime.now().toUtc(),
+          error: 'Credential storage unavailable',
+        ),
+      );
+      return;
+    }
     if (secret == null || secret.isEmpty) {
-      _publishSnapshot(ProviderSnapshot(
-        connectionId: connectionId,
-        status: ConnectionStatus.authError,
-        quotas: cachedQuotas,
-        balance: null,
-        fetchedAt: DateTime.now().toUtc(),
-        error: 'Credential not found for connection',
-      ));
+      await _persistHealthAndPublish(
+        ProviderSnapshot(
+          connectionId: connectionId,
+          status: ConnectionStatus.authError,
+          quotas: cachedQuotas,
+          balance: null,
+          fetchedAt: DateTime.now().toUtc(),
+          error: 'Credential not found for connection',
+        ),
+      );
       return;
     }
 
-    // 5. Look up matching provider adapter
     final adapter = _providerRegistry.get(connection.provider);
     if (adapter == null) {
-      _publishSnapshot(ProviderSnapshot(
-        connectionId: connectionId,
-        status: ConnectionStatus.error,
-        quotas: cachedQuotas,
-        balance: null,
-        fetchedAt: DateTime.now().toUtc(),
-        error: 'Unknown provider "${connection.provider}"',
-      ));
+      await _persistHealthAndPublish(
+        ProviderSnapshot(
+          connectionId: connectionId,
+          status: ConnectionStatus.error,
+          quotas: cachedQuotas,
+          balance: null,
+          fetchedAt: DateTime.now().toUtc(),
+          error: 'Unknown provider "${connection.provider}"',
+        ),
+      );
       return;
     }
 
-    // 6. Fetch fresh snapshot from provider
+    ProviderSnapshot providerSnapshot;
     try {
-      final snapshot = await adapter.fetch(connection, secret);
-      // On success: save new quotas to cache and publish fresh snapshot
-      await _quotaCacheRepository.saveAll(connectionId, snapshot.quotas);
-      _publishSnapshot(snapshot);
-    } catch (e) {
-      // On failure: preserve previous cached quotas, do NOT wipe cache, and publish error snapshot
-      final preservedQuotas = await _quotaCacheRepository.getAll(connectionId);
-      final errorSnapshot = ProviderSnapshot(
+      providerSnapshot = await adapter.fetch(connection, secret);
+    } catch (error) {
+      providerSnapshot = ProviderSnapshot(
         connectionId: connectionId,
         status: ConnectionStatus.error,
-        quotas: preservedQuotas,
+        quotas: const [],
         balance: null,
         fetchedAt: DateTime.now().toUtc(),
-        error: e.toString(),
+        error: error.toString().replaceAll(secret, '[REDACTED]'),
       );
-      _publishSnapshot(errorSnapshot);
+    }
+
+    final snapshot = providerSnapshot.status == ConnectionStatus.ok
+        ? providerSnapshot
+        : ProviderSnapshot(
+            connectionId: connectionId,
+            status: providerSnapshot.status,
+            quotas: cachedQuotas,
+            balance: providerSnapshot.balance,
+            fetchedAt: providerSnapshot.fetchedAt,
+            error: providerSnapshot.error?.replaceAll(secret, '[REDACTED]'),
+            cooldownUntil: providerSnapshot.cooldownUntil,
+          );
+
+    if (snapshot.status == ConnectionStatus.ok) {
+      try {
+        await _quotaCacheRepository.saveAll(connectionId, snapshot.quotas);
+      } catch (_) {
+        await _persistHealthAndPublish(
+          ProviderSnapshot(
+            connectionId: connectionId,
+            status: ConnectionStatus.error,
+            quotas: cachedQuotas,
+            balance: null,
+            fetchedAt: DateTime.now().toUtc(),
+            error: 'Local storage unavailable',
+          ),
+        );
+        return;
+      }
+    }
+    await _persistHealthAndPublish(snapshot);
+  }
+
+  Future<void> _persistHealthAndPublish(ProviderSnapshot snapshot) async {
+    final health = ConnectionHealth(
+      connectionId: snapshot.connectionId,
+      status: snapshot.status,
+      lastCheckedAt: snapshot.fetchedAt,
+      cooldownUntil: snapshot.cooldownUntil,
+      error: snapshot.error,
+    );
+    try {
+      await _connectionHealthRepository.save(health);
+      _healthFallback.remove(snapshot.connectionId);
+      _publishSnapshot(snapshot);
+    } catch (_) {
+      _healthFallback[snapshot.connectionId] = health;
+      _publishSnapshot(
+        ProviderSnapshot(
+          connectionId: snapshot.connectionId,
+          status: ConnectionStatus.error,
+          quotas: snapshot.quotas,
+          balance: snapshot.balance,
+          fetchedAt: DateTime.now().toUtc(),
+          error: 'Local storage unavailable',
+          cooldownUntil: snapshot.cooldownUntil,
+        ),
+      );
     }
   }
 
@@ -237,8 +338,9 @@ class RefreshService {
 
     final queue = List<String>.from(targetIds);
     final activeWorkers = <Future<void>>[];
-    final workerCount =
-        queue.length < _maximumConcurrent ? queue.length : _maximumConcurrent;
+    final workerCount = queue.length < _maximumConcurrent
+        ? queue.length
+        : _maximumConcurrent;
 
     Future<void> worker() async {
       while (queue.isNotEmpty) {
@@ -310,6 +412,7 @@ class RefreshService {
     _periodicTimer?.cancel();
     _periodicTimer = null;
     _inFlight.clear();
+    _healthFallback.clear();
     _snapshotListeners.clear();
   }
 }
@@ -347,6 +450,20 @@ class _InMemoryQuotaCacheRepository implements QuotaCacheRepository {
   @override
   Future<void> deleteForConnection(String connectionId) async {
     _cache.remove(connectionId);
+  }
+}
+
+class _InMemoryConnectionHealthRepository
+    implements ConnectionHealthRepository {
+  final Map<String, ConnectionHealth> _records = {};
+
+  @override
+  Future<ConnectionHealth?> get(String connectionId) async =>
+      _records[connectionId];
+
+  @override
+  Future<void> save(ConnectionHealth health) async {
+    _records[health.connectionId] = health;
   }
 }
 

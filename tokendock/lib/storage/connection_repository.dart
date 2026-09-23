@@ -34,39 +34,42 @@ class SqliteConnectionRepository implements ConnectionRepository {
   @override
   Future<void> save(Connection connection) async {
     final now = DateTime.now().toUtc().toIso8601String();
-    final existing = await _db.query(
-      'connections',
-      columns: ['created_at', 'sort_order', 'auth_type'],
-      where: 'id = ?',
-      whereArgs: [connection.id],
-      limit: 1,
-    );
-
-    final createdAt = existing.isNotEmpty
-        ? (existing.first['created_at'] as String? ?? now)
-        : now;
-    final sortOrder =
-        existing.isNotEmpty ? (existing.first['sort_order'] as int? ?? 0) : 0;
-    final authType =
-        existing.isNotEmpty ? existing.first['auth_type'] as String? : null;
-
-    await _db.insert(
-      'connections',
-      {
-        'id': connection.id,
+    await _db.transaction((txn) async {
+      final existing = await txn.query(
+        'connections',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [connection.id],
+        limit: 1,
+      );
+      final connectionValues = {
         'provider': connection.provider,
         'display_name': connection.displayName,
         'group_name': connection.group,
         'plan': connection.plan,
-        'auth_type': authType,
         'secret_ref': connection.credentialRef,
         'enabled': connection.enabled ? 1 : 0,
-        'sort_order': sortOrder,
-        'created_at': createdAt,
         'updated_at': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+      };
+
+      if (existing.isNotEmpty) {
+        await txn.update(
+          'connections',
+          connectionValues,
+          where: 'id = ?',
+          whereArgs: [connection.id],
+        );
+        return;
+      }
+
+      await txn.insert('connections', {
+        'id': connection.id,
+        ...connectionValues,
+        'auth_type': null,
+        'sort_order': 0,
+        'created_at': now,
+      });
+    });
   }
 
   @override
@@ -77,11 +80,7 @@ class SqliteConnectionRepository implements ConnectionRepository {
         where: 'connection_id = ?',
         whereArgs: [id],
       );
-      await txn.delete(
-        'connections',
-        where: 'id = ?',
-        whereArgs: [id],
-      );
+      await txn.delete('connections', where: 'id = ?', whereArgs: [id]);
     });
   }
 }

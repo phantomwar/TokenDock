@@ -32,6 +32,7 @@ Future<void> main() async {
   final db = await AppDatabase.open();
   final appState = AppState(
     connectionRepository: db.connectionRepository,
+    connectionHealthRepository: db.connectionHealthRepository,
     quotaCacheRepository: db.quotaCacheRepository,
     secretStore: SecureSecretStore(),
     settingsRepository: db.settingsRepository,
@@ -59,9 +60,11 @@ Future<void> main() async {
 
   appState.load().then((_) => appState.refreshAll());
 
-  runApp(TokenDockApp(
-    appState: appState,
-    windowController: windowController,
-    navigatorKey: navigatorKey,
-  ));
+  runApp(
+    TokenDockApp(
+      appState: appState,
+      windowController: windowController,
+      navigatorKey: navigatorKey,
+    ),
+  );
 }

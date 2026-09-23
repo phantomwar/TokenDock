@@ -8,6 +8,7 @@ import '../models/test_result.dart';
 import '../providers/provider_adapter.dart';
 import '../providers/provider_registry.dart';
 import '../services/refresh_service.dart';
+import '../storage/connection_health_repository.dart';
 import '../storage/connection_repository.dart';
 import '../storage/quota_cache_repository.dart';
 import '../storage/secret_store.dart';
@@ -43,70 +44,77 @@ class AppState implements ChangeNotifier {
     bool isLoading = false,
     List<AccountItem> accounts = const [],
     this.connectionRepository,
+    this.connectionHealthRepository,
     this.quotaCacheRepository,
     this.secretStore,
     this.providerRegistry,
     this.settingsRepository,
     RefreshService? refreshService,
     bool autoStartRefreshTimer = false,
-  })  : _staticLoading = false,
-        _staticAccounts = const [],
-        _notifier = _StateNotifier(isLoading, accounts),
-        _refreshService = refreshService ??
-            ((connectionRepository != null &&
-                    quotaCacheRepository != null &&
-                    secretStore != null)
-                ? RefreshService(
-                    connectionRepository: connectionRepository,
-                    quotaCacheRepository: quotaCacheRepository,
-                    secretStore: secretStore,
-                    providerRegistry:
-                        providerRegistry ?? ProviderRegistry.instance,
-                    settingsRepository: settingsRepository,
-                    autoStartTimer: autoStartRefreshTimer,
-                  )
-                : null) {
+  }) : _staticLoading = false,
+       _staticAccounts = const [],
+       _notifier = _StateNotifier(isLoading, accounts),
+       _refreshService =
+           refreshService ??
+           ((connectionRepository != null &&
+                   quotaCacheRepository != null &&
+                   secretStore != null)
+               ? RefreshService(
+                   connectionRepository: connectionRepository,
+                   connectionHealthRepository: connectionHealthRepository,
+                   quotaCacheRepository: quotaCacheRepository,
+                   secretStore: secretStore,
+                   providerRegistry:
+                       providerRegistry ?? ProviderRegistry.instance,
+                   settingsRepository: settingsRepository,
+                   autoStartTimer: autoStartRefreshTimer,
+                 )
+               : null) {
     _refreshService?.addSnapshotListener(_handleSnapshotUpdate);
   }
 
   const AppState.loading()
-      : _staticLoading = true,
-        _staticAccounts = const [],
-        _notifier = null,
-        connectionRepository = null,
-        quotaCacheRepository = null,
-        secretStore = null,
-        providerRegistry = null,
-        settingsRepository = null,
-        _refreshService = null;
+    : _staticLoading = true,
+      _staticAccounts = const [],
+      _notifier = null,
+      connectionRepository = null,
+      connectionHealthRepository = null,
+      quotaCacheRepository = null,
+      secretStore = null,
+      providerRegistry = null,
+      settingsRepository = null,
+      _refreshService = null;
 
   const AppState.empty()
-      : _staticLoading = false,
-        _staticAccounts = const [],
-        _notifier = null,
-        connectionRepository = null,
-        quotaCacheRepository = null,
-        secretStore = null,
-        providerRegistry = null,
-        settingsRepository = null,
-        _refreshService = null;
+    : _staticLoading = false,
+      _staticAccounts = const [],
+      _notifier = null,
+      connectionRepository = null,
+      connectionHealthRepository = null,
+      quotaCacheRepository = null,
+      secretStore = null,
+      providerRegistry = null,
+      settingsRepository = null,
+      _refreshService = null;
 
   const AppState.pure({
     bool isLoading = false,
     List<AccountItem> accounts = const [],
-  })  : _staticLoading = isLoading,
-        _staticAccounts = accounts,
-        _notifier = null,
-        connectionRepository = null,
-        quotaCacheRepository = null,
-        secretStore = null,
-        providerRegistry = null,
-        settingsRepository = null,
-        _refreshService = null;
+  }) : _staticLoading = isLoading,
+       _staticAccounts = accounts,
+       _notifier = null,
+       connectionRepository = null,
+       connectionHealthRepository = null,
+       quotaCacheRepository = null,
+       secretStore = null,
+       providerRegistry = null,
+       settingsRepository = null,
+       _refreshService = null;
 
   /// Factory for creating an [AppState] configured for tests with no active timers.
   factory AppState.test({
     ConnectionRepository? connectionRepository,
+    ConnectionHealthRepository? connectionHealthRepository,
     QuotaCacheRepository? quotaCacheRepository,
     SecretStore? secretStore,
     ProviderRegistry? providerRegistry,
@@ -119,6 +127,7 @@ class AppState implements ChangeNotifier {
       isLoading: isLoading,
       accounts: accounts,
       connectionRepository: connectionRepository,
+      connectionHealthRepository: connectionHealthRepository,
       quotaCacheRepository: quotaCacheRepository,
       secretStore: secretStore,
       providerRegistry: providerRegistry,
@@ -136,11 +145,14 @@ class AppState implements ChangeNotifier {
 
   _StateNotifier get _effectiveNotifier {
     if (_notifier != null) return _notifier;
-    return _fallbackNotifiers[this] ??=
-        _StateNotifier(_staticLoading, _staticAccounts);
+    return _fallbackNotifiers[this] ??= _StateNotifier(
+      _staticLoading,
+      _staticAccounts,
+    );
   }
 
   final ConnectionRepository? connectionRepository;
+  final ConnectionHealthRepository? connectionHealthRepository;
   final QuotaCacheRepository? quotaCacheRepository;
   final SecretStore? secretStore;
   final ProviderRegistry? providerRegistry;
@@ -185,8 +197,9 @@ class AppState implements ChangeNotifier {
 
   void _handleSnapshotUpdate(ProviderSnapshot snapshot) {
     final currentAccounts = _effectiveNotifier.accounts;
-    final index = currentAccounts
-        .indexWhere((a) => a.connection.id == snapshot.connectionId);
+    final index = currentAccounts.indexWhere(
+      (a) => a.connection.id == snapshot.connectionId,
+    );
     if (index != -1) {
       final existing = currentAccounts[index];
       final updated = AccountItem(
@@ -210,8 +223,7 @@ class AppState implements ChangeNotifier {
     await _refreshService?.refreshAll();
   }
 
-  /// Loads all connections from [ConnectionRepository] and their quotas
-  /// from [QuotaCacheRepository].
+  /// Loads all connections and their cached quotas and health.
   Future<void> load() async {
     _effectiveNotifier.isLoading = true;
 
@@ -227,13 +239,17 @@ class AppState implements ChangeNotifier {
       for (final conn in connections) {
         final cachedQuotas =
             await quotaCacheRepository?.getAll(conn.id) ?? const <Quota>[];
+        final health = await connectionHealthRepository?.get(conn.id);
         final snapshot = ProviderSnapshot(
           connectionId: conn.id,
-          status: conn.enabled ? ConnectionStatus.ok : ConnectionStatus.warning,
+          status: conn.enabled
+              ? health?.status ?? ConnectionStatus.ok
+              : ConnectionStatus.warning,
           quotas: cachedQuotas,
           balance: null,
-          fetchedAt: DateTime.now().toUtc(),
-          error: null,
+          fetchedAt: health?.lastCheckedAt ?? DateTime.now().toUtc(),
+          error: health?.error,
+          cooldownUntil: health?.cooldownUntil,
         );
         items.add(AccountItem(connection: conn, snapshot: snapshot));
       }
@@ -261,7 +277,8 @@ class AppState implements ChangeNotifier {
     final repo = connectionRepository;
     if (store == null || repo == null) {
       throw StateError(
-          'secretStore and connectionRepository must not be null to add a connection.');
+        'secretStore and connectionRepository must not be null to add a connection.',
+      );
     }
 
     final connectionId = generateSecretRef();
@@ -313,7 +330,8 @@ class AppState implements ChangeNotifier {
     final repo = connectionRepository;
     if (store == null || repo == null) {
       throw StateError(
-          'secretStore and connectionRepository must not be null to update a connection.');
+        'secretStore and connectionRepository must not be null to update a connection.',
+      );
     }
 
     final bool secretChanged = newSecret != null && newSecret.trim().isNotEmpty;
@@ -400,7 +418,8 @@ class AppState implements ChangeNotifier {
     final store = secretStore;
     if (repo == null) {
       throw StateError(
-          'connectionRepository must not be null to remove a connection.');
+        'connectionRepository must not be null to remove a connection.',
+      );
     }
 
     final connections = await repo.getAll();
@@ -415,8 +434,7 @@ class AppState implements ChangeNotifier {
       try {
         await store.delete(target.credentialRef);
       } catch (e) {
-        warning =
-            'Connection deleted, but credential could not be removed from secure storage.';
+        warning = 'Connection deleted, but credential could not be removed from secure storage.';
       }
     }
 
@@ -429,7 +447,8 @@ class AppState implements ChangeNotifier {
     final repo = connectionRepository;
     if (repo == null) {
       throw StateError(
-          'connectionRepository must not be null to toggle connection.');
+        'connectionRepository must not be null to toggle connection.',
+      );
     }
     final connections = await repo.getAll();
     final target = connections.where((c) => c.id == id).firstOrNull;
@@ -458,7 +477,8 @@ class AppState implements ChangeNotifier {
     ProviderAdapter? customAdapter,
   }) async {
     final normalizedProvider = provider.trim().toLowerCase();
-    final adapter = customAdapter ??
+    final adapter =
+        customAdapter ??
         providerRegistry?.get(normalizedProvider) ??
         providerRegistry?.get(provider) ??
         ProviderRegistry.instance.get(normalizedProvider) ??

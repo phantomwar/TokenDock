@@ -10,6 +10,9 @@
 > Funciona hoje: widget Windows 10/11 x64 (compacto/normal/expandido), janela frameless com tray e fechar-para-tray, três conexões OpenRouter independentes, CRUD com test-before-save, cache SQLite em `%LOCALAPPDATA%\TokenDock\tokendock.db`, segredos via DPAPI, refresh manual/periódico com no máximo quatro requisições simultâneas e coalescência por conexão, temas claro/escuro/alto contraste, navegação por teclado e Ctrl+R.
 >
 > Desvio aprovado em relação à ordem deste PRD: o primeiro provedor vivo é o OpenRouter (contrato público `GET /api/v1/key`), não o OpenCode Go; ver `docs/superpowers/specs/2026-09-22-tokendock-first-functional-goal-design.md`. O roadmap abaixo (MiniMax, Antigravity, grupos, notificações, instalador, release 0.1) permanece inalterado e não implementado.
+>
+> Atualização técnica (2026-09-23): o hardening OpenRouter foi implementado na branch isolada `codex/quota-hardening` (não mesclada): classifica 401/402/403/429/503, respeita `Retry-After` documentado, preserva quotas em falhas e persiste saúde/cooldown por conexão (`Migration002`). OpenRouter continua sendo o único provider implementado; a meta de 3 providers permanece não atingida.
+> MiniMax publica `GET https://www.minimax.io/v1/token_plan/remains` e janelas de quota, mas não documenta o schema da resposta; Antigravity documenta `/usage` e `/quota` como painel TUI interativo, sem API pública de quota. Não inferir contratos privados, scraping ou OAuth sem escopo/API oficial.
 
 ---
 
@@ -1099,6 +1102,8 @@ Não fazer request novo para atualizar countdown.
 
 Segundo adapter.
 
+Status (2026-09-23): bloqueado até a documentação oficial publicar o schema de resposta de quota. O endpoint `GET https://www.minimax.io/v1/token_plan/remains` e a autenticação estão documentados, mas não permitem mapear com segurança os campos de quota.
+
 Implementar:
 
 ```text
@@ -1172,6 +1177,8 @@ Isso é melhoria v0.2.
 
 Implementar por último entre os P0.
 
+Status (2026-09-23): bloqueado. A documentação oficial descreve `/usage` (`/quota`) no Antigravity CLI como um painel TUI interativo; não documenta endpoint nem schema de quota para integração externa.
+
 Motivo:
 
 ```text
@@ -1223,15 +1230,13 @@ Antigravity · Pessoal
 
 # 49. Fallback Antigravity
 
-Se a integração depender de recurso não documentado:
-
-mostrar claramente:
+Se existir um contrato público oficial, mas a integração ainda for instável, mostrar claramente:
 
 ```text
 Experimental Provider
 ```
 
-e impedir que erro quebre o aplicativo.
+Esse rótulo não autoriza usar endpoints privados ou scraping. Sem contrato oficial de quota, manter a integração bloqueada e impedir que qualquer falha quebre o aplicativo.
 
 ---
 
@@ -2017,6 +2022,8 @@ Resultado:
 
 sem mudança arquitetural significativa.
 
+Status atual: meta não atingida. O produto tem um provider vivo (OpenRouter); as conexões adicionais não contam como providers. Permanecem os alvos de 7 conexões e 3 providers, sem substituir OpenCode Go por uma integração não verificada.
+
 Se for necessário remodelar o sistema para isso, a primeira arquitetura estava errada.
 
 ---
@@ -2030,6 +2037,8 @@ Antigravity multi-account
 ```
 
 Somente após os providers simples estarem estáveis.
+
+Status atual: não implementada; depende de uma integração Antigravity baseada em contrato oficial de quota.
 
 ---
 

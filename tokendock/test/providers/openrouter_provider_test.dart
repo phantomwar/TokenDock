@@ -39,14 +39,21 @@ class FakeHttpHeaders implements HttpHeaders {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class FakeHttpClientResponse extends Stream<List<int>> implements HttpClientResponse {
+class FakeHttpClientResponse extends Stream<List<int>>
+    implements HttpClientResponse {
   FakeHttpClientResponse({
     this.statusCode = 200,
     String body = '',
-  }) : _bodyBytes = utf8.encode(body);
+    String? retryAfter,
+  }) : _bodyBytes = utf8.encode(body) {
+    if (retryAfter != null) headers.set('retry-after', retryAfter);
+  }
 
   @override
   final int statusCode;
+
+  @override
+  final FakeHttpHeaders headers = FakeHttpHeaders();
 
   final List<int> _bodyBytes;
 
@@ -70,13 +77,11 @@ class FakeHttpClientResponse extends Stream<List<int>> implements HttpClientResp
 }
 
 class FakeHttpClientRequest implements HttpClientRequest {
-  FakeHttpClientRequest({
-    required this.url,
-    this.handler,
-  });
+  FakeHttpClientRequest({required this.url, this.handler});
 
   final Uri url;
-  final Future<HttpClientResponse> Function(Uri url, FakeHttpHeaders headers)? handler;
+  final Future<HttpClientResponse> Function(Uri url, FakeHttpHeaders headers)?
+  handler;
   final FakeHttpHeaders _headers = FakeHttpHeaders();
 
   @override
@@ -97,7 +102,8 @@ class FakeHttpClientRequest implements HttpClientRequest {
 class FakeHttpClient implements HttpClient {
   FakeHttpClient({this.handler});
 
-  final Future<HttpClientResponse> Function(Uri url, FakeHttpHeaders headers)? handler;
+  final Future<HttpClientResponse> Function(Uri url, FakeHttpHeaders headers)?
+  handler;
 
   @override
   Duration? connectionTimeout;
@@ -167,31 +173,37 @@ void main() {
       expect(quota.unit, 'USD');
     });
 
-    test('malformed key fixture maps to error status with Unknown response', () {
-      final json = loadFixture('openrouter_key_malformed.json');
-      final fetchedAt = DateTime.utc(2026, 9, 22, 12);
-      final snapshot = OpenRouterResponse.parseKey(
-        connectionId: 'conn-1',
-        body: json,
-        fetchedAt: fetchedAt,
-      );
+    test(
+      'malformed key fixture maps to error status with Unknown response',
+      () {
+        final json = loadFixture('openrouter_key_malformed.json');
+        final fetchedAt = DateTime.utc(2026, 9, 22, 12);
+        final snapshot = OpenRouterResponse.parseKey(
+          connectionId: 'conn-1',
+          body: json,
+          fetchedAt: fetchedAt,
+        );
 
-      expect(snapshot.status, ConnectionStatus.error);
-      expect(snapshot.error, 'Unknown response');
-      expect(snapshot.quotas, isEmpty);
-    });
+        expect(snapshot.status, ConnectionStatus.error);
+        expect(snapshot.error, 'Unknown response');
+        expect(snapshot.quotas, isEmpty);
+      },
+    );
 
-    test('invalid non-JSON body maps to error status with Unknown response', () {
-      final fetchedAt = DateTime.utc(2026, 9, 22, 12);
-      final snapshot = OpenRouterResponse.parseKey(
-        connectionId: 'conn-1',
-        body: 'Not a json document',
-        fetchedAt: fetchedAt,
-      );
+    test(
+      'invalid non-JSON body maps to error status with Unknown response',
+      () {
+        final fetchedAt = DateTime.utc(2026, 9, 22, 12);
+        final snapshot = OpenRouterResponse.parseKey(
+          connectionId: 'conn-1',
+          body: 'Not a json document',
+          fetchedAt: fetchedAt,
+        );
 
-      expect(snapshot.status, ConnectionStatus.error);
-      expect(snapshot.error, 'Unknown response');
-    });
+        expect(snapshot.status, ConnectionStatus.error);
+        expect(snapshot.error, 'Unknown response');
+      },
+    );
 
     test('402 fixture maps to ConnectionStatus.limited', () {
       final json = loadFixture('openrouter_error_402.json');
@@ -203,7 +215,7 @@ void main() {
       );
 
       expect(snapshot.status, ConnectionStatus.limited);
-      expect(snapshot.error, 'Key limit exceeded');
+      expect(snapshot.error, 'Insufficient credits');
     });
 
     test('limit_reset parses numeric Unix timestamp into UTC DateTime', () {
@@ -222,7 +234,10 @@ void main() {
         fetchedAt: DateTime.utc(2026, 9, 22),
       );
 
-      expect(snapshot.quotas.single.resetAt, DateTime.fromMillisecondsSinceEpoch(1774224000 * 1000, isUtc: true));
+      expect(
+        snapshot.quotas.single.resetAt,
+        DateTime.fromMillisecondsSinceEpoch(1774224000 * 1000, isUtc: true),
+      );
     });
 
     test('limit_reset parses ISO-8601 string into UTC DateTime', () {
@@ -252,16 +267,16 @@ void main() {
       expect(result.error, 'Invalid API key');
     });
 
-    test('403 maps to authError with Invalid API key', () {
+    test('403 maps to error with Forbidden', () {
       final result = OpenRouterResponse.mapHttpStatus(403);
-      expect(result.status, ConnectionStatus.authError);
-      expect(result.error, 'Invalid API key');
+      expect(result.status, ConnectionStatus.error);
+      expect(result.error, 'Forbidden');
     });
 
-    test('402 maps to limited with Key limit exceeded', () {
+    test('402 maps to limited with Insufficient credits', () {
       final result = OpenRouterResponse.mapHttpStatus(402);
       expect(result.status, ConnectionStatus.limited);
-      expect(result.error, 'Key limit exceeded');
+      expect(result.error, 'Insufficient credits');
     });
 
     test('429 maps to warning with Rate limited', () {
@@ -330,7 +345,9 @@ void main() {
         handler: (url, headers) async {
           capturedUrl = url;
           capturedAuthHeader = headers.value(HttpHeaders.authorizationHeader);
-          return FakeHttpClientResponse(body: loadFixture('openrouter_key_finite.json'));
+          return FakeHttpClientResponse(
+            body: loadFixture('openrouter_key_finite.json'),
+          );
         },
       );
 
@@ -343,28 +360,33 @@ void main() {
       expect(snapshot.quotas.single.remaining, 2.5);
     });
 
-    test('test() sends Bearer <secret> header to https://openrouter.ai/api/v1/key', () async {
-      Uri? capturedUrl;
-      String? capturedAuthHeader;
+    test(
+      'test() sends Bearer <secret> header to https://openrouter.ai/api/v1/key',
+      () async {
+        Uri? capturedUrl;
+        String? capturedAuthHeader;
 
-      final client = FakeHttpClient(
-        handler: (url, headers) async {
-          capturedUrl = url;
-          capturedAuthHeader = headers.value(HttpHeaders.authorizationHeader);
-          return FakeHttpClientResponse(body: loadFixture('openrouter_key_finite.json'));
-        },
-      );
+        final client = FakeHttpClient(
+          handler: (url, headers) async {
+            capturedUrl = url;
+            capturedAuthHeader = headers.value(HttpHeaders.authorizationHeader);
+            return FakeHttpClientResponse(
+              body: loadFixture('openrouter_key_finite.json'),
+            );
+          },
+        );
 
-      final provider = OpenRouterProvider(client: client);
-      final testResult = await provider.test(testConnection, 'secret-67890');
+        final provider = OpenRouterProvider(client: client);
+        final testResult = await provider.test(testConnection, 'secret-67890');
 
-      expect(capturedUrl, Uri.parse('https://openrouter.ai/api/v1/key'));
-      expect(capturedAuthHeader, 'Bearer secret-67890');
-      expect(testResult.isSuccess, isTrue);
-      expect(testResult.plan, 'Pro Plan');
-      expect(testResult.quotas.single.percent, 75.0);
-      expect(testResult.error, isNull);
-    });
+        expect(capturedUrl, Uri.parse('https://openrouter.ai/api/v1/key'));
+        expect(capturedAuthHeader, 'Bearer secret-67890');
+        expect(testResult.isSuccess, isTrue);
+        expect(testResult.plan, 'Pro Plan');
+        expect(testResult.quotas.single.percent, 75.0);
+        expect(testResult.error, isNull);
+      },
+    );
 
     test('test() returns TestResult.failure on error response', () async {
       final client = FakeHttpClient(
@@ -384,20 +406,97 @@ void main() {
       expect(testResult.quotas, isEmpty);
       expect(testResult.plan, isNull);
     });
-
-    test('fetch() maps TimeoutException to error status with Timeout', () async {
+    test('402 in-flight budget with Retry-After is transient', () async {
       final client = FakeHttpClient(
-        handler: (url, headers) async {
-          throw TimeoutException('Request timed out');
-        },
+        handler: (url, headers) async => FakeHttpClientResponse(
+          statusCode: 402,
+          body:
+              '{"error":{"code":402,"message":"temporary budget",'
+              '"metadata":{"limit_source":"openrouter_in_flight_budget"}}}',
+          retryAfter: '60',
+        ),
       );
 
-      final provider = OpenRouterProvider(client: client);
-      final snapshot = await provider.fetch(testConnection, 'secret-key');
+      final snapshot = await OpenRouterProvider(client: client)
+          .fetch(testConnection, 'secret');
 
-      expect(snapshot.status, ConnectionStatus.error);
-      expect(snapshot.error, 'Timeout');
+      expect(snapshot.status, ConnectionStatus.warning);
+      expect(snapshot.error, 'Rate limited');
     });
+    test('429 Retry-After seconds produce a connection cooldown', () async {
+      final client = FakeHttpClient(
+        handler: (url, headers) async => FakeHttpClientResponse(
+          statusCode: 429,
+          body: '{"error":{"code":429,"message":"rate limited"}}',
+          retryAfter: '60',
+        ),
+      );
+
+      final snapshot = await OpenRouterProvider(client: client)
+          .fetch(testConnection, 'secret');
+
+      expect(
+        snapshot.cooldownUntil,
+        snapshot.fetchedAt.add(const Duration(seconds: 60)),
+      );
+    });
+
+    test('503 Retry-After HTTP date is parsed as UTC cooldown', () async {
+      final target = DateTime.now().toUtc().add(const Duration(minutes: 2));
+      final expected = DateTime.utc(
+        target.year,
+        target.month,
+        target.day,
+        target.hour,
+        target.minute,
+        target.second,
+      );
+      final client = FakeHttpClient(
+        handler: (url, headers) async => FakeHttpClientResponse(
+          statusCode: 503,
+          body: '{"error":{"code":503,"message":"unavailable"}}',
+          retryAfter: HttpDate.format(target),
+        ),
+      );
+
+      final snapshot = await OpenRouterProvider(client: client)
+          .fetch(testConnection, 'secret');
+
+      expect(snapshot.cooldownUntil, expected);
+      expect(snapshot.cooldownUntil!.isUtc, isTrue);
+    });
+
+    test('malformed Retry-After does not create a cooldown', () async {
+      final client = FakeHttpClient(
+        handler: (url, headers) async => FakeHttpClientResponse(
+          statusCode: 429,
+          body: '{"error":{"code":429}}',
+          retryAfter: 'later',
+        ),
+      );
+
+      final snapshot = await OpenRouterProvider(client: client)
+          .fetch(testConnection, 'secret');
+
+      expect(snapshot.cooldownUntil, isNull);
+    });
+
+    test(
+      'fetch() maps TimeoutException to error status with Timeout',
+      () async {
+        final client = FakeHttpClient(
+          handler: (url, headers) async {
+            throw TimeoutException('Request timed out');
+          },
+        );
+
+        final provider = OpenRouterProvider(client: client);
+        final snapshot = await provider.fetch(testConnection, 'secret-key');
+
+        expect(snapshot.status, ConnectionStatus.error);
+        expect(snapshot.error, 'Timeout');
+      },
+    );
 
     test('bearer token is never logged or exposed in snapshot errors or test failure', () async {
       const secret = 'super-confidential-bearer-token-99999';

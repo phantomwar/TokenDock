@@ -23,6 +23,15 @@ gate test-before-save (`lib/ui/settings/connections_screen.dart`), erro mapeado
 em `lib/providers/openrouter/openrouter_response.dart:mapHttpStatus`,
 96+3 testes, `analyze` limpo, `build windows` ok.
 
+### Implementação e escopo desta revisão (2026-09-23)
+
+- Entregue no slice OpenRouter: classificação 401/402/403/429/503; `Retry-After` em segundos ou HTTP-date para 429/503 e para 402 somente quando `metadata.limit_source=openrouter_in_flight_budget`; cooldown e estado de saúde persistidos por conexão; falhas preservam o cache; segredo atual removido de erros do provider antes de publicar/persistir; sucesso limpa o cooldown.
+- `Migration002` adiciona `last_status`, `last_checked_at`, `cooldown_until` e `last_error` em `connections`. O `RefreshService` pula somente uma conexão com cooldown futuro; `AppState.load()` restaura status, erro, data e cooldown.
+- Não implementado: polling adaptativo, retry automático/jitter, helper geral de redação, `AuthKind`, credenciais renováveis/OAuth e fallback entre contas. Esses itens não foram necessários para o hardening aprovado; TokenDock continua sendo monitor, não roteador de inferência.
+- MiniMax: a FAQ oficial publica `GET https://www.minimax.io/v1/token_plan/remains`, Bearer Subscription Key e janelas rolling de 5h + semanal, mas não publica o schema da resposta. Adapter bloqueado até contrato de resposta documentado.
+- Antigravity: a documentação oficial descreve `/usage` e `/quota` como comandos do CLI que abrem um painel TUI; não publica API externa de quota/schema. Integração de uma ou várias contas bloqueada; não usar OAuth genérico como substituto de um contrato de produto.
+- A meta do PRD de 3 providers segue não atingida: OpenRouter é o único provider implementado; não substituir OpenCode Go por outra integração presumida.
+
 ## 2. O que 2026 confirma, corrige ou acrescenta ao relatório prévio
 
 **Confirma (fazer como planejado):** probe barato por tipo de credencial antes de
@@ -73,12 +82,7 @@ logs; refresh OAuth em 3 momentos + single-flight; `AuthKind` por provider;
   `provider_code` + fallback automático; 429 mid-stream chega como SSE
   `finish_reason:error` (status já 200). **Sucesso nunca traz `X-RateLimit-*`.**
   Doc manda retry com exponential backoff honrando `Retry-After`.
-- MiniMax hoje (docs oficiais): limites **RPM+TPM por modelo e tipo de conta,
-  compartilhados master+sub**; erros são **códigos numéricos no body**
-  (1002 frequência, 2045 rajada, 1041 conexões, 1039 tokens, 1008 saldo,
-  2056 Token Plan); **sem `Retry-After` documentado**. Token Plan (coding plan):
-  janelas fixas 5h + semanal sem rollover, throttling com recuperação ~1min e
-  aperto no pico (15–17:30 dias úteis); saldo via `GET /v1/token_plan/remains`.
+- MiniMax hoje (docs oficiais): limites RPM+TPM por modelo e tipo de conta, compartilhados master+sub; erros são códigos numéricos no body (1002 frequência, 2045 rajada, 1041 conexões, 1039 tokens, 1008 saldo, 2056 Token Plan); sem `Retry-After` documentado. Token Plan usa janelas rolling de 5h + semanal e o endpoint oficial `GET /v1/token_plan/remains`; a FAQ não publica o schema JSON da resposta.
 - Escopo da pausa: **só a conta/chave afetada, nunca global** (Azure
   per-principal, Graph por client-app, OpenRouter `limit_source`).
 - Semântica: 429 = transitório (retry + backoff); 402 sem `Retry-After` e
@@ -277,6 +281,9 @@ mudança arquitetural — se exigir remodelar, a fase 4 falhou.
   https://openrouter.ai/docs/api-reference/errors-and-debugging); MiniMax
   rate-limits + errorcode + token-plan
   (https://platform.minimaxi.com/docs/guides/rate-limits).
+- MiniMax Token Plan FAQ (`GET /v1/token_plan/remains`, quotas e janelas; schema de resposta ausente): https://platform.minimax.io/docs/token-plan/faq.
+- Antigravity CLI Model Quotas (`/usage` e `/quota`, painel TUI): https://antigravity.google/docs/cli/commands/usage/.
+- Google OAuth desktop/native-app protocol (fluxo OAuth genérico; não documenta recurso de quota Antigravity): https://developers.google.com/identity/protocols/oauth2/native-app.
 - Repos: `can1357/oh-my-pi` (`AuthStorage`, `sqlite-credential-store`,
   `auth-classify`, `rate-limit`, `auth-retry`, `http-inspector`);
   `decolua/9router` (`providerConnections`, `accountFallback`, `errorConfig`,

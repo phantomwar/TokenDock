@@ -44,23 +44,25 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 - Approved technical design: `docs/superpowers/specs/2026-09-22-tokendock-first-functional-goal-design.md`.
 - Visual references: `docs/imagens/windows-tray-dashboard.png`, `docs/imagens/HS0mcVHagAAQYiG.jpg`, `docs/imagens/HS0mbP5agAEg0nP.png`, `docs/imagens/HSzxw_Sb0AARFwe.png`, and `docs/imagens/HSzxv9UaIAAOXbw.jpg`.
 - Sanitized OpenRouter fixtures exist at `tokendock/test/fixtures/` (finite, unlimited, malformed, and 402 payloads). No real API key exists in source control or tests. No installer, portable ZIP, Start Menu entries, auto-start behavior, user research, commercial claims, or final brand assets exist yet.
-- Research: `docs/auth-research-oh-my-pi-9router.md` (auth patterns from `can1357/oh-my-pi` and `decolua/9router`, 2026-09-23) and `docs/auth-quota-hardening-plan.md` (phased auth/secrets/quota hardening plan correlated with 2026 OAuth, Windows-secrets, and rate-limit trends — planned, not implemented).
+- Research: `docs/auth-research-oh-my-pi-9router.md` (auth patterns from `can1357/oh-my-pi` and `decolua/9router`, 2026-09-23) and `docs/auth-quota-hardening-plan.md` (phased auth/secrets/quota hardening plan correlated with 2026 OAuth, Windows-secrets, and rate-limit trends; implementation status is recorded below).
 
 ## Implementation Status
 
-- Status: first functional slice implemented in `tokendock/` on `master` (`7154db3`), Windows 10/11 x64 only.
+- Status: baseline functional slice is on `master` (`7154db3`); quota hardening is implemented in isolated worktree branch `codex/quota-hardening`, not merged. Windows 10/11 x64 only.
 - Live provider: OpenRouter only. `OpenRouterProvider.id == 'openrouter'` calls `GET https://openrouter.ai/api/v1/key` with `Authorization: Bearer <secret>` on one reusable `HttpClient` (10s connection, 15s response timeout). No inference calls, no Management API.
+- OpenRouter hardening in the current implementation: 401 maps to invalid credentials, 402 to insufficient credits (except documented in-flight-budget responses with `Retry-After`), 403 to forbidden, and 429/503 honor valid `Retry-After`. Provider failures preserve cached quotas and redact the current credential from surfaced error text.
+- Per-connection health is persisted in schema v2. Active cooldowns skip only that connection; successful refresh clears the cooldown. Timer cadence remains fixed; adaptive polling is not implemented.
+- MiniMax and Antigravity are not live providers. MiniMax documents a quota endpoint but not its response schema; Antigravity documents `/usage` and `/quota` as interactive CLI TUI commands, not a public quota API. The three-provider target remains unmet.
 - Refresh: manual, Ctrl+R/Cmd+R (disabled while a text field has focus), tray action, and one periodic timer (default 3 minutes; 1/3/5/10/manual), at most four concurrent connection refreshes with same-ID coalescing.
 - Cache-first: cached quotas render immediately; refresh failures preserve prior values and show `Last updated <relative age>`; past resets render `Resetting…`.
 - Window/tray: frameless 360x600 window, hide-to-tray on close, explicit Exit; tray menu exposes Open TokenDock, Refresh All, Always on Top, Connections, and Exit, with double-click restoring the widget.
-- Credentials: UUIDv4 references in `%LOCALAPPDATA%\TokenDock\tokendock.db` (`Migration001`, `user_version = 1`); secret values only in DPAPI-backed `flutter_secure_storage` (`^11.2.0`, user-scope file backend on Windows, no Credential Locker). Saved credentials display a masked preview (leading characters plus last four), never the full secret.
+- Credentials: UUIDv4 references in `%LOCALAPPDATA%\TokenDock\tokendock.db` (`Migration001` + `Migration002`, `user_version = 2`; health fields are stored on each connection); secret values only in DPAPI-backed `flutter_secure_storage` (`^11.2.0`, user-scope file backend on Windows, no Credential Locker). Saved credentials display a masked preview (leading characters plus last four), never the full secret.
 
 ## Verification Evidence
 
-- `flutter test`: 96/96. `flutter test integration_test/multi_account_flow_test.dart`: 3/3 (three independent accounts; cache replacement on success; cache preservation on timeout; restart restore from cache with all providers unreachable).
-- `flutter analyze`: 0 errors, 0 warnings.
-- `flutter build windows --release`: succeeds. The release binary launches the frameless first-run surface, creates the `%LOCALAPPDATA%` database, and hides to the tray on close.
+- Baseline evidence at `7154db3`: `flutter test` 96/96; `flutter test integration_test/multi_account_flow_test.dart` 3/3; `flutter analyze` 0 errors and 0 warnings; Windows release build succeeds.
 - Covered: compact/normal/expanded layouts, light/dark/high-contrast themes, keyboard-only flows (Tab/Enter/Space reach Add Connection), reduced motion, test-before-save CRUD with credential compensation, refresh concurrency and coalescing, cache preservation, and three-account isolation.
+- Current hardening worktree: `flutter test --no-pub` 109/109. `flutter analyze` reports 5 informational `prefer_initializing_formals` diagnostics in `RefreshService` (0 errors, 0 warnings). The Windows integration test could not launch because Flutter plugin builds require symlink support/Developer Mode in this environment.
 
 ## Product Principles
 

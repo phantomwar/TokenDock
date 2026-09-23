@@ -9,6 +9,7 @@ class ProviderSnapshot {
     required this.balance,
     required this.fetchedAt,
     required this.error,
+    this.cooldownUntil,
   });
 
   final String connectionId;
@@ -17,4 +18,5 @@ class ProviderSnapshot {
   final double? balance;
   final DateTime fetchedAt;
   final String? error;
+  final DateTime? cooldownUntil;
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import '../../models/connection_status.dart';
 import '../../models/provider_snapshot.dart';
@@ -89,12 +90,17 @@ class OpenRouterResponse {
     }
   }
 
-  static ({ConnectionStatus status, String error}) mapHttpStatus(int statusCode) {
-    if (statusCode == 401 || statusCode == 403) {
+  static ({ConnectionStatus status, String error}) mapHttpStatus(
+    int statusCode,
+  ) {
+    if (statusCode == 401) {
       return (status: ConnectionStatus.authError, error: 'Invalid API key');
     }
+    if (statusCode == 403) {
+      return (status: ConnectionStatus.error, error: 'Forbidden');
+    }
     if (statusCode == 402) {
-      return (status: ConnectionStatus.limited, error: 'Key limit exceeded');
+      return (status: ConnectionStatus.limited, error: 'Insufficient credits');
     }
     if (statusCode == 429) {
       return (status: ConnectionStatus.warning, error: 'Rate limited');
@@ -110,6 +116,7 @@ class OpenRouterResponse {
     required DateTime fetchedAt,
     required ConnectionStatus status,
     required String error,
+    DateTime? cooldownUntil,
   }) {
     return ProviderSnapshot(
       connectionId: connectionId,
@@ -118,6 +125,7 @@ class OpenRouterResponse {
       balance: null,
       fetchedAt: fetchedAt,
       error: error,
+      cooldownUntil: cooldownUntil,
     );
   }
 
@@ -151,44 +159,79 @@ class OpenRouterResponse {
     int? statusCode,
     bool isTimeout = false,
     String? body,
+    String? retryAfter,
   }) {
     if (isTimeout) {
-      return timeoutSnapshot(
-        connectionId: connectionId,
-        fetchedAt: fetchedAt,
-      );
+      return timeoutSnapshot(connectionId: connectionId, fetchedAt: fetchedAt);
     }
+
+    int? bodyStatusCode;
+    String? limitSource;
     if (body != null) {
       try {
         final dynamic decoded = jsonDecode(body);
         if (decoded is Map && decoded['error'] is Map) {
-          final err = decoded['error'] as Map;
-          final code = err['code'];
-          if (code is int) {
-            final mapped = mapHttpStatus(code);
-            return errorSnapshot(
-              connectionId: connectionId,
-              fetchedAt: fetchedAt,
-              status: mapped.status,
-              error: mapped.error,
-            );
+          final error = decoded['error'] as Map;
+          final code = error['code'];
+          if (code is int) bodyStatusCode = code;
+          final metadata = error['metadata'];
+          if (metadata is Map && metadata['limit_source'] is String) {
+            limitSource = metadata['limit_source'] as String;
           }
         }
       } catch (_) {}
     }
-    if (statusCode != null) {
-      final mapped = mapHttpStatus(statusCode);
+
+    final effectiveStatusCode = statusCode ?? bodyStatusCode;
+    final retryAt = _parseRetryAfter(retryAfter, fetchedAt);
+    if (effectiveStatusCode == 402 &&
+        limitSource == 'openrouter_in_flight_budget' &&
+        retryAt != null) {
+      return errorSnapshot(
+        connectionId: connectionId,
+        fetchedAt: fetchedAt,
+        status: ConnectionStatus.warning,
+        error: 'Rate limited',
+        cooldownUntil: retryAt,
+      );
+    }
+
+    if (effectiveStatusCode != null) {
+      final mapped = mapHttpStatus(effectiveStatusCode);
+      final honorsRetryAfter =
+          effectiveStatusCode == 429 || effectiveStatusCode == 503;
       return errorSnapshot(
         connectionId: connectionId,
         fetchedAt: fetchedAt,
         status: mapped.status,
         error: mapped.error,
+        cooldownUntil: honorsRetryAfter ? retryAt : null,
       );
     }
-    return malformedSnapshot(
-      connectionId: connectionId,
-      fetchedAt: fetchedAt,
-    );
+
+    return malformedSnapshot(connectionId: connectionId, fetchedAt: fetchedAt);
+  }
+
+  static DateTime? _parseRetryAfter(String? value, DateTime fetchedAt) {
+    final header = value?.trim();
+    if (header == null || header.isEmpty) return null;
+
+    final seconds = int.tryParse(header);
+    if (seconds != null) {
+      if (seconds <= 0) return null;
+      try {
+        return fetchedAt.toUtc().add(Duration(seconds: seconds));
+      } catch (_) {
+        return null;
+      }
+    }
+
+    try {
+      final retryAt = HttpDate.parse(header).toUtc();
+      return retryAt.isAfter(fetchedAt) ? retryAt : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static DateTime? _parseResetAt(dynamic value) {
