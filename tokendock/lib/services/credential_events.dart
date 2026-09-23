@@ -24,15 +24,7 @@ String? definitiveOAuthFailureCause(Object error) =>
 String? _definitiveFailureCause(Object error) {
   final message = error is StateError ? error.message : error.toString();
   final normalized = message.trim().toLowerCase();
-  if (normalized == 'invalid_grant' ||
-      normalized.startsWith('invalid_grant:')) {
-    return 'invalid_grant';
-  }
-  if (normalized == '401' ||
-      normalized == 'http 401' ||
-      normalized == 'status 401' ||
-      normalized == 'statuscode=401') {
-    return 'bare_401';
-  }
+  if (normalized.contains('invalid_grant')) return 'invalid_grant';
+  if (normalized == '401' || normalized.endsWith(': 401') || normalized.contains('bad state: 401') || normalized.contains('http 401') || normalized.contains('status 401') || normalized.contains('statuscode=401')) return 'bare_401';
   return null;
 }

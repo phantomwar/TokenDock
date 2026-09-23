@@ -315,8 +315,7 @@ class RefreshService {
     if (refreshable != null && refreshable.expiresAt != null &&
         refreshable.expiresAt!.isBefore(DateTime.now().toUtc().add(refreshable.refreshLead))) {
       try {
-        secret = await runTokenOperation(connectionId: connectionId, operation: () => refreshable.refresh(currentSecret));
-        await _secretStore.write(connection.credentialRef, secret);
+        secret = await _rotateCredential(connection, await runTokenOperation(connectionId: connectionId, operation: () => refreshable.refresh(currentSecret)));
       } catch (error) {
         definitiveCause = definitiveOAuthFailureCause(error);
         providerSnapshot = ProviderSnapshot(
@@ -333,8 +332,7 @@ class RefreshService {
       try {
         providerSnapshot = await adapter.fetch(connection, secret ?? currentSecret);
         if (providerSnapshot.status == ConnectionStatus.authError && providerSnapshot.error == '401' && refreshable != null) {
-          secret = await runTokenOperation(connectionId: connectionId, operation: () => refreshable.refresh(secret ?? currentSecret));
-          await _secretStore.write(connection.credentialRef, secret);
+          secret = await _rotateCredential(connection, await runTokenOperation(connectionId: connectionId, operation: () => refreshable.refresh(secret ?? currentSecret)));
           providerSnapshot = await adapter.fetch(connection, secret ?? currentSecret);
         }
       } catch (error) {
@@ -401,6 +399,31 @@ class RefreshService {
     }
     await _persistHealthAndPublish(snapshot);
   }
+  Future<String> _rotateCredential(Connection connection, String nextSecret) async {
+    final nextRef = generateSecretRef();
+    await _secretStore.write(nextRef, nextSecret);
+    final updated = Connection(
+      id: connection.id,
+      provider: connection.provider,
+      displayName: connection.displayName,
+      group: connection.group,
+      plan: connection.plan,
+      credentialRef: nextRef,
+      enabled: connection.enabled,
+      authType: connection.authType,
+      identityKey: connection.identityKey,
+      providerData: connection.providerData,
+    );
+    try {
+      await _connectionRepository.save(updated);
+      await _secretStore.delete(connection.credentialRef);
+      return nextSecret;
+    } catch (_) {
+      await _secretStore.delete(nextRef);
+      rethrow;
+    }
+  }
+
 
   Future<void> _persistHealthAndPublish(ProviderSnapshot snapshot) async {
     final health = ConnectionHealth(

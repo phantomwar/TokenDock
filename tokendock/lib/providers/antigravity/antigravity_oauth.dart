@@ -84,8 +84,9 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     final launch = launchExternalBrowser;
     if (launch == null) { await session.close(); throw StateError('External browser handoff is required'); }
     try {
+      final delivered = session.waitForCode(state);
       await launch(url);
-      final result = await session.waitForCode(state);
+      final result = await delivered;
       return login(connection, code: result.code, codeVerifier: verifier, redirectUri: session.redirectUri.toString());
     } finally { await session.close(); }
   }
@@ -95,9 +96,10 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       'client_id': clientId, 'code': code, 'code_verifier': codeVerifier, 'redirect_uri': redirectUri, 'grant_type': 'authorization_code',
     });
     final access = (token['access_token'] ?? '').toString();
-    if (access.isEmpty) throw StateError('OAuth token exchange failed');
     final identity = AntigravitySelectedAccountGuard.identityOf(token) ?? connection.identityKey;
     var provisioning = await _loadCodeAssist(access, identity: identity, projectId: _providerData(connection)['projectId']?.toString());
+    final provisioningIdentity = AntigravitySelectedAccountGuard.identityOf(provisioning);
+    if (identity != null && provisioningIdentity != null && identity != provisioningIdentity) throw StateError('Account mismatch');
     var project = _project(provisioning);
     if (_tier(provisioning) == null) {
       provisioning = await _onboardUser(access, identity: identity, projectId: project);
@@ -155,29 +157,51 @@ class AntigravityOAuthProvider implements ProviderAdapter {
           if (!const AntigravitySelectedAccountGuard().accepts(expected: expected, payload: payload)) return _error(connection.id, 'Account mismatch');
           _requireQuotaSchema(payload);
           return AntigravityLocalReader.parseQuotaSummary(body: jsonEncode(payload), connectionId: connection.id);
-        } on AntigravityTransportFailure { rethrow; }
+        } on StateError catch (error) {
+          if (!error.message.toString().contains('HTTP 404')) rethrow;
+        }
       }
       return await _fetchLegacy(connection, credential, project, expected);
-    } on AntigravitySchemaChanged { return _error(connection.id, 'quota_source_changed'); }
-    on AntigravityTransientFailure catch (error) { return ProviderSnapshot(connectionId: connection.id, status: ConnectionStatus.warning, quotas: const [], balance: null, fetchedAt: DateTime.now().toUtc(), error: error.toString(), cooldownUntil: DateTime.now().toUtc().add(const Duration(minutes: 1))); }
-    catch (error) { return _error(connection.id, error.toString().replaceFirst('Exception: ', '')); }
+    } on AntigravitySchemaChanged {
+      return _error(connection.id, 'quota_source_changed');
+    } on AntigravityTransientFailure catch (error) {
+      return ProviderSnapshot(connectionId: connection.id, status: ConnectionStatus.warning, quotas: const [], balance: null, fetchedAt: DateTime.now().toUtc(), error: error.toString(), cooldownUntil: DateTime.now().toUtc().add(const Duration(minutes: 1)));
+    } catch (error) {
+      return _error(connection.id, error.toString().replaceFirst('Exception: ', ''));
+    }
   }
   Future<ProviderSnapshot> _fetchLegacy(Connection connection, Map<String, dynamic> credential, String project, String? expected) async {
-    await _postJson(Uri.parse('$prodHost/v1internal:fetchAvailableModels'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
+    final models = await _postJson(Uri.parse('$prodHost/v1internal:fetchAvailableModels'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
     final quota = await _postJson(Uri.parse('$prodHost/v1internal:retrieveUserQuota'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
     if (!const AntigravitySelectedAccountGuard().accepts(expected: expected, payload: quota)) return _error(connection.id, 'Account mismatch');
     _requireQuotaSchema(quota, legacy: true);
-    return AntigravityLocalReader.parseQuotaSummary(body: jsonEncode({'response': {'quotaInfo': quota['quotaInfo'] ?? quota, 'accountEmail': quota['accountEmail'], 'accountId': quota['accountId']}}), connectionId: connection.id);
+    return AntigravityLocalReader.parseQuotaSummary(body: jsonEncode({'response': {'quotaInfo': quota['quotaInfo'] ?? quota, 'accountEmail': quota['accountEmail'], 'accountId': quota['accountId'], 'models': models}}), connectionId: connection.id);
   }
   static void _requireQuotaSchema(Map<String, dynamic> payload, {bool legacy = false}) {
     final root = payload['response'] is Map ? Map<String, dynamic>.from(payload['response'] as Map) : payload;
-    final recognized = root.containsKey('groups') || root.containsKey('quotaInfo') || root.containsKey('availability');
-    if (!recognized) throw const AntigravitySchemaChanged();
+    if (root.containsKey('groups')) {
+      final groups = root['groups'];
+      if (groups is! List) throw const AntigravitySchemaChanged();
+      for (final raw in groups) {
+        if (raw is! Map || raw['buckets'] is! List) throw const AntigravitySchemaChanged();
+        if ((raw['buckets'] as List).any((bucket) => bucket is! Map)) throw const AntigravitySchemaChanged();
+      }
+      return;
+    }
+    if (root.containsKey('quotaInfo')) {
+      if (root['quotaInfo'] is! Map) throw const AntigravitySchemaChanged();
+      return;
+    }
+    if (root.containsKey('availability')) {
+      if (root['availability'] is! Map) throw const AntigravitySchemaChanged();
+      return;
+    }
+    throw const AntigravitySchemaChanged();
   }
   Future<String> refresh(String currentSecret) async {
     final value = _credential(currentSecret); final refreshToken = value['refreshToken']?.toString();
     if (refreshToken == null || refreshToken.isEmpty) throw StateError('refresh token missing');
-    final response = await _postJson(Uri.parse(tokenEndpoint), {'client_id': clientId, 'refresh_token': refreshToken, 'grant_type': 'refresh_token'});
+    final response = await _postJson(Uri.parse(tokenEndpoint), {'client_id': clientId, 'refresh_token': refreshToken, 'grant_type': 'refresh_token', 'access_type': 'offline'});
     if (response['access_token'] == null) throw StateError('invalid_grant');
     return jsonEncode({...value, 'accessToken': response['access_token'], 'refreshToken': response['refresh_token'] ?? refreshToken, 'expiresAt': _expiry(response)?.toIso8601String()});
   }

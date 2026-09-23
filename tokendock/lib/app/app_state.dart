@@ -343,7 +343,19 @@ class AppState implements ChangeNotifier {
     try {
       final selectedProvider = provider ?? (providerRegistry?.get('antigravity') as AntigravityOAuthProvider?);
       if (selectedProvider == null) throw StateError('Antigravity OAuth provider is not registered');
-      final result = await selectedProvider.loginWithLoopback(provisional);
+      AntigravityOAuthLoginResult? loginResult;
+      final secretValue = await (_refreshService?.runTokenOperation(
+        connectionId: provisional.id,
+        operation: () async {
+          loginResult = await selectedProvider.loginWithLoopback(provisional);
+          return loginResult!.secret;
+        },
+      ) ?? selectedProvider.loginWithLoopback(provisional).then((value) {
+        loginResult = value;
+        return value.secret;
+      }));
+      final result = loginResult!;
+      await store.write(ref, secretValue);
       final connection = Connection(
         id: id,
         provider: 'antigravity',
@@ -360,6 +372,7 @@ class AppState implements ChangeNotifier {
       await load();
       return connection;
     } catch (error) {
+      await repo.delete(id);
       await store.delete(ref);
       rethrow;
     }

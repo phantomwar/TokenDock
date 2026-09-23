@@ -4,9 +4,11 @@
 Implemented Appendix B remote OAuth provider and completed review-requested integration fixes.
 
 ## Changes
-- Added `antigravity_oauth.dart`: injectable HTTP runner, OAuth code exchange, PKCE/state loopback handoff contract, `loadCodeAssist` prod/daily transport-only retry, `onboardUser` when tier is absent, onboarding-required error, selected account guard, quota summary parsing via Appendix A, legacy `fetchAvailableModels`/`retrieveUserQuota` fallback, schema-change error, 429/5xx transient snapshots, refresh-token rotation, and `AntigravityRefreshableCredential`.
-- Added `AppState.addAntigravityConnection` to create a connection, run the loopback login, persist identity/project/tier metadata through the connection repository, and compensate by deleting the secret on failure.
-- Extended `ProviderAdapter` with the optional refreshable credential factory and wired `RefreshService` proactive refresh, reactive refresh/retry, and per-connection token-operation lock. Schema changes retain `quota_source_changed`; non-auth errors remain transient errors.
+- Added `antigravity_oauth.dart`: injectable HTTP runner, OAuth code exchange, PKCE/state loopback handoff contract, `loadCodeAssist` prod/daily transport-only retry, `onboardUser` when tier is absent, onboarding-required error, selected account guard, quota summary parsing via Appendix A, legacy `fetchAvailableModels`/`retrieveUserQuota` fallback with models retained, strict quota shape validation and schema-change error, 429/5xx transient snapshots, refresh-token rotation, and `AntigravityRefreshableCredential`.
+- Added `AppState.addAntigravityConnection` to create a connection, run the loopback login through the RefreshService token lock, persist the returned secret and identity/project/tier metadata through the SecretStore and ConnectionRepository, and compensate row/secret writes on failure.
+- Wired `main.dart` to construct the default provider registry with the application SecretStore.
+- Extended `ProviderAdapter` with the optional refreshable credential factory and wired `RefreshService` proactive refresh, reactive refresh/retry, atomic write-new/delete-old rotation, and per-connection token-operation lock. Wrapped `Bad state: 401` is normalized to definitive auth failure; schema changes retain `quota_source_changed`; non-auth errors remain transient errors.
+- Added offline access type to refresh-token exchange.
 - Updated `AntigravityProvider` to expose the remote OAuth adapter while retaining the local reader as the separate opt-in implementation.
 - Registered both `openrouter` and `antigravity` defaults.
 - Expanded fake HTTP tests for account isolation, no `client_secret`, quota parsing, mismatch rejection, and empty-project onboarding.

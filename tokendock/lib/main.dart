@@ -30,13 +30,14 @@ Future<void> main() async {
   await windowManager.setPreventClose(true);
 
   final db = await AppDatabase.open();
+  final secretStore = SecureSecretStore();
   final appState = AppState(
     connectionRepository: db.connectionRepository,
     connectionHealthRepository: db.connectionHealthRepository,
     quotaCacheRepository: db.quotaCacheRepository,
-    secretStore: SecureSecretStore(),
+    secretStore: secretStore,
     settingsRepository: db.settingsRepository,
-    providerRegistry: ProviderRegistry.instance,
+    providerRegistry: ProviderRegistry(secretStore: secretStore),
     autoStartRefreshTimer: true,
   );
 
