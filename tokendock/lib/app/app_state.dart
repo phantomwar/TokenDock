@@ -372,8 +372,7 @@ class AppState implements ChangeNotifier {
       await load();
       return connection;
     } catch (error) {
-      await repo.delete(id);
-      await store.delete(ref);
+      try { await repo.delete(id); } finally { await store.delete(ref); }
       rethrow;
     }
   }

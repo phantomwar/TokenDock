@@ -414,12 +414,17 @@ class RefreshService {
       identityKey: connection.identityKey,
       providerData: connection.providerData,
     );
-    await _connectionRepository.save(updated);
+    try {
+      await _connectionRepository.save(updated);
+    } catch (_) {
+      await _secretStore.delete(nextRef);
+      rethrow;
+    }
     try {
       await _secretStore.delete(connection.credentialRef);
     } catch (_) {
-      // The committed connection points at nextRef; retain it when cleanup
-      // of the old secret is temporarily unavailable.
+      // Commit succeeded; retain the committed replacement and report no
+      // credential failure. Cleanup can be retried safely later.
     }
     return nextSecret;
   }

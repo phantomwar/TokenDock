@@ -105,13 +105,11 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     if (access.isEmpty) throw StateError('OAuth access token missing');
     final identity = AntigravitySelectedAccountGuard.identityOf(token) ?? connection.identityKey;
     var provisioning = await _loadCodeAssist(access, identity: identity, projectId: _providerData(connection)['projectId']?.toString());
-    final provisioningIdentity = AntigravitySelectedAccountGuard.identityOf(provisioning);
-    if (identity != null && provisioningIdentity != null && identity != provisioningIdentity) throw StateError('Account mismatch');
+    _requireProvisioningIdentity(provisioning, identity);
     var project = _project(provisioning);
     if (_tier(provisioning) == null) {
       provisioning = await _onboardUser(access, identity: identity, projectId: project);
-      final onboardIdentity = AntigravitySelectedAccountGuard.identityOf(provisioning);
-      if (identity != null && onboardIdentity != null && identity != onboardIdentity) throw StateError('Account mismatch');
+      _requireProvisioningIdentity(provisioning, identity);
       project = _project(provisioning);
     }
     if (project == null || project.isEmpty) throw const AntigravityOnboardingRequired();
@@ -150,6 +148,35 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     if (result['response'] is! Map) throw const AntigravitySchemaChanged();
     return result;
   }
+  static void _requireProvisioningIdentity(Map<String, dynamic> payload, String? expected) {
+    if (expected == null || expected.isEmpty) return;
+    if (AntigravitySelectedAccountGuard.identityOf(payload) != expected) throw StateError('Account mismatch');
+  }
+
+  static void _requireQuotaSchema(Map<String, dynamic> payload, {bool legacy = false}) {
+    final root = payload['response'] is Map ? Map<String, dynamic>.from(payload['response'] as Map) : payload;
+    if (root.containsKey('groups')) {
+      final groups = root['groups'];
+      if (groups is! List || groups.isEmpty) throw const AntigravitySchemaChanged();
+      for (final raw in groups) {
+        if (raw is! Map || raw['buckets'] is! List || (raw['buckets'] as List).isEmpty) throw const AntigravitySchemaChanged();
+        if ((raw['buckets'] as List).any((bucket) => bucket is! Map)) throw const AntigravitySchemaChanged();
+      }
+      return;
+    }
+    if (root.containsKey('quotaInfo')) {
+      final quota = root['quotaInfo'];
+      if (quota is! Map || quota.isEmpty) throw const AntigravitySchemaChanged();
+      return;
+    }
+    if (root.containsKey('availability')) {
+      final availability = root['availability'];
+      if (availability is! Map || availability.isEmpty) throw const AntigravitySchemaChanged();
+      return;
+    }
+    throw const AntigravitySchemaChanged();
+  }
+
   @override Future<TestResult> test(Connection connection, String secret) async {
     final snapshot = await fetch(connection, secret);
     return snapshot.error == null ? TestResult.success(quotas: snapshot.quotas, plan: connection.plan) : TestResult.failure(error: snapshot.error!);
@@ -184,29 +211,18 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     final quota = await _postJson(Uri.parse('$prodHost/v1internal:retrieveUserQuota'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
     if (!const AntigravitySelectedAccountGuard().accepts(expected: expected, payload: quota)) return _error(connection.id, 'Account mismatch');
     _requireQuotaSchema(quota, legacy: true);
-    return AntigravityLocalReader.parseQuotaSummary(body: jsonEncode({'response': {'quotaInfo': quota['quotaInfo'] ?? quota, 'accountEmail': quota['accountEmail'], 'accountId': quota['accountId'], 'models': models}}), connectionId: connection.id);
+    final quotaInfo = _mergeLegacyModels(quota, models);
+    return AntigravityLocalReader.parseQuotaSummary(body: jsonEncode({'response': {'quotaInfo': quotaInfo, 'accountEmail': quota['accountEmail'], 'accountId': quota['accountId']}}), connectionId: connection.id);
   }
-  static void _requireQuotaSchema(Map<String, dynamic> payload, {bool legacy = false}) {
-    final root = payload['response'] is Map ? Map<String, dynamic>.from(payload['response'] as Map) : payload;
-    if (root.containsKey('groups')) {
-      final groups = root['groups'];
-      if (groups is! List) throw const AntigravitySchemaChanged();
-      for (final raw in groups) {
-        if (raw is! Map || raw['buckets'] is! List) throw const AntigravitySchemaChanged();
-        if ((raw['buckets'] as List).any((bucket) => bucket is! Map)) throw const AntigravitySchemaChanged();
-      }
-      return;
+  static Map<String, dynamic> _mergeLegacyModels(Map<String, dynamic> quota, Map<String, dynamic> models) {
+    final quotaInfo = _map(quota['quotaInfo'] ?? quota);
+    final modelInfo = _map(models['models'] ?? models);
+    for (final entry in modelInfo.entries) {
+      quotaInfo.putIfAbsent(entry.key, () => entry.value);
     }
-    if (root.containsKey('quotaInfo')) {
-      if (root['quotaInfo'] is! Map) throw const AntigravitySchemaChanged();
-      return;
-    }
-    if (root.containsKey('availability')) {
-      if (root['availability'] is! Map) throw const AntigravitySchemaChanged();
-      return;
-    }
-    throw const AntigravitySchemaChanged();
+    return quotaInfo;
   }
+
   Future<String> refresh(String currentSecret) async {
     final value = _credential(currentSecret); final refreshToken = value['refreshToken']?.toString();
     if (refreshToken == null || refreshToken.isEmpty) throw StateError('refresh token missing');
