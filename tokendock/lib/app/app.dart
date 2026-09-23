@@ -112,7 +112,7 @@ class _AppRootShell extends StatelessWidget {
         actions: <Type, Action<Intent>>{
           RefreshIntent: RefreshAction(() => state.refreshAll()),
         },
-        child: Focus(
+        child: FocusScope(
           autofocus: true,
           child: Scaffold(
             body: child ??
