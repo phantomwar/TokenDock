@@ -258,8 +258,13 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
   late final TextEditingController _groupController;
   late final TextEditingController _credentialController;
 
+  /// Masked text shown in the credential field while editing.
   String? _initialMaskedSecret;
-  String? _rawSecretForTesting;
+
+  /// Unmasked credential loaded for an existing connection, retained only so a
+  /// re-test can run when the user leaves the masked field untouched. Never
+  /// rendered; cleared with the dialog.
+  String? _loadedRawSecret;
 
   bool _testSuccess = false;
   TestResult? _testResult;
@@ -289,7 +294,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       widget.secretStore!.read(widget.existing!.credentialRef).then((raw) {
         if (mounted && raw != null) {
           setState(() {
-            _rawSecretForTesting = raw;
+            _loadedRawSecret = raw;
             _initialMaskedSecret = maskSecret(raw);
             _credentialController.text = _initialMaskedSecret!;
           });
@@ -331,8 +336,8 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       if (widget.existing != null &&
           _initialMaskedSecret != null &&
           _credentialController.text == _initialMaskedSecret &&
-          _rawSecretForTesting != null) {
-        secretToTest = _rawSecretForTesting!;
+          _loadedRawSecret != null) {
+        secretToTest = _loadedRawSecret!;
       }
 
       final providerRaw = _providerController.text.trim();
