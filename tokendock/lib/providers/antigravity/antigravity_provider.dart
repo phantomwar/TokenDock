@@ -1,36 +1,9 @@
-import '../../models/connection.dart';
-import '../../models/provider_snapshot.dart';
-import '../../models/test_result.dart';
-import '../provider_adapter.dart';
-import 'antigravity_local.dart';
+import '../../storage/secret_store.dart';
+import 'antigravity_oauth.dart';
 
-class AntigravityProvider implements ProviderAdapter {
-  AntigravityProvider({AntigravityLocalReader? reader}) : _reader = reader ?? AntigravityLocalReader();
-
-  final AntigravityLocalReader _reader;
-
-  @override
-  String get id => 'antigravity';
-
-  @override
-  String get name => 'Antigravity';
-
-  @override
-  AuthKind get authKind => AuthKind.none;
-
-  @override
-  Map<String, String> buildAuthHeader(String secret) => const {};
-
-  @override
-  Future<TestResult> test(Connection connection, String secret) async {
-    final snapshot = await _reader.fetchSnapshot(connection);
-    if (snapshot.error == null) {
-      return TestResult.success(quotas: snapshot.quotas, plan: connection.plan);
-    }
-    return TestResult.failure(error: snapshot.error!);
-  }
-
-  @override
-  Future<ProviderSnapshot> fetch(Connection connection, String secret) =>
-      _reader.fetchSnapshot(connection);
+/// Default Antigravity adapter. Local read-only quota remains available via
+/// [AntigravityLocalReader] for explicit per-connection opt-in.
+class AntigravityProvider extends AntigravityOAuthProvider {
+  AntigravityProvider({AntigravityOAuthHttpRunner? http, SecretStore? secretStore})
+      : super(http: http, secretStore: secretStore);
 }
