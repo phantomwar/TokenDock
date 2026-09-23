@@ -6,7 +6,7 @@
 **Arquitetura:** aplicação local, processo único
 **Objetivo:** widget leve para monitorar múltiplas assinaturas, contas e API keys de serviços de IA.
 
-> **Status da primeira meta funcional (2026-09-23): implementada em `tokendock/` (`7154db3`).**
+> **Status da primeira meta funcional (2026-09-23): implementada em `tokendock/` (`7154db3`); deps atualizadas no mesmo dia (`flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3`, re-verificado 96/96 + 3/3 + analyze + build Windows). Pesquisa pós-slice (planejada, não implementada): `docs/auth-research-oh-my-pi-9router.md`, `docs/auth-quota-hardening-plan.md`.**
 > Funciona hoje: widget Windows 10/11 x64 (compacto/normal/expandido), janela frameless com tray e fechar-para-tray, três conexões OpenRouter independentes, CRUD com test-before-save, cache SQLite em `%LOCALAPPDATA%\TokenDock\tokendock.db`, segredos via DPAPI, refresh manual/periódico com no máximo quatro requisições simultâneas e coalescência por conexão, temas claro/escuro/alto contraste, navegação por teclado e Ctrl+R.
 >
 > Desvio aprovado em relação à ordem deste PRD: o primeiro provedor vivo é o OpenRouter (contrato público `GET /api/v1/key`), não o OpenCode Go; ver `docs/superpowers/specs/2026-09-22-tokendock-first-functional-goal-design.md`. O roadmap abaixo (MiniMax, Antigravity, grupos, notificações, instalador, release 0.1) permanece inalterado e não implementado.

@@ -4,7 +4,7 @@ Windows 10/11 x64 desktop widget that tracks up to three independent OpenRouter 
 
 ## Status
 
-First functional slice implemented on `master` (`7154db3`). Live OpenRouter end-to-end against real keys was not exercised; see the review record in `../.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md` (git-ignored working notes).
+First functional slice implemented on `master` (`7154db3`). Dependencies upgraded 2026-09-23: `flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3` (fake in `test/storage/secret_store_test.dart` migrated `IOSOptions/MacOsOptions` → `AppleOptions`; no `lib/` change). Live OpenRouter end-to-end against real keys was not exercised; see the review record in `../.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md` (git-ignored working notes).
 
 ## Run
 
@@ -32,7 +32,7 @@ flutter build windows --release
 
 ## Security model
 
-- SQLite holds only opaque credential references (`secret_ref`); secret values live only in DPAPI-backed `flutter_secure_storage`.
+- SQLite holds only opaque credential references (`secret_ref`); secret values live only in DPAPI-backed `flutter_secure_storage` v11 (user-scope: same Windows user + machine; file backend, not Credential Locker). Dev secrets stored under v9 may not migrate — delete `%LOCALAPPDATA%\TokenDock\tokendock.db` or re-register keys if `read` returns null.
 - `Test Connection` validates through `GET https://openrouter.ai/api/v1/key`; no inference or usage is created. Timeouts: 10s connect, 15s response.
 - Saved credentials show a masked preview (leading characters plus last four), never the full secret. Short secrets render `****`.
 - Logs, errors, and UI text carry only user-safe status copy (`Invalid API key`, `Key limit exceeded`, `Rate limited`, `Timeout`, `Provider unavailable`, `Unknown response`).
@@ -41,3 +41,8 @@ flutter build windows --release
 ## Not in this slice
 
 No installer, portable ZIP, auto-start, charts, history, notifications, command palette, cloud sync, analytics, plugin system, web/mobile builds, or additional providers. OpenCode Go remains deferred: no verified public subscription-quota API.
+
+## Further reading
+
+- `../docs/auth-research-oh-my-pi-9router.md` — auth patterns from `can1357/oh-my-pi` and `decolua/9router`.
+- `../docs/auth-quota-hardening-plan.md` — phased auth/secrets/quota hardening plan (planned, not implemented).

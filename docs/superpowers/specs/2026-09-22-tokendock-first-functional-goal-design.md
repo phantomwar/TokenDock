@@ -4,11 +4,12 @@
 
 **Source:** `PRD.txt`, sections 1–41, 67–71, 83–90, and 94–97.
 
-## Implementation status — complete (2026-09-23, `master` `7154db3`)
+## Implementation status — complete (2026-09-23, `master` `7154db3`); deps upgraded same day (`flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3`)
 
-- All contracts above are implemented in `tokendock/` and verified: 96 widget/unit tests, 3 fixture-backed integration proofs, `flutter analyze` clean, and a Windows release build that runs.
+- All contracts above are implemented in `tokendock/` and verified: 96 widget/unit tests, 3 fixture-backed integration proofs, `flutter analyze` clean, and a Windows release build that runs. Re-verified after the v11 upgrade: 96/96 + 3/3 + analyze 0 errors (5 pre-existing infos) + release build ok.
 - Deviations from this design text: `secure_secret_store.dart` is the shipped filename for the adapter this document calls `dpapi_secret_store.dart`; production never renders the original five-provider mock data — first run shows skeleton rows, then `No connections yet` with one `Add Connection` action; seeded fixtures live only in `test/fixtures/` and `test/support/`.
 - Live-provider end-to-end against three real OpenRouter keys was not exercised; see the scope guard and the review record in `.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md`.
+- Post-slice research (planned, not implemented): `docs/auth-research-oh-my-pi-9router.md`, `docs/auth-quota-hardening-plan.md`.
 
 ## Scope
 

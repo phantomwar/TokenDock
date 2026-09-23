@@ -44,6 +44,7 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 - Approved technical design: `docs/superpowers/specs/2026-09-22-tokendock-first-functional-goal-design.md`.
 - Visual references: `docs/imagens/windows-tray-dashboard.png`, `docs/imagens/HS0mcVHagAAQYiG.jpg`, `docs/imagens/HS0mbP5agAEg0nP.png`, `docs/imagens/HSzxw_Sb0AARFwe.png`, and `docs/imagens/HSzxv9UaIAAOXbw.jpg`.
 - Sanitized OpenRouter fixtures exist at `tokendock/test/fixtures/` (finite, unlimited, malformed, and 402 payloads). No real API key exists in source control or tests. No installer, portable ZIP, Start Menu entries, auto-start behavior, user research, commercial claims, or final brand assets exist yet.
+- Research: `docs/auth-research-oh-my-pi-9router.md` (auth patterns from `can1357/oh-my-pi` and `decolua/9router`, 2026-09-23) and `docs/auth-quota-hardening-plan.md` (phased auth/secrets/quota hardening plan correlated with 2026 OAuth, Windows-secrets, and rate-limit trends — planned, not implemented).
 
 ## Implementation Status
 
@@ -52,7 +53,7 @@ The app is opened from the Windows tray, then remains visible beside everyday wo
 - Refresh: manual, Ctrl+R/Cmd+R (disabled while a text field has focus), tray action, and one periodic timer (default 3 minutes; 1/3/5/10/manual), at most four concurrent connection refreshes with same-ID coalescing.
 - Cache-first: cached quotas render immediately; refresh failures preserve prior values and show `Last updated <relative age>`; past resets render `Resetting…`.
 - Window/tray: frameless 360x600 window, hide-to-tray on close, explicit Exit; tray menu exposes Open TokenDock, Refresh All, Always on Top, Connections, and Exit, with double-click restoring the widget.
-- Credentials: UUIDv4 references in `%LOCALAPPDATA%\TokenDock\tokendock.db` (`Migration001`, `user_version = 1`); secret values only in DPAPI-backed `flutter_secure_storage`. Saved credentials display a masked preview (leading characters plus last four), never the full secret.
+- Credentials: UUIDv4 references in `%LOCALAPPDATA%\TokenDock\tokendock.db` (`Migration001`, `user_version = 1`); secret values only in DPAPI-backed `flutter_secure_storage` (`^11.2.0`, user-scope file backend on Windows, no Credential Locker). Saved credentials display a masked preview (leading characters plus last four), never the full secret.
 
 ## Verification Evidence
 
