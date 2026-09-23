@@ -56,11 +56,19 @@ class AntigravitySelectedAccountGuard {
 }
 
 class AntigravityOAuthProvider implements ProviderAdapter {
-  AntigravityOAuthProvider({AntigravityOAuthHttpRunner? http, SecretStore? secretStore, this.launchExternalBrowser})
-      : _http = http ?? _HttpClientRunner(), _secretStore = secretStore;
+  AntigravityOAuthProvider({AntigravityOAuthHttpRunner? http, SecretStore? secretStore, Future<void> Function(Uri url)? launchExternalBrowser})
+      : _http = http ?? _HttpClientRunner(), _secretStore = secretStore, launchExternalBrowser = launchExternalBrowser ?? launchWindowsBrowser;
   final AntigravityOAuthHttpRunner _http;
   final SecretStore? _secretStore;
-  final Future<void> Function(Uri url)? launchExternalBrowser;
+  final Future<void> Function(Uri url) launchExternalBrowser;
+
+  static Future<void> launchWindowsBrowser(Uri url) async {
+    if (Platform.isWindows) {
+      await Process.run('rundll32.exe', ['url.dll,FileProtocolHandler', url.toString()]);
+      return;
+    }
+    throw UnsupportedError('External browser handoff is unsupported on this platform');
+  }
   static const tokenEndpoint = 'https://oauth2.googleapis.com/token';
   static const prodHost = 'https://cloudcode-pa.googleapis.com';
   static const dailyHost = 'https://daily-cloudcode-pa.googleapis.com';
@@ -81,11 +89,9 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       'scope': 'cloud-platform userinfo.email userinfo.profile',
       'code_challenge': buildCodeChallenge(verifier), 'code_challenge_method': 'S256', 'state': state,
     });
-    final launch = launchExternalBrowser;
-    if (launch == null) { await session.close(); throw StateError('External browser handoff is required'); }
     try {
       final delivered = session.waitForCode(state);
-      await launch(url);
+      await launchExternalBrowser(url);
       final result = await delivered;
       return login(connection, code: result.code, codeVerifier: verifier, redirectUri: session.redirectUri.toString());
     } finally { await session.close(); }
@@ -95,7 +101,8 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     final token = await _postJson(Uri.parse(tokenEndpoint), {
       'client_id': clientId, 'code': code, 'code_verifier': codeVerifier, 'redirect_uri': redirectUri, 'grant_type': 'authorization_code',
     });
-    final access = (token['access_token'] ?? '').toString();
+    final access = (token['access_token'] ?? '').toString().trim();
+    if (access.isEmpty) throw StateError('OAuth access token missing');
     final identity = AntigravitySelectedAccountGuard.identityOf(token) ?? connection.identityKey;
     var provisioning = await _loadCodeAssist(access, identity: identity, projectId: _providerData(connection)['projectId']?.toString());
     final provisioningIdentity = AntigravitySelectedAccountGuard.identityOf(provisioning);
@@ -103,6 +110,8 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     var project = _project(provisioning);
     if (_tier(provisioning) == null) {
       provisioning = await _onboardUser(access, identity: identity, projectId: project);
+      final onboardIdentity = AntigravitySelectedAccountGuard.identityOf(provisioning);
+      if (identity != null && onboardIdentity != null && identity != onboardIdentity) throw StateError('Account mismatch');
       project = _project(provisioning);
     }
     if (project == null || project.isEmpty) throw const AntigravityOnboardingRequired();

@@ -331,9 +331,9 @@ class RefreshService {
     if (definitiveCause == null) {
       try {
         providerSnapshot = await adapter.fetch(connection, secret ?? currentSecret);
-        if (providerSnapshot.status == ConnectionStatus.authError && providerSnapshot.error == '401' && refreshable != null) {
+        if (providerSnapshot.status == ConnectionStatus.authError && (providerSnapshot.error == '401' || (providerSnapshot.error ?? '').toLowerCase().contains('401')) && refreshable != null) {
           secret = await _rotateCredential(connection, await runTokenOperation(connectionId: connectionId, operation: () => refreshable.refresh(secret ?? currentSecret)));
-          providerSnapshot = await adapter.fetch(connection, secret ?? currentSecret);
+          providerSnapshot = await adapter.fetch(connection, secret);
         }
       } catch (error) {
         definitiveCause = definitiveOAuthFailureCause(error);
@@ -414,14 +414,14 @@ class RefreshService {
       identityKey: connection.identityKey,
       providerData: connection.providerData,
     );
+    await _connectionRepository.save(updated);
     try {
-      await _connectionRepository.save(updated);
       await _secretStore.delete(connection.credentialRef);
-      return nextSecret;
     } catch (_) {
-      await _secretStore.delete(nextRef);
-      rethrow;
+      // The committed connection points at nextRef; retain it when cleanup
+      // of the old secret is temporarily unavailable.
     }
+    return nextSecret;
   }
 
 
