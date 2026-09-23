@@ -29,6 +29,13 @@ class FakeProviderAdapter implements ProviderAdapter {
 
   @override
   final String name;
+  @override
+  AuthKind get authKind => AuthKind.apiKey;
+
+  @override
+  Map<String, String> buildAuthHeader(String secret) =>
+      {'Authorization': 'Bearer $secret'};
+
 
   TestResult testResult;
 
@@ -245,6 +252,12 @@ class FixtureProviderAdapter implements ProviderAdapter {
 
   @override
   final String name;
+  @override
+  AuthKind get authKind => AuthKind.apiKey;
+
+  @override
+  Map<String, String> buildAuthHeader(String secret) =>
+      {'Authorization': 'Bearer $secret'};
 
   final Map<String, FixtureResponse> responses;
 

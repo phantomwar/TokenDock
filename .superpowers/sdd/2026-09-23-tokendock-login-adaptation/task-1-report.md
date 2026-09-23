@@ -27,12 +27,25 @@ Focused command:
 flutter test --no-pub test/providers/auth_kind_test.dart
 ```
 
-Result: `+1: All tests passed!`
+Result: `+2: All tests passed!`
 
 ## Scope Notes
 
-Project-wide tests, linters, and formatters were not run, per assignment. Existing test-only `ProviderAdapter` implementations were identified as requiring the new interface members if they are exercised by a broader suite; they were not expanded in this task because the brief names only the production OpenRouter adapter and the new focused test.
+Project-wide tests, linters, and formatters were not run, per assignment. Focused coverage was expanded to compile and exercise the three existing test-only provider implementations.
 
 ## Commit
 
 Pending commit at report-write time; the commit hash is supplied with the final task result.
+
+## Follow-up Fix
+
+The reviewer identified that the required interface members were missing from the test-only `ControlledProvider`, `FakeProviderAdapter`, and `FixtureProviderAdapter` implementations. Each now declares `AuthKind.apiKey` and returns the same call-time Bearer header map as OpenRouter. The focused test imports and exercises all three doubles, ensuring the new contract compiles and is observable.
+
+Follow-up focused command and result:
+
+```text
+flutter test --no-pub test/providers/auth_kind_test.dart
++2: All tests passed!
+```
+
+The fix is committed separately after the original Task 1 commit.

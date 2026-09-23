@@ -22,6 +22,12 @@ class ControlledProvider implements ProviderAdapter {
 
   @override
   final String name;
+  @override
+  AuthKind get authKind => AuthKind.apiKey;
+
+  @override
+  Map<String, String> buildAuthHeader(String secret) =>
+      {'Authorization': 'Bearer $secret'};
 
   final List<Quota> defaultQuotas;
   final double? defaultBalance;
