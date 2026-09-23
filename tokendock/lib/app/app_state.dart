@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/connection.dart';
@@ -8,6 +10,7 @@ import '../models/test_result.dart';
 import '../providers/provider_adapter.dart';
 import '../providers/provider_registry.dart';
 import '../services/refresh_service.dart';
+import '../providers/antigravity/antigravity_oauth.dart';
 import '../storage/connection_health_repository.dart';
 import '../storage/connection_repository.dart';
 import '../storage/quota_cache_repository.dart';
@@ -311,6 +314,55 @@ class AppState implements ChangeNotifier {
 
     await load();
     return connection;
+  }
+  /// Runs the Antigravity loopback login and persists the returned account
+  /// metadata together with the connection row. Credentials remain in the
+  /// supplied SecretStore under the connection's secret ref.
+  Future<Connection> addAntigravityConnection({
+    required String displayName,
+    String? group,
+    AntigravityOAuthProvider? provider,
+  }) async {
+    final store = secretStore;
+    final repo = connectionRepository;
+    if (store == null || repo == null) {
+      throw StateError('secretStore and connectionRepository are required.');
+    }
+    final id = generateSecretRef();
+    final ref = generateSecretRef();
+    final provisional = Connection(
+      id: id,
+      provider: 'antigravity',
+      displayName: displayName.trim(),
+      group: group,
+      plan: null,
+      credentialRef: ref,
+      enabled: true,
+      authType: 'oauth',
+    );
+    try {
+      final selectedProvider = provider ?? (providerRegistry?.get('antigravity') as AntigravityOAuthProvider?);
+      if (selectedProvider == null) throw StateError('Antigravity OAuth provider is not registered');
+      final result = await selectedProvider.loginWithLoopback(provisional);
+      final connection = Connection(
+        id: id,
+        provider: 'antigravity',
+        displayName: provisional.displayName,
+        group: group,
+        plan: result.tier,
+        credentialRef: ref,
+        enabled: true,
+        authType: 'oauth',
+        identityKey: result.identityKey,
+        providerData: jsonEncode({'projectId': result.projectId, 'tier': result.tier}),
+      );
+      await repo.save(connection);
+      await load();
+      return connection;
+    } catch (error) {
+      await store.delete(ref);
+      rethrow;
+    }
   }
 
   /// Updates an existing connection using credential replacement compensation:

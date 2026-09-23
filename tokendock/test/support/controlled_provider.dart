@@ -6,6 +6,7 @@ import 'package:tokendock/models/provider_snapshot.dart';
 import 'package:tokendock/models/quota.dart';
 import 'package:tokendock/models/test_result.dart';
 import 'package:tokendock/providers/provider_adapter.dart';
+import 'package:tokendock/services/refreshable_credential.dart';
 
 /// Test provider adapter allowing programmatic control over fetch responses,
 /// delays, concurrency tracking, and errors.
@@ -28,6 +29,8 @@ class ControlledProvider implements ProviderAdapter {
   @override
   Map<String, String> buildAuthHeader(String secret) =>
       {'Authorization': 'Bearer $secret'};
+  @override
+  RefreshableCredential? refreshableCredential(String secret) => null;
 
   final List<Quota> defaultQuotas;
   final double? defaultBalance;

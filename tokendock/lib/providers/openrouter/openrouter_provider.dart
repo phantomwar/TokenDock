@@ -8,6 +8,7 @@ import '../../models/provider_snapshot.dart';
 import '../../models/test_result.dart';
 import '../provider_adapter.dart';
 import 'openrouter_response.dart';
+import '../../services/refreshable_credential.dart';
 
 class OpenRouterProvider implements ProviderAdapter {
   OpenRouterProvider({HttpClient? client}) : _client = client ?? HttpClient() {
@@ -34,6 +35,8 @@ class OpenRouterProvider implements ProviderAdapter {
       {'Authorization': 'Bearer $secret'};
 
   @override
+  RefreshableCredential? refreshableCredential(String secret) => null;
+
   Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
     try {
       final request = await _client

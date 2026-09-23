@@ -9,6 +9,7 @@ import 'package:tokendock/models/quota.dart';
 import 'package:tokendock/models/test_result.dart';
 import 'package:tokendock/providers/provider_adapter.dart';
 import 'package:tokendock/providers/provider_registry.dart';
+import 'package:tokendock/services/refreshable_credential.dart';
 import 'package:tokendock/storage/connection_repository.dart';
 import 'package:tokendock/storage/quota_cache_repository.dart';
 import 'package:tokendock/storage/secret_store.dart';
@@ -35,6 +36,8 @@ class FakeProviderAdapter implements ProviderAdapter {
   @override
   Map<String, String> buildAuthHeader(String secret) =>
       {'Authorization': 'Bearer $secret'};
+  @override
+  RefreshableCredential? refreshableCredential(String secret) => null;
 
 
   TestResult testResult;
@@ -258,6 +261,8 @@ class FixtureProviderAdapter implements ProviderAdapter {
   @override
   Map<String, String> buildAuthHeader(String secret) =>
       {'Authorization': 'Bearer $secret'};
+  @override
+  RefreshableCredential? refreshableCredential(String secret) => null;
 
   final Map<String, FixtureResponse> responses;
 

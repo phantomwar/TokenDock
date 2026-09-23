@@ -1,6 +1,4 @@
 import 'dart:async';
-
-import 'credential_events.dart';
 import '../models/connection.dart';
 import '../models/connection_health.dart';
 import '../models/connection_status.dart';
@@ -13,6 +11,7 @@ import '../storage/connection_repository.dart';
 import '../storage/quota_cache_repository.dart';
 import '../storage/secret_store.dart';
 import '../storage/settings_repository.dart';
+import 'credential_events.dart';
 import 'log_redaction.dart';
 
 /// Service orchestrating quota refreshing with request coalescing,
@@ -290,18 +289,10 @@ class RefreshService {
       return;
     }
     if (secret == null || secret.isEmpty) {
-      await _persistHealthAndPublish(
-        ProviderSnapshot(
-          connectionId: connectionId,
-          status: ConnectionStatus.authError,
-          quotas: cachedQuotas,
-          balance: null,
-          fetchedAt: DateTime.now().toUtc(),
-          error: 'Credential not found for connection',
-        ),
-      );
+      await _persistHealthAndPublish(ProviderSnapshot(connectionId: connectionId, status: ConnectionStatus.authError, quotas: cachedQuotas, balance: null, fetchedAt: DateTime.now().toUtc(), error: 'Credential not found for connection'));
       return;
     }
+    final currentSecret = secret;
 
     final adapter = _providerRegistry.get(connection.provider);
     if (adapter == null) {
@@ -318,34 +309,50 @@ class RefreshService {
       return;
     }
 
-    ProviderSnapshot providerSnapshot;
+    ProviderSnapshot providerSnapshot = ProviderSnapshot(connectionId: connectionId, status: ConnectionStatus.error, quotas: cachedQuotas, balance: null, fetchedAt: DateTime.now().toUtc(), error: 'Refresh failed');
     String? definitiveCause;
-    try {
-      providerSnapshot = await adapter.fetch(connection, secret);
-    } catch (error) {
-      definitiveCause = definitiveOAuthFailureCause(error);
-      if (definitiveCause != null) {
+    final refreshable = adapter.refreshableCredential(currentSecret);
+    if (refreshable != null && refreshable.expiresAt != null &&
+        refreshable.expiresAt!.isBefore(DateTime.now().toUtc().add(refreshable.refreshLead))) {
+      try {
+        secret = await runTokenOperation(connectionId: connectionId, operation: () => refreshable.refresh(currentSecret));
+        await _secretStore.write(connection.credentialRef, secret);
+      } catch (error) {
+        definitiveCause = definitiveOAuthFailureCause(error);
         providerSnapshot = ProviderSnapshot(
           connectionId: connectionId,
-          status: ConnectionStatus.authError,
-          quotas: const [],
+          status: definitiveCause == null ? ConnectionStatus.error : ConnectionStatus.authError,
+          quotas: cachedQuotas,
           balance: null,
           fetchedAt: DateTime.now().toUtc(),
-          error: definitiveCause,
-        );
-      } else {
-        providerSnapshot = ProviderSnapshot(
-          connectionId: connectionId,
-          status: ConnectionStatus.error,
-          quotas: const [],
-          balance: null,
-          fetchedAt: DateTime.now().toUtc(),
-          error: redactSecret(error.toString(), [secret]),
+          error: definitiveCause ?? redactSecret(error.toString(), [currentSecret]),
         );
       }
     }
-    if (definitiveCause == null &&
-        providerSnapshot.status == ConnectionStatus.authError) {
+    if (definitiveCause == null) {
+      try {
+        providerSnapshot = await adapter.fetch(connection, secret ?? currentSecret);
+        if (providerSnapshot.status == ConnectionStatus.authError && providerSnapshot.error == '401' && refreshable != null) {
+          secret = await runTokenOperation(connectionId: connectionId, operation: () => refreshable.refresh(secret ?? currentSecret));
+          await _secretStore.write(connection.credentialRef, secret);
+          providerSnapshot = await adapter.fetch(connection, secret ?? currentSecret);
+        }
+      } catch (error) {
+        definitiveCause = definitiveOAuthFailureCause(error);
+        providerSnapshot = ProviderSnapshot(
+          connectionId: connectionId,
+          status: definitiveCause == null ? ConnectionStatus.error : ConnectionStatus.authError,
+          quotas: cachedQuotas,
+          balance: null,
+          fetchedAt: DateTime.now().toUtc(),
+          error: definitiveCause ?? redactSecret(error.toString(), [currentSecret]),
+        );
+      }
+    }
+    if (definitiveCause == null && providerSnapshot.error == 'quota_source_changed') {
+      definitiveCause = 'quota_source_changed';
+    }
+    if (definitiveCause == null && providerSnapshot.status == ConnectionStatus.authError) {
       definitiveCause = 'bare_401';
       providerSnapshot = ProviderSnapshot(
         connectionId: providerSnapshot.connectionId,
@@ -371,7 +378,7 @@ class RefreshService {
             fetchedAt: providerSnapshot.fetchedAt,
             error: providerSnapshot.error == null
                 ? null
-                : redactSecret(providerSnapshot.error!, [secret]),
+                : redactSecret(providerSnapshot.error!, [currentSecret]),
             cooldownUntil: providerSnapshot.cooldownUntil,
           );
 

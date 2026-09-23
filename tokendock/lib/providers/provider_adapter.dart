@@ -1,7 +1,7 @@
 import '../models/connection.dart';
 import '../models/provider_snapshot.dart';
 import '../models/test_result.dart';
-
+import '../services/refreshable_credential.dart';
 enum AuthKind { apiKey, oauth, structuredBearer, none }
 
 
@@ -13,4 +13,6 @@ abstract interface class ProviderAdapter {
       {'Authorization': 'Bearer $secret'};
   Future<TestResult> test(Connection connection, String secret);
   Future<ProviderSnapshot> fetch(Connection connection, String secret);
+  /// Optional refreshable credential factory for OAuth adapters.
+  RefreshableCredential? refreshableCredential(String secret) => null;
 }
