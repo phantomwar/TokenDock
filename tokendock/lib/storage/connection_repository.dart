@@ -27,6 +27,9 @@ class SqliteConnectionRepository implements ConnectionRepository {
         plan: row['plan'] as String?,
         credentialRef: row['secret_ref'] as String,
         enabled: (row['enabled'] as int? ?? 1) == 1,
+        authType: row['auth_type'] as String?,
+        identityKey: row['identity_key'] as String?,
+        providerData: row['provider_data'] as String?,
       );
     }).toList();
   }
@@ -50,6 +53,9 @@ class SqliteConnectionRepository implements ConnectionRepository {
         'secret_ref': connection.credentialRef,
         'enabled': connection.enabled ? 1 : 0,
         'updated_at': now,
+        'auth_type': connection.authType,
+        'identity_key': connection.identityKey,
+        'provider_data': connection.providerData,
       };
 
       if (existing.isNotEmpty) {
@@ -65,7 +71,6 @@ class SqliteConnectionRepository implements ConnectionRepository {
       await txn.insert('connections', {
         'id': connection.id,
         ...connectionValues,
-        'auth_type': null,
         'sort_order': 0,
         'created_at': now,
       });

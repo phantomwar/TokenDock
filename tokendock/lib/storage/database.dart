@@ -6,6 +6,7 @@ import 'package:tokendock/storage/connection_health_repository.dart';
 import 'package:tokendock/storage/connection_repository.dart';
 import 'package:tokendock/storage/migration_001.dart';
 import 'package:tokendock/storage/migration_002.dart';
+import 'package:tokendock/storage/migration_003.dart';
 import 'package:tokendock/storage/quota_cache_repository.dart';
 import 'package:tokendock/storage/settings_repository.dart';
 
@@ -58,6 +59,7 @@ class AppDatabase {
     final db = await factory.openDatabase(dbPath);
     await Migration001.run(db);
     await Migration002.run(db);
+    await Migration003.run(db);
     return AppDatabase(db);
   }
 

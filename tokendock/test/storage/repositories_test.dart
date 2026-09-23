@@ -190,6 +190,47 @@ void main() {
       },
     );
 
+    test('round-trips authentication and provider metadata', () async {
+      const connection = Connection(
+        id: 'conn-metadata',
+        provider: 'openrouter',
+        displayName: 'Metadata',
+        group: null,
+        plan: null,
+        authType: 'api_key',
+        identityKey: 'user@example.com',
+        providerData: '{"workspace":"production"}',
+        credentialRef: 'secret-metadata',
+        enabled: true,
+      );
+
+      await testDb.connectionRepository.save(connection);
+
+      final fetched = (await testDb.connectionRepository.getAll()).single;
+      expect(fetched.authType, 'api_key');
+      expect(fetched.identityKey, 'user@example.com');
+      expect(fetched.providerData, '{"workspace":"production"}');
+
+      const updatedConnection = Connection(
+        id: 'conn-metadata',
+        provider: 'openrouter',
+        displayName: 'Metadata updated',
+        group: null,
+        plan: null,
+        authType: 'oauth',
+        identityKey: 'account-id',
+        providerData: '{"workspace":"staging"}',
+        credentialRef: 'secret-metadata',
+        enabled: true,
+      );
+      await testDb.connectionRepository.save(updatedConnection);
+
+      final updated = (await testDb.connectionRepository.getAll()).single;
+      expect(updated.authType, 'oauth');
+      expect(updated.identityKey, 'account-id');
+      expect(updated.providerData, '{"workspace":"staging"}');
+    });
+
     test('saving a connection update preserves health and cooldown', () async {
       const original = Connection(
         id: 'conn-health-update',
