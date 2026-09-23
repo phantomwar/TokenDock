@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tokendock/models/connection.dart';
@@ -79,18 +80,20 @@ void main() {
     expect((await badReset.fetch(_connection('a'), jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'}))).error, 'quota_source_changed');
   });
 
-  test('legacy model envelope merges nested quotaInfo before parsing', () async {
+  test('legacy direct model quotaInfo inserts under model name and keeps worst pool fraction', () async {
     final provider = AntigravityOAuthProvider(http: _Http([
       _Response(404, '{}'),
       _Response(404, '{}'),
       _Response(200, jsonEncode({'response': {'models': [
-        {'name': 'gemini', 'quotaInfo': {'gemini': {'remainingFraction': 0.5}}},
+        {'name': 'gemini-pro', 'quotaInfo': {'remainingFraction': 0.2, 'resetTime': '2030-01-01T00:00:00Z'}},
       ]}})),
-      _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'quotaInfo': {}}})),
+      _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'quotaInfo': {
+        'gemini': {'remainingFraction': 0.8, 'resetTime': '2030-01-01T00:00:00Z'},
+      }}})),
     ]));
     final snapshot = await provider.fetch(_connection('a'), jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'}));
     expect(snapshot.error, isNull);
-    expect(snapshot.quotas.single.remaining, 0.5);
+    expect(snapshot.quotas.single.remaining, 0.2);
   });
 
   test('refresh preserves refresh token when Google omits rotation', () async {
@@ -124,19 +127,56 @@ void main() {
     expect(await store.read('secret-a'), isNot(contains('access-b')));
   });
 
-  test('login uses external browser, persists secret, and sends no client secret', () async {
+  test('loginWithLoopback launches browser, delivers callback, and closes session', () async {
     final store = _Store();
     final http = _RecordingHttp([
       _Response(200, jsonEncode({'access_token': 'a', 'refresh_token': 'r', 'expires_in': 3600, 'accountEmail': 'a@example.com', 'accountId': 'acct-a'})),
       _Response(200, jsonEncode({'response': {'accountEmail': 'a@example.com', 'accountId': 'acct-a', 'currentTier': {'id': 'free'}, 'cloudaicompanionProject': 'p'}})),
     ]);
     Uri? opened;
-    final provider = AntigravityOAuthProvider(http: http, secretStore: store, launchExternalBrowser: (url) async => opened = url);
-    final result = await provider.login(_connection('a'), code: 'c', codeVerifier: 'v', redirectUri: 'http://127.0.0.1/callback');
+    int? callbackStatus;
+    final provider = AntigravityOAuthProvider(
+      http: http,
+      secretStore: store,
+      launchExternalBrowser: (url) async {
+        opened = url;
+        final redirect = Uri.parse(url.queryParameters['redirect_uri']!);
+        final client = HttpClient();
+        try {
+          final response = await (await client.getUrl(redirect.replace(queryParameters: {
+            'code': 'loop-code',
+            'state': url.queryParameters['state']!,
+          }))).close();
+          callbackStatus = response.statusCode;
+          await response.drain<void>();
+        } finally {
+          client.close(force: true);
+        }
+      },
+    );
+
+    final result = await provider.loginWithLoopback(_connection('a'));
+
     expect(result.identityKey, 'a@example.com|acct-a');
-    expect(opened, isNull);
-    expect(jsonDecode(http.requests.first.body), isNot(contains('client_secret')));
+    expect(opened, isNotNull);
+    expect(opened!.origin, 'https://accounts.google.com');
+    expect(opened!.queryParameters['code_challenge_method'], 'S256');
+    expect(opened!.queryParameters['code_challenge'], matches(RegExp(r'^[A-Za-z0-9_-]+$')));
+    expect(opened!.queryParameters['state'], matches(RegExp(r'^[0-9a-f]{32}$')));
+    expect(opened!.queryParameters['redirect_uri'], startsWith('http://127.0.0.1:'));
+    expect(callbackStatus, HttpStatus.ok);
+    final tokenBody = jsonDecode(http.requests.first.body) as Map<String, dynamic>;
+    expect(tokenBody['code'], 'loop-code');
+    expect(tokenBody['redirect_uri'], opened!.queryParameters['redirect_uri']);
+    expect(tokenBody, isNot(contains('client_secret')));
     expect(await store.read('secret-a'), contains('refreshToken'));
+
+    final client = HttpClient();
+    addTearDown(() => client.close(force: true));
+    await expectLater(
+      client.getUrl(Uri.parse(opened!.queryParameters['redirect_uri']!)).then((request) => request.close()),
+      throwsA(anyOf(isA<SocketException>(), isA<HttpException>())),
+    );
   });
 
   test('loadCodeAssist falls back from production transport failure to daily', () async {
@@ -159,11 +199,15 @@ void main() {
     await expectLater(provider.login(_connection('a'), code: 'c', codeVerifier: 'v', redirectUri: 'http://127.0.0.1/callback'), throwsA(isA<StateError>()));
   });
 
-  test('transient quota status produces warning and no schema tombstone', () async {
+  test('transient quota statuses produce warnings for 429 and 503', () async {
     final provider = AntigravityOAuthProvider(http: _Http([_Response(429, '{}'), _Response(503, '{}')]));
-    final snapshot = await provider.fetch(_connection('a'), jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'}));
-    expect(snapshot.status.name, 'warning');
-    expect(snapshot.error, contains('429'));
+    final secret = jsonEncode({'accessToken': 'a', 'identityKey': 'a@example.com|acct-a', 'projectId': 'p'});
+    final first = await provider.fetch(_connection('a'), secret);
+    final second = await provider.fetch(_connection('a'), secret);
+    expect(first.status.name, 'warning');
+    expect(first.error, contains('429'));
+    expect(second.status.name, 'warning');
+    expect(second.error, contains('503'));
   });
 
   test('registry registers the default remote Antigravity provider', () {

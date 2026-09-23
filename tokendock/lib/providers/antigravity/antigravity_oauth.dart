@@ -255,13 +255,41 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         final model = Map<String, dynamic>.from(raw);
         final name = (model['name'] ?? model['model'] ?? model['id'])?.toString();
         final nested = _map(model['quotaInfo']);
-        if (name != null && name.isNotEmpty && nested.isEmpty) quotaInfo.putIfAbsent(name, () => model);
-        nested.forEach((key, value) => quotaInfo.putIfAbsent(key, () => value));
+        if (name != null && name.isNotEmpty && (nested.isEmpty || _isDirectQuotaObject(nested))) {
+          _mergeLegacyQuota(quotaInfo, name, nested.isEmpty ? model : nested);
+        } else {
+          nested.forEach((key, value) => _mergeLegacyQuota(quotaInfo, key, value));
+        }
       }
     } else {
-      for (final entry in _map(rawModels).entries) quotaInfo.putIfAbsent(entry.key, () => entry.value);
+      for (final entry in _map(rawModels).entries) _mergeLegacyQuota(quotaInfo, entry.key, entry.value);
     }
     return quotaInfo;
+  }
+
+  static bool _isDirectQuotaObject(Map<String, dynamic> value) =>
+      value.containsKey('remainingFraction') || value.containsKey('remaining') ||
+      value.containsKey('resetTime') || value.containsKey('resetAt');
+
+  static void _mergeLegacyQuota(Map<String, dynamic> quotaInfo, String key, dynamic raw) {
+    final value = _map(raw);
+    if (value.isEmpty) return;
+    final existing = _map(quotaInfo[key]);
+    if (existing.isEmpty) {
+      quotaInfo[key] = value;
+      return;
+    }
+    final currentFraction = _quotaFraction(existing);
+    final nextFraction = _quotaFraction(value);
+    if (currentFraction == null || (nextFraction != null && nextFraction < currentFraction)) {
+      quotaInfo[key] = value;
+    }
+  }
+
+  static double? _quotaFraction(Map<String, dynamic> value) {
+    final raw = value['remainingFraction'] ?? _map(value['remaining'])['remainingFraction'];
+    if (raw is num) return raw.toDouble();
+    return double.tryParse(raw?.toString() ?? '');
   }
 
   Future<String> refresh(String currentSecret) async {

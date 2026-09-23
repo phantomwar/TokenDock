@@ -317,7 +317,7 @@ class RefreshService {
     if (refreshable != null && refreshable.expiresAt != null &&
         refreshable.expiresAt!.isBefore(DateTime.now().toUtc().add(refreshable.refreshLead))) {
       try {
-        secret = await _rotateCredential(connection, await runTokenOperation(connectionId: connectionId, operation: () => refreshable.refresh(currentSecret)));
+        secret = await _rotateCredential(connection, await refreshable.refresh(currentSecret));
       } catch (error) {
         definitiveCause = definitiveOAuthFailureCause(error);
         providerSnapshot = ProviderSnapshot(
@@ -334,7 +334,7 @@ class RefreshService {
       try {
         providerSnapshot = await adapter.fetch(connection, secret ?? currentSecret);
         if (providerSnapshot.status == ConnectionStatus.authError && (providerSnapshot.error == '401' || (providerSnapshot.error ?? '').toLowerCase().contains('401')) && refreshable != null) {
-          secret = await _rotateCredential(connection, await runTokenOperation(connectionId: connectionId, operation: () => refreshable.refresh(secret ?? currentSecret)));
+          secret = await _rotateCredential(connection, await refreshable.refresh(secret ?? currentSecret));
           providerSnapshot = await adapter.fetch(connection, secret);
         }
       } catch (error) {
