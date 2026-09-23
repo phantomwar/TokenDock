@@ -1,0 +1,53 @@
+# TokenDock Login Adaptation Design — AuthKind + Refreshable + Loopback
+
+**Date:** 2026-09-23. **Status:** approved design, not implemented. **Scope:** generic login infrastructure adapted from `can1357/oh-my-pi` and `decolua/9router`, plus a provider-neutral OAuth loopback flow tested with a fake provider. Antigravity as a concrete provider is explicitly deferred: no public quota API exists (official docs only describe `/usage` and `/quota` as CLI TUI commands), and `PRODUCT.md` forbids guessing contracts, private endpoints, or MITM traffic interception.
+
+**Source:** `PRD.txt` (multi-account roadmap, second functional goal §85), `PRODUCT.md` (single process, single SQLite, DPAPI secrets, cache-first, official contracts only), `docs/auth-research-oh-my-pi-9router.md` (reference patterns), `docs/auth-quota-hardening-plan.md` (phases 0–6, implemented through hardening at `17d489e`).
+
+## Goal
+
+Let TokenDock authenticate connections beyond static API keys — OAuth with refreshable tokens — while keeping every current guarantee: one local process, one SQLite database, secrets only as `secret_ref` in SQLite with values in DPAPI, cache-first refresh, per-connection health/cooldown, no server or cloud dependency.
+
+```text
+Connection dialog
+→ probe by AuthKind (api-key: GET-like; oauth: dedicated probe, refresh-before-invalid)
+→ login flow when needed (browser-external loopback + PKCE, fake provider in tests)
+→ tokens in DPAPI under secret_ref, metadata in SQLite
+→ RefreshService: proactive/reactive/test-time refresh, single-flight per connection
+→ failure: cache preserved, tombstone + re-login banner when definitive
+```
+
+Out of scope: Antigravity quota integration, MiniMax adapter (no response schema), device-code as a primary flow, DPoP/PAR, Windows Hello as storage, SQLCipher, sibling-retry across accounts (needs a second account of one provider), installer/release work.
+
+## Architecture
+
+`ProviderAdapter` declares `authKind` and builds the `Authorization` header at call time from the supplied secret; it never persists or logs credential bytes. `ProviderRegistry` maps provider id to adapter and its `AuthKind` (`openrouter=apiKey`; oauth values reserved, none live). `RefreshService` extends its existing per-connection coalescing (`_inFlight`) into a single-flight lock keyed by `provider:connectionId` that also covers proactive refresh and token operations — one refresh or token exchange per connection at a time, in-memory only (single process; no durable lease like the multi-process oh-my-pi broker). `SecureSecretStore` gains an atomic rotating-pair swap (write-new reference, commit connection row, delete old reference, merge inside a transaction) so single-use refresh tokens can never collapse into duplicates. `Migration003` (`user_version = 3`) activates the dormant `auth_type` column from `Migration001` and adds `identity_key` (stable `email|account|project|org`, never a secret) plus `provider_data` JSON (non-secret metadata such as `projectId`/`tier`). A new `oauth_loopback.dart` module owns the generic authorization-code + PKCE flow against an ephemeral `dart:io` loopback listener; provider-specific token exchange and quota mapping plug in later without touching common cards, models, or `RefreshService`.
+
+## Components
+
+- `provider_adapter.dart`: `enum AuthKind { apiKey, oauth, structuredBearer, none }`; each adapter declares `authKind` and `buildAuthHeader(secret)`. `test()` probes by kind: API keys keep the cheap `GET`-like probe (`GET /api/v1/key` for OpenRouter, never an inference call); OAuth uses a dedicated cheap probe and attempts one refresh before declaring the credential invalid. Successful probes persist `testStatus`/`latencyMs`/`lastError` through the existing test-before-save gate, which keeps blocking saves on invalid credentials.
+- `refresh_service.dart`: refresh in three moments — proactive (`expiresAt - now < lead`, 60s skew so no caller observes an expired token), reactive (401 → one refresh → one retry), and at test time. A central `isAuthRetryable` classifier uses status + header + provider code first (never fragile message regex): quota exhaustion rotates to a sibling only when a second account exists; throttle/429 stays on the same account under backoff; 403 guardrail and 402-without-`Retry-After` never retry. `Retry-After` (seconds or HTTP-date) is the floor of the first wait; subsequent waits use Full Jitter (`sleep=random(0, min(cap, base*2^n))`, base ~1s, cap 30–60s). Cooldown scope is always per connection, never global.
+- `secure_secret_store.dart` + `app_state.dart`: existing DPAPI-first/SQLite-second compensation is preserved. Refresh merges provider bytes while preserving absent `refreshToken`/`idToken`/identity metadata. Definitive failures (`invalid_grant`, bare 401, token-family reuse) write a tombstone `disabled_cause` holding only cause plus identity — never token bytes — and emit a `credential-disabled` event that surfaces a "Reconnect" banner; the cached quotas stay visible. `refreshable: false` providers skip refresh entirely and require re-login.
+- `oauth_loopback.dart` (new): authorization-code + PKCE S256 in the OS-external browser with a loopback redirect (`http://127.0.0.1:{ephemeral-port}/callback`, `[::1]` companion where available, literal IP never `localhost`, port registered portless per RFC 8252 §7.3). `code_verifier` 43–128 chars from `Random.secure()` per attempt; `state` cryptographically random, single-use, short-lived, validated before code exchange; listener binds loopback-only, closes after first use plus a 300s timeout. No `client_secret` in the app (public client), no WebView/WebView2/CEF (Google `disallowed_useragent`), no implicit/password/OOB grants, no device-code as the primary path.
+- `log_redaction.dart` (new, or inside `secret_store.dart`): substring redaction `key|token|secret|auth|credential|cookie → [redacted]`, full query-string strip, bearer fingerprint (SHA-256) in memory only for attribution; never dump request or body on 401/403/429/5xx (dumps only 400/413 without secrets); listings never return secret material.
+
+## Data flow and error handling
+
+Login enters before `addConnection`: dialog → loopback code exchange → token pair written to DPAPI under fresh `secret_ref`s → probe → save with the existing compensation (DB failure deletes the new secret; replacement writes new ref first, commits, then deletes the old). Fetch reads the secret by ref only when needed; an expired OAuth credential refuses use and triggers refresh instead of posting a sentinel. Concurrent refreshes for one connection join the in-flight future. Success replaces cache rows, records `fetchedAt`, clears cooldown. Failure maps to `ok | warning | limited | authError | error | updating` with user-safe copy, preserves prior cache with `Last updated <relative age>`, persists health (`last_status`, `last_checked_at`, `cooldown_until`, `last_error`), and keeps 429 responses out of every cache layer (RFC 6585). Dedup for future multi-account follows the Codex-like rule: OAuth dedups on `email + accountId` (same email with distinct account ids stays distinct); pasted `access_token` material never dedups; API keys dedup by stable name/identifier, never by secret hash on disk.
+
+## Verification strategy
+
+Unit/widget tests with fake HTTP and a fake loopback callback, no real keys: probe matrix per `AuthKind`; single-flight proof (two concurrent refreshes = one provider call); atomic swap proof; tombstone + banner proof; cooldown proof (skip, expiry, reset on success, restore after restart); `test-batch`-like provider summary; `Retry-After` seconds and HTTP-date parsing; redaction tests (header, URL, body). `flutter test --no-pub` green, `flutter analyze` with 0 errors, new fixtures sanitized. Windows integration stays pending on symlink/Developer Mode, consistent with the current baseline.
+
+## Deferred Antigravity note
+
+The reference implementations reach Antigravity through non-public means — oh-my-pi via internal `daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist/onboardUser` provisioning, 9router via MITM on hardcoded `cloudcode-pa.googleapis.com` endpoints plus quota-cache strike breakers. TokenDock adopts neither: no private RPC, no scraping, no traffic interception, no inferred quota schema. Antigravity plugs in only after an official, machine-readable quota contract plus documented OAuth scopes and endpoints exist, reusing this spec's `AuthKind.oauth`, `RefreshableCredential`, identity-key, and loopback pieces without remodeling.
+
+## Research sources
+
+- Normative: RFC 9700/BCP 240 (2025-01, https://www.rfc-editor.org/rfc/rfc9700); OAuth 2.1 draft-15 (2026-03, https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1-15); RFC 8252 native apps (https://www.rfc-editor.org/rfc/rfc8252); RFC 8628 device grant (https://www.rfc-editor.org/rfc/rfc8628); RFC 9449 DPoP (https://www.rfc-editor.org/rfc/rfc9449); RFC 9126 PAR (https://www.rfc-editor.org/rfc/rfc9126).
+- Vendor/policy: Google OAuth policies (`disallowed_useragent`, https://developers.google.com/identity/protocols/oauth2/policies); Google native-app loopback (https://developers.google.com/identity/protocols/oauth2/native-app); Duende port-agnostic loopback (2026-07-07, https://duendesoftware.com/blog/20260707-port-agnostic-localhost-redirect-uris-mcp-auth).
+- Threat context: device-code phishing surge and Conditional Access block recommendation (Microsoft Security Blog 2026-04-06, https://www.microsoft.com/en-us/security/blog/2026/04/06/ai-enabled-device-code-phishing-campaign-april-2026).
+- Secrets: DPAPI/PasswordVault boundaries (https://learn.microsoft.com/en-us/windows/apps/develop/security/credential-locker); DPAPI practice 2026 (https://comcomponent.com/en/blog/2026/03/16/000-windows-app-secret-storage-best-practices-dpapi/); Windows Hello/WebAuthn as a local gate (https://learn.microsoft.com/en-us/windows/security/identity-protection/hello-for-business/webauthn-apis).
+- HTTP: AWS Full Jitter (https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/); RateLimit headers draft (https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers); RFC 9111 caching + RFC 6585 §4 (429 never storable).
+- References: `can1357/oh-my-pi` (`packages/ai/src/auth/refresh.ts`, `registry/oauth/callback-server.ts`, `registry/oauth/google-antigravity.ts`, `error/rate-limit.ts`, `error/auth-classify.ts`, `auth-retry.ts`, `utils/http-inspector.ts`); `decolua/9router` (`docs/ARCHITECTURE.md`, `oauthCredentialManager`, `tokenRefresh`, `accountFallback`, `errorConfig`, `connectionsRepo`, `testUtils`).
