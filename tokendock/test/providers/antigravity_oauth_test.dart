@@ -232,7 +232,8 @@ class _HostHttp implements AntigravityOAuthHttpRunner {
     final value = responses[uri.toString()];
     if (value is AntigravityTransportFailure) throw value.cause;
     if (value is Exception) throw value;
-    return AntigravityOAuthHttpResponse(statusCode: (value as _Response).statusCode, body: (value as _Response).body);
+    final response = value as _Response;
+    return AntigravityOAuthHttpResponse(statusCode: response.statusCode, body: response.body);
   }
 }
 

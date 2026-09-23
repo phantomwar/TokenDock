@@ -93,7 +93,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       final delivered = session.waitForCode(state);
       await launchExternalBrowser(url);
       final result = await delivered;
-      return login(connection, code: result.code, codeVerifier: verifier, redirectUri: session.redirectUri.toString());
+      return await login(connection, code: result.code, codeVerifier: verifier, redirectUri: session.redirectUri.toString());
     } finally { await session.close(); }
   }
 
