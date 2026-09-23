@@ -20,4 +20,4 @@ Recovery pass completed for Antigravity per-account remote OAuth.
 - Cleanup retry remains timer-based at one minute; dispose intentionally cancels pending retries.
 
 ## Commit
-- `519e08c` (`fix: recover Antigravity provider review findings`)
+- Source/test recovery commit: `0392f70d20e135a0df52288f4673d1e8297b0771` (`fix: recover Antigravity provider review findings`)
