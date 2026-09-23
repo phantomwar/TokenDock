@@ -159,19 +159,40 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       final groups = root['groups'];
       if (groups is! List || groups.isEmpty) throw const AntigravitySchemaChanged();
       for (final raw in groups) {
-        if (raw is! Map || raw['buckets'] is! List || (raw['buckets'] as List).isEmpty) throw const AntigravitySchemaChanged();
-        if ((raw['buckets'] as List).any((bucket) => bucket is! Map)) throw const AntigravitySchemaChanged();
+        if (raw is! Map) throw const AntigravitySchemaChanged();
+        final group = Map<String, dynamic>.from(raw);
+        final groupId = (group['groupId'] ?? group['id'])?.toString() ?? '';
+        final buckets = group['buckets'];
+        if (groupId.isEmpty || buckets is! List || buckets.isEmpty) throw const AntigravitySchemaChanged();
+        for (final rawBucket in buckets) {
+          if (rawBucket is! Map) throw const AntigravitySchemaChanged();
+          final bucket = Map<String, dynamic>.from(rawBucket);
+          final bucketId = (bucket['bucketId'] ?? bucket['id'])?.toString() ?? '';
+          final remaining = bucket['remaining'] is Map ? Map<String, dynamic>.from(bucket['remaining'] as Map) : bucket;
+          final fraction = remaining['remainingFraction'];
+          final reset = bucket['resetTime'] ?? bucket['resetAt'];
+          if (bucketId.isEmpty || (fraction is! num && double.tryParse('$fraction') == null) || (reset != null && reset.toString().isEmpty)) throw const AntigravitySchemaChanged();
+        }
       }
       return;
     }
     if (root.containsKey('quotaInfo')) {
       final quota = root['quotaInfo'];
       if (quota is! Map || quota.isEmpty) throw const AntigravitySchemaChanged();
+      for (final raw in quota.values) {
+        if (raw is! Map) throw const AntigravitySchemaChanged();
+        final value = Map<String, dynamic>.from(raw);
+        final fraction = value['remainingFraction'];
+        final reset = value['resetTime'] ?? value['resetAt'];
+        if (fraction is! num && double.tryParse('$fraction') == null) throw const AntigravitySchemaChanged();
+        if (reset != null && reset.toString().isEmpty) throw const AntigravitySchemaChanged();
+      }
       return;
     }
     if (root.containsKey('availability')) {
       final availability = root['availability'];
       if (availability is! Map || availability.isEmpty) throw const AntigravitySchemaChanged();
+      if (availability.values.any((value) => value is! num && double.tryParse('$value') == null)) throw const AntigravitySchemaChanged();
       return;
     }
     throw const AntigravitySchemaChanged();
@@ -207,18 +228,28 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     }
   }
   Future<ProviderSnapshot> _fetchLegacy(Connection connection, Map<String, dynamic> credential, String project, String? expected) async {
-    final models = await _postJson(Uri.parse('$prodHost/v1internal:fetchAvailableModels'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
-    final quota = await _postJson(Uri.parse('$prodHost/v1internal:retrieveUserQuota'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
+    final modelsEnvelope = await _postJson(Uri.parse('$prodHost/v1internal:fetchAvailableModels'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
+    final quotaEnvelope = await _postJson(Uri.parse('$prodHost/v1internal:retrieveUserQuota'), {'project': project, 'userIdentifier': expected}, bearer: credential['accessToken']?.toString());
+    final models = _unwrapEnvelope(modelsEnvelope);
+    final quota = _unwrapEnvelope(quotaEnvelope);
     if (!const AntigravitySelectedAccountGuard().accepts(expected: expected, payload: quota)) return _error(connection.id, 'Account mismatch');
     _requireQuotaSchema(quota, legacy: true);
     final quotaInfo = _mergeLegacyModels(quota, models);
     return AntigravityLocalReader.parseQuotaSummary(body: jsonEncode({'response': {'quotaInfo': quotaInfo, 'accountEmail': quota['accountEmail'], 'accountId': quota['accountId']}}), connectionId: connection.id);
   }
+  static Map<String, dynamic> _unwrapEnvelope(Map<String, dynamic> value) => value['response'] is Map ? Map<String, dynamic>.from(value['response'] as Map) : value;
   static Map<String, dynamic> _mergeLegacyModels(Map<String, dynamic> quota, Map<String, dynamic> models) {
     final quotaInfo = _map(quota['quotaInfo'] ?? quota);
-    final modelInfo = _map(models['models'] ?? models);
-    for (final entry in modelInfo.entries) {
-      quotaInfo.putIfAbsent(entry.key, () => entry.value);
+    final rawModels = models['models'] ?? models['availableModels'];
+    if (rawModels is List) {
+      for (final raw in rawModels) {
+        if (raw is! Map) continue;
+        final model = Map<String, dynamic>.from(raw);
+        final name = (model['name'] ?? model['model'] ?? model['id'])?.toString();
+        if (name != null && name.isNotEmpty) quotaInfo.putIfAbsent(name, () => model);
+      }
+    } else {
+      for (final entry in _map(rawModels).entries) quotaInfo.putIfAbsent(entry.key, () => entry.value);
     }
     return quotaInfo;
   }
