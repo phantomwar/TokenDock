@@ -116,8 +116,11 @@ class TokenDockWidget extends StatelessWidget {
           button: true,
           child: IconButton(
             key: const Key('headerSettingsButton'),
-            icon:
-                Icon(Icons.settings_outlined, size: 18, color: colors.mutedInk),
+            icon: Icon(
+              Icons.settings_outlined,
+              size: 18,
+              color: colors.mutedInk,
+            ),
             onPressed: () => _openConnections(context),
           ),
         ),
@@ -139,14 +142,19 @@ class TokenDockWidget extends StatelessWidget {
             if (state.accounts.isEmpty) {
               return _buildEmpty(context);
             }
+            final Widget content;
             final double width = constraints.maxWidth;
             if (width < 330) {
-              return _buildCompact(context, state.accounts);
+              content = _buildCompact(context, state.accounts);
+            } else if (width <= 550) {
+              content = _buildNormal(context, state.accounts);
+            } else {
+              content = _buildExpanded(context, state.accounts);
             }
-            if (width <= 550) {
-              return _buildNormal(context, state.accounts);
-            }
-            return _buildExpanded(context, state.accounts);
+            return SingleChildScrollView(
+              key: const Key('tokenDockAccountScroll'),
+              child: content,
+            );
           },
         ),
       ),
@@ -168,8 +176,7 @@ class TokenDockWidget extends StatelessWidget {
               height: 56,
               decoration: BoxDecoration(
                 color: colors.mutedSurface,
-                borderRadius:
-                    BorderRadius.circular(TokenDockRadii.r12),
+                borderRadius: BorderRadius.circular(TokenDockRadii.r12),
               ),
             ),
           ),
@@ -225,10 +232,18 @@ class TokenDockWidget extends StatelessWidget {
                     const SizedBox(height: TokenDockSpacing.s4),
                     Text(
                       QuotaRow.valueTextOf(accounts[i].snapshot.quotas.first),
-                      style:
-                          TokenDockTypography.quotaStyle(color: colors.mutedInk),
+                      style: TokenDockTypography.quotaStyle(
+                        color: colors.mutedInk,
+                      ),
                     ),
                   ],
+                  const SizedBox(height: TokenDockSpacing.s4),
+                  Text(
+                    'Last updated ${formatRelativeAge(accounts[i].snapshot.fetchedAt)}',
+                    style: TokenDockTypography.captionStyle(
+                      color: colors.mutedInk,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -270,6 +285,13 @@ class TokenDockWidget extends StatelessWidget {
                       ),
                     ],
                   ],
+                  const SizedBox(height: TokenDockSpacing.s4),
+                  Text(
+                    'Last updated ${formatRelativeAge(accounts[i].snapshot.fetchedAt)}',
+                    style: TokenDockTypography.captionStyle(
+                      color: colors.mutedInk,
+                    ),
+                  ),
                   if (accounts[i].snapshot.error != null &&
                       accounts[i].snapshot.error!.isNotEmpty) ...<Widget>[
                     const SizedBox(height: TokenDockSpacing.s4),
@@ -321,8 +343,9 @@ class TokenDockWidget extends StatelessWidget {
                   const SizedBox(height: TokenDockSpacing.s8),
                   Text(
                     'Last updated ${formatRelativeAge(accounts[i].snapshot.fetchedAt)}',
-                    style:
-                        TokenDockTypography.captionStyle(color: colors.mutedInk),
+                    style: TokenDockTypography.captionStyle(
+                      color: colors.mutedInk,
+                    ),
                   ),
                   if (accounts[i].snapshot.error != null &&
                       accounts[i].snapshot.error!.isNotEmpty) ...<Widget>[

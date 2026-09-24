@@ -32,10 +32,18 @@ class AccountItem {
 }
 
 class _StateNotifier extends ChangeNotifier {
-  _StateNotifier(this.isLoading, this.accounts);
-
+  _StateNotifier(
+    this.isLoading,
+    this.accounts, {
+    this.autoStartRefreshTimer = false,
+  }) : refreshIntervalMinutes = defaultRefreshIntervalMinutes;
   bool isLoading;
   List<AccountItem> accounts;
+
+  int refreshIntervalMinutes;
+  int refreshIntervalRevision = 0;
+  Future<void> refreshIntervalWriteQueue = Future<void>.value();
+  final bool autoStartRefreshTimer;
 
   void notify() => notifyListeners();
 }
@@ -60,7 +68,11 @@ class AppState implements ChangeNotifier {
     this.antigravityLocalRuntime,
   }) : _staticLoading = false,
        _staticAccounts = const [],
-       _notifier = _StateNotifier(isLoading, accounts),
+       _notifier = _StateNotifier(
+         isLoading,
+         accounts,
+         autoStartRefreshTimer: autoStartRefreshTimer,
+       ),
        _reconnectConnectionIds = <String>{},
        _antigravityLocks = <String, Future<void>>{},
        _refreshService =
@@ -76,7 +88,7 @@ class AppState implements ChangeNotifier {
                    providerRegistry:
                        providerRegistry ?? ProviderRegistry.instance,
                    settingsRepository: settingsRepository,
-                   autoStartTimer: autoStartRefreshTimer,
+                   autoStartTimer: false,
                  )
                : null) {
     _refreshService?.addSnapshotListener(_handleSnapshotUpdate);
@@ -188,6 +200,9 @@ class AppState implements ChangeNotifier {
 
   RefreshService? get refreshService => _refreshService;
 
+  int get refreshIntervalMinutes =>
+      _notifier?.refreshIntervalMinutes ?? defaultRefreshIntervalMinutes;
+
   /// True while initial loading or database operations are in flight.
   bool get isLoading => _effectiveNotifier.isLoading;
 
@@ -261,6 +276,7 @@ class AppState implements ChangeNotifier {
     _effectiveNotifier.isLoading = true;
 
     try {
+      await _loadRefreshInterval();
       final repo = connectionRepository;
       if (repo == null) {
         _effectiveNotifier.accounts = const [];
@@ -291,6 +307,47 @@ class AppState implements ChangeNotifier {
       _effectiveNotifier.isLoading = false;
       _effectiveNotifier.notify();
     }
+  }
+
+  Future<void> _loadRefreshInterval() async {
+    final notifier = _effectiveNotifier;
+    final revision = notifier.refreshIntervalRevision;
+    try {
+      final minutes = normalizeRefreshIntervalMinutes(
+        await settingsRepository?.getRefreshIntervalMinutes() ??
+            defaultRefreshIntervalMinutes,
+      );
+      if (notifier.refreshIntervalRevision != revision) return;
+      notifier.refreshIntervalMinutes = minutes;
+      if (notifier.autoStartRefreshTimer) {
+        _refreshService?.updateIntervalMinutes(minutes == 0 ? null : minutes);
+      }
+    } catch (_) {
+      if (notifier.refreshIntervalRevision != revision) return;
+      notifier.refreshIntervalMinutes = defaultRefreshIntervalMinutes;
+      if (notifier.autoStartRefreshTimer) {
+        _refreshService?.updateIntervalMinutes(defaultRefreshIntervalMinutes);
+      }
+    }
+  }
+
+  Future<void> setRefreshIntervalMinutes(int minutes) async {
+    validateRefreshIntervalMinutes(minutes);
+    final notifier = _effectiveNotifier;
+    final revision = ++notifier.refreshIntervalRevision;
+    final previousWrite = notifier.refreshIntervalWriteQueue;
+    final writeGate = Completer<void>();
+    notifier.refreshIntervalWriteQueue = writeGate.future;
+    await previousWrite;
+    try {
+      await settingsRepository?.setRefreshIntervalMinutes(minutes);
+    } finally {
+      writeGate.complete();
+    }
+    if (notifier.refreshIntervalRevision != revision) return;
+    _refreshService?.updateIntervalMinutes(minutes == 0 ? null : minutes);
+    notifier.refreshIntervalMinutes = minutes;
+    notifier.notify();
   }
 
   /// Adds a new connection using the compensation transaction:

@@ -570,6 +570,13 @@ void main() {
       await settings.setRefreshIntervalMinutes(10);
       expect(await settings.getRefreshIntervalMinutes(), 10);
       expect(await settings.get('refresh_interval_minutes'), '10');
+
+      await settings.setRefreshIntervalMinutes(0);
+      expect(await settings.getRefreshIntervalMinutes(), 0);
+
+      expect(settings.setRefreshIntervalMinutes(2), throwsArgumentError);
+      await settings.set('refresh_interval_minutes', '2');
+      expect(await settings.getRefreshIntervalMinutes(), 3);
     });
   });
 }

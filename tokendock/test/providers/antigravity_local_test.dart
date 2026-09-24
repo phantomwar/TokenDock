@@ -195,6 +195,65 @@ void main() {
     expect(http.headers.single['X-Codeium-Csrf-Token'], 'discovered-only');
     expect(runtime.csrfTokenFor('agy-1'), 'discovered-only');
   });
+
+  test('language server discovers an ephemeral session without a persisted port', () async {
+    final http = _FakeHttpRunner([_quotaResponse()]);
+    final runtime = AntigravityLocalRuntimeConfig();
+    final reader = AntigravityLocalReader(
+      httpRunner: http,
+      runtimeConfig: runtime,
+      sessionDiscovery: _FakeSessionDiscovery(const [
+        AntigravityLocalSession(
+          port: 1234,
+          processId: 1002,
+          csrfToken: 'discovered-without-port',
+        ),
+      ]),
+      processRunner: _FakeProcessRunner(const []),
+    );
+
+    final snapshot = await reader.fetchSnapshot(connection(
+      providerData: jsonEncode({'source': 'language-server'}),
+    ));
+
+    expect(snapshot.status, ConnectionStatus.ok);
+    expect(http.paths, ['/RetrieveUserQuotaSummary']);
+    expect(runtime.csrfTokenFor('agy-1'), 'discovered-without-port');
+  });
+
+  test('ambiguous ephemeral sessions fall back without using a CSRF token', () async {
+    final http = _FakeHttpRunner([]);
+    final process = _FakeProcessRunner([
+      _ProcessResult(0, 0, 'agy 0.0.0\n', ''),
+    ]);
+    final runtime = AntigravityLocalRuntimeConfig();
+    final reader = AntigravityLocalReader(
+      httpRunner: http,
+      processRunner: process,
+      runtimeConfig: runtime,
+      sessionDiscovery: _FakeSessionDiscovery(const [
+        AntigravityLocalSession(
+          port: 1111,
+          processId: 1,
+          csrfToken: 'must-not-be-used-a',
+        ),
+        AntigravityLocalSession(
+          port: 2222,
+          processId: 2,
+          csrfToken: 'must-not-be-used-b',
+        ),
+      ]),
+    );
+
+    final snapshot = await reader.fetchSnapshot(connection(
+      providerData: jsonEncode({'source': 'language-server'}),
+    ));
+
+    expect(snapshot.error, 'agy version is too old');
+    expect(http.paths, isEmpty);
+    expect(runtime.csrfTokenFor('agy-1'), isNull);
+    expect(process.calls, hasLength(1));
+  });
   test('availability-only payload is reported as Limits not available', () {
     final snapshot = AntigravityLocalReader.parseQuotaSummary(
       body: fixture('antigravity_availability_only.json'),

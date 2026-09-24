@@ -96,6 +96,7 @@ void main() {
     await tester.pumpWidget(
       Center(
         child: SizedBox(
+          height: 600,
           width: 300,
           child: TokenDockWidget.loaded(accounts: <AccountItem>[_account()]),
         ),
@@ -106,13 +107,55 @@ void main() {
     expect(find.text('Main Key'), findsOneWidget);
     expect(find.text('50/100 USD'), findsOneWidget);
     expect(find.byType(QuotaRow), findsNothing);
+    expect(find.textContaining('Last updated'), findsOneWidget);
     expect(find.byType(AccountHeader), findsNothing);
+  });
+
+  testWidgets('many accounts scroll within a constrained window', (tester) async {
+    await tester.pumpWidget(
+      SizedBox(
+        width: 360,
+        height: 300,
+        child: TokenDockWidget.loaded(
+          accounts: List<AccountItem>.generate(
+            12,
+            (index) => _account(
+              connection: Connection(
+                id: 'c$index',
+                provider: 'openrouter',
+                displayName: 'Account $index',
+                group: null,
+                plan: 'Pro',
+                credentialRef: 'ref-$index',
+                enabled: true,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final scrollKey = find.byKey(const Key('tokenDockAccountScroll'));
+    expect(scrollKey, findsOneWidget);
+    final scrollable = find.descendant(
+      of: scrollKey,
+      matching: find.byType(Scrollable),
+    );
+    final state = tester.state<ScrollableState>(scrollable);
+    expect(state.position.maxScrollExtent, greaterThan(0));
+    final headerTop = tester.getTopLeft(find.text('TokenDock')).dy;
+
+    await tester.drag(scrollKey, const Offset(0, -200));
+    await tester.pump();
+    expect(state.position.pixels, greaterThan(0));
+    expect(tester.getTopLeft(find.text('TokenDock')).dy, closeTo(headerTop, 0.01));
   });
 
   testWidgets('normal width renders header and primary quota', (tester) async {
     await tester.pumpWidget(
       Center(
         child: SizedBox(
+          height: 600,
           width: 400,
           child: TokenDockWidget.loaded(
             accounts: <AccountItem>[
@@ -138,6 +181,7 @@ void main() {
     expect(find.text('Credits'), findsOneWidget);
     expect(find.text('Requests'), findsNothing);
     expect(find.textContaining('Resets in'), findsOneWidget);
+    expect(find.textContaining('Last updated'), findsOneWidget);
   });
 
   testWidgets('expanded width renders all quotas, plan, and error',
@@ -145,6 +189,7 @@ void main() {
     await tester.pumpWidget(
       Center(
         child: SizedBox(
+          height: 600,
           width: 600,
           child: TokenDockWidget.loaded(
             accounts: <AccountItem>[
@@ -175,6 +220,7 @@ void main() {
     await tester.pumpWidget(
       Center(
         child: SizedBox(
+          height: 600,
           width: 400,
           child: TokenDockWidget.loaded(
             accounts: <AccountItem>[

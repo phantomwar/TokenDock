@@ -4,7 +4,7 @@ Windows 10/11 x64 desktop widget that tracks an unlimited number of independentl
 
 ## Status
 
-Login adaptation, final-review recovery, and Connections UI wiring are implemented in the current working tree. Registered providers are `openrouter` (`AuthKind.apiKey`) and `antigravity` (`AuthKind.oauth`). Antigravity local mode exposes explicit `language-server` and `agy-cli` read-only sources; remote mode uses per-account Google OAuth. Local CSRF custody is in-memory and sanitized out of SQLite `provider_data`. Google authorization-code and refresh calls are form-encoded, v1internal RPCs remain JSON, transient quota calls use bounded Full Jitter retries, schema changes durably quarantine the connection, and definitive failures retain cached quotas while showing a Reconnect action. OAuth credentials are stored only in secure storage; real Google/browser/process validation remains pending.
+Login adaptation, Connections UI wiring, and the P1 functional-gap corrections are implemented. Registered providers are `openrouter` (`AuthKind.apiKey`) and `antigravity` (`AuthKind.oauth`). Antigravity local mode auto-discovers a sole language-server session in memory when no port is stored, keeps CSRF out of SQLite, and retains bounded `agy-cli` fallback. Remote mode uses per-account Google OAuth with actionable onboarding errors, cancellation, reconnect, refresh rotation, and cache preservation. Connections exposes persisted 1/3/5/10/manual refresh intervals; the widget shell scrolls large account sets and shows cache age in every density.
 
 ## Run
 
@@ -17,16 +17,16 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-- `flutter test --no-pub`: 227/227 tests passed.
+- `flutter test --no-pub`: 235/235 tests passed.
 - `flutter test integration_test/multi_account_flow_test.dart --no-pub`: Windows Debug build and 3/3 tests passed when run in isolation.
 - `flutter analyze --no-pub`: 0 errors and 0 warnings; 33 informational diagnostics, so the command exits nonzero.
 - `flutter build windows --release --no-pub`: succeeds; plugin C/C++ conversion and `strcpy` warnings remain.
-- `flutter run -d windows`: frameless 360x600 widget; first run shows `No connections yet` with one `Add Connection` action.
+- `flutter run -d windows`: frameless 360x600 scrollable widget; first run shows `No connections yet` with one `Add Connection` action.
 - Release smoke: `%LOCALAPPDATA%\TokenDock\tokendock.db` is created; close hides the window to the tray; Exit terminates.
 
 ## Checkpoint
 
-Checkpoint date: 2026-09-23. The previous C++ ATL integration blocker is resolved in the current environment. Antigravity provider/source selection, remote onboarding, cancellation, and reconnect are now wired into the Connections UI. Resume with validation of one real Google account, external browser callback, and one real Antigravity process. See `../docs/checkpoints/2026-09-23-login-adaptation-checkpoint.md`.
+P1 functional gaps were corrected on 2026-09-24. Resume with validation of one real Google account, external browser callback, refresh-token rotation, and one real Antigravity process. See `../docs/checkpoints/2026-09-23-login-adaptation-checkpoint.md`.
 
 ## First use
 

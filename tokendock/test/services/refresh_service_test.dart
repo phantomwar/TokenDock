@@ -1116,6 +1116,20 @@ void main() {
       expect(store.deleteAttempts.length, attemptsAtDispose);
     });
 
+    test('supported intervals drive the timer and manual cancels it', () {
+      final service = RefreshService.forTest(provider: ControlledProvider());
+
+      for (final minutes in const [1, 3, 5, 10]) {
+        service.updateIntervalMinutes(minutes);
+        expect(service.isTimerActive, isTrue, reason: '$minutes minutes');
+      }
+      service.updateIntervalMinutes(0);
+      expect(service.isTimerActive, isFalse);
+      expect(() => service.updateIntervalMinutes(2), throwsArgumentError);
+
+      service.dispose();
+    });
+
     test('periodic timer: timer fires and invokes refreshAll(), timer cancels on dispose', () async {
       final controlled = ControlledProvider();
       final connRepo = _FakeConnectionRepository([

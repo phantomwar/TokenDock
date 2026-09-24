@@ -15,6 +15,7 @@ import 'package:tokendock/services/refresh_service.dart';
 import 'package:tokendock/models/test_result.dart';
 import 'package:tokendock/services/refreshable_credential.dart';
 import 'package:tokendock/storage/quota_cache_repository.dart';
+import 'package:tokendock/storage/settings_repository.dart';
 
 import '../support/controlled_provider.dart';
 import '../support/memory_secret_store.dart';
@@ -105,6 +106,34 @@ class _RetryDeleteStore implements SecretStore {
     if (!retryAttempted.isCompleted) retryAttempted.complete();
     await delegate.delete(key);
   }
+}
+
+class _QueuedSettingsRepository implements SettingsRepository {
+  final Map<String, String> values = {};
+  final List<int> startedWrites = [];
+  final List<Completer<void>> writeGates = [];
+
+  @override
+  Future<String?> get(String key) async => values[key];
+
+  @override
+  Future<void> set(String key, String value) async {
+    values[key] = value;
+  }
+
+  @override
+  Future<int> getRefreshIntervalMinutes() async => 3;
+
+  @override
+  Future<void> setRefreshIntervalMinutes(int minutes) async {
+    startedWrites.add(minutes);
+    final gate = Completer<void>();
+    writeGates.add(gate);
+    await gate.future;
+    await set('refresh_interval_minutes', '$minutes');
+  }
+
+  void completeWrite(int index) => writeGates[index].complete();
 }
 
 class _LoadFailingRepository implements ConnectionRepository {
@@ -1348,5 +1377,29 @@ void main() {
     await expectLater(operation, throwsA(isA<AntigravityLoginCancelled>()));
     expect(store.entries, isEmpty);
     expect(await testDb.connectionRepository.getAll(), isEmpty);
+  });
+
+  test('newer refresh interval write waits for and supersedes older write', () async {
+    final settings = _QueuedSettingsRepository();
+    final state = AppState.test(settingsRepository: settings);
+    addTearDown(state.dispose);
+
+    final first = state.setRefreshIntervalMinutes(10);
+    await Future<void>.delayed(Duration.zero);
+    expect(settings.startedWrites, [10]);
+
+    final second = state.setRefreshIntervalMinutes(1);
+    await Future<void>.delayed(Duration.zero);
+    expect(settings.startedWrites, [10]);
+
+    settings.completeWrite(0);
+    await first;
+    await Future<void>.delayed(Duration.zero);
+    expect(settings.startedWrites, [10, 1]);
+
+    settings.completeWrite(1);
+    await second;
+    expect(state.refreshIntervalMinutes, 1);
+    expect(settings.values['refresh_interval_minutes'], '1');
   });
 }

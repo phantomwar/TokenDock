@@ -382,10 +382,19 @@ class AntigravityLocalReader {
       return _error(connection.id, DateTime.now().toUtc(), 'Antigravity source is not enabled');
     }
     if (source == 'agy-cli') return _fetchAgy(connection, providerData);
-    final port = providerData['port'] as int?;
+    var port = providerData['port'] as int?;
     var accountMatched = false;
+    AntigravityLocalSession? session;
+    if (port == null) {
+      final sessions = await _discoverSessions();
+      if (sessions.length == 1) {
+        session = sessions.single;
+        port = session.port;
+      }
+    } else {
+      session = await _sessionForPort(port);
+    }
     if (port != null) {
-      var session = await _sessionForPort(port);
       var csrfToken = session?.csrfToken ?? csrfTokenFor?.call(connection, port);
       if (session != null) {
         runtimeConfig?.setCsrfToken(
@@ -476,16 +485,19 @@ class AntigravityLocalReader {
     return _fetchAgy(connection, providerData);
   }
 
-  Future<AntigravityLocalSession?> _sessionForPort(int port) async {
+  Future<List<AntigravityLocalSession>> _discoverSessions() async {
     try {
-      final sessions = await _sessionDiscovery.discover();
-      for (final session in sessions) {
-        if (session.port == port) {
-          return session;
-        }
-      }
+      return await _sessionDiscovery.discover();
     } catch (_) {
-      // A failed discovery must not authorize reuse of an unverified token.
+      return const [];
+    }
+  }
+
+  Future<AntigravityLocalSession?> _sessionForPort(int port) async {
+    for (final session in await _discoverSessions()) {
+      if (session.port == port) {
+        return session;
+      }
     }
     return null;
   }

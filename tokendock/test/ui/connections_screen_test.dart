@@ -15,6 +15,7 @@ import 'package:tokendock/providers/provider_registry.dart';
 import 'package:tokendock/services/refresh_service.dart';
 import 'package:tokendock/storage/connection_repository.dart';
 import 'package:tokendock/storage/secret_store.dart';
+import 'package:tokendock/storage/settings_repository.dart';
 import 'package:tokendock/ui/settings/connections_screen.dart';
 
 import '../support/controlled_provider.dart';
@@ -48,6 +49,20 @@ class _ControlledAntigravityOAuthProvider extends AntigravityOAuthProvider {
   }) async {
     if (loginGate != null) return loginGate!.future;
     return result;
+  }
+}
+
+class _OnboardingRequiredAntigravityProvider
+    extends AntigravityOAuthProvider {
+  _OnboardingRequiredAntigravityProvider()
+    : super(launchExternalBrowser: (_) async {});
+
+  @override
+  Future<AntigravityOAuthLoginResult> loginWithLoopback(
+    Connection connection, {
+    Future<void>? cancellation,
+  }) async {
+    throw const AntigravityOnboardingRequired();
   }
 }
 
@@ -94,6 +109,58 @@ class _EmptyKeyRejectingSecretStore implements SecretStore {
   }
 }
 
+class _MemorySettingsRepository implements SettingsRepository {
+  _MemorySettingsRepository(this.refreshMinutes);
+
+  int refreshMinutes;
+  final Map<String, String> values = {};
+
+  @override
+  Future<String?> get(String key) async => values[key];
+
+  @override
+  Future<void> set(String key, String value) async {
+    values[key] = value;
+  }
+
+  @override
+  Future<int> getRefreshIntervalMinutes() async => refreshMinutes;
+
+  @override
+  Future<void> setRefreshIntervalMinutes(int minutes) async {
+    refreshMinutes = minutes;
+    await set('refresh_interval_minutes', '$minutes');
+  }
+}
+
+class _BlockingSettingsRepository implements SettingsRepository {
+  _BlockingSettingsRepository(this.initialMinutes);
+
+  final int initialMinutes;
+  final Completer<int> pendingLoad = Completer<int>();
+  final Map<String, String> values = {};
+  int persistedMinutes = 3;
+
+  void completeLoad() => pendingLoad.complete(initialMinutes);
+
+  @override
+  Future<String?> get(String key) async => values[key];
+
+  @override
+  Future<void> set(String key, String value) async {
+    values[key] = value;
+  }
+
+  @override
+  Future<int> getRefreshIntervalMinutes() => pendingLoad.future;
+
+  @override
+  Future<void> setRefreshIntervalMinutes(int minutes) async {
+    persistedMinutes = minutes;
+    await set('refresh_interval_minutes', '$minutes');
+  }
+}
+
 void main() {
   late MemoryConnectionRepository connectionRepo;
   late MemoryQuotaCacheRepository quotaCacheRepo;
@@ -103,6 +170,72 @@ void main() {
     connectionRepo = MemoryConnectionRepository();
     quotaCacheRepo = MemoryQuotaCacheRepository();
     store = MemorySecretStore();
+  });
+
+  testWidgets('refresh interval selector persists supported values', (tester) async {
+    final settings = _MemorySettingsRepository(5);
+    final state = AppState.test(
+      connectionRepository: connectionRepo,
+      quotaCacheRepository: quotaCacheRepo,
+      secretStore: store,
+      settingsRepository: settings,
+    );
+    await tester.pumpWidget(TestConnectionsScreen(appState: state));
+    await tester.pumpAndSettle();
+
+    expect(find.text('5 min'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('refreshIntervalMenu')));
+    await tester.pumpAndSettle();
+    for (final label in const [
+      'Every 1 minute',
+      'Every 3 minutes',
+      'Every 5 minutes',
+      'Every 10 minutes',
+    ]) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+    await tester.tap(find.text('Manual').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Manual'), findsOneWidget);
+    expect(settings.refreshMinutes, 0);
+
+    await tester.tap(find.byKey(const Key('refreshIntervalMenu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Every 10 minutes').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('10 min'), findsOneWidget);
+    expect(settings.refreshMinutes, 10);
+    state.dispose();
+  });
+
+  testWidgets('late initial load cannot overwrite a newer interval choice', (tester) async {
+    final settings = _BlockingSettingsRepository(5);
+    final state = AppState.test(
+      connectionRepository: connectionRepo,
+      quotaCacheRepository: quotaCacheRepo,
+      secretStore: store,
+      settingsRepository: settings,
+    );
+    await tester.pumpWidget(TestConnectionsScreen(appState: state));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('refreshIntervalMenu')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Every 10 minutes').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('10 min'), findsOneWidget);
+
+    settings.completeLoad();
+    await tester.pumpAndSettle();
+
+    expect(find.text('10 min'), findsOneWidget);
+    expect(settings.persistedMinutes, 10);
+    state.dispose();
   });
 
   group('ConnectionsScreen - Antigravity remote OAuth', () {
@@ -181,6 +314,40 @@ void main() {
         expect(store.entries, {row.credentialRef: secret});
       },
     );
+
+    testWidgets('onboarding requirement explains the next action', (tester) async {
+      final registry = ProviderRegistry(registerDefaults: false)
+        ..register(_OnboardingRequiredAntigravityProvider());
+      final state = AppState.test(
+        connectionRepository: connectionRepo,
+        quotaCacheRepository: quotaCacheRepo,
+        secretStore: store,
+        providerRegistry: registry,
+      );
+      addTearDown(state.dispose);
+      await tester.pumpWidget(TestConnectionsScreen(appState: state));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('addConnection')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('connectionDisplayNameField')),
+        'Antigravity account',
+      );
+      await tester.tap(find.byKey(const Key('antigravitySignInButton')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Complete onboarding in Antigravity, then try again.'),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('connectionFormDialogTitle')),
+        findsOneWidget,
+      );
+      expect(await connectionRepo.getAll(), isEmpty);
+      expect(store.entries, isEmpty);
+    });
 
     testWidgets('cancelling Google sign-in keeps the onboarding dialog open', (
       tester,

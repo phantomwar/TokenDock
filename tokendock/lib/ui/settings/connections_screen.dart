@@ -73,6 +73,45 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
     }
   }
 
+  PopupMenuButton<int> _buildRefreshIntervalMenu(BuildContext context) {
+    final selected = _state.refreshIntervalMinutes;
+    return PopupMenuButton<int>(
+      key: const Key('refreshIntervalMenu'),
+      tooltip: 'Refresh interval',
+      onSelected: _setRefreshInterval,
+      itemBuilder: (context) => const [
+        PopupMenuItem(value: 0, child: Text('Manual')),
+        PopupMenuItem(value: 1, child: Text('Every 1 minute')),
+        PopupMenuItem(value: 3, child: Text('Every 3 minutes')),
+        PopupMenuItem(value: 5, child: Text('Every 5 minutes')),
+        PopupMenuItem(value: 10, child: Text('Every 10 minutes')),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.timer_outlined),
+            const SizedBox(width: 6),
+            Text(selected == 0 ? 'Manual' : '$selected min'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setRefreshInterval(int minutes) async {
+    try {
+      await _state.setRefreshIntervalMinutes(minutes);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update refresh interval.')),
+        );
+      }
+    }
+  }
+
   @override
   void dispose() {
     _state.removeListener(_onStateChanged);
@@ -123,7 +162,10 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
     final accounts = _state.accounts;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Connections')),
+      appBar: AppBar(
+        title: const Text('Connections'),
+        actions: [_buildRefreshIntervalMenu(context)],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         key: const Key('addConnection'),
         tooltip: 'Add Connection',
@@ -327,8 +369,10 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
     _credentialController = TextEditingController();
 
     _credentialController.addListener(_onFieldEdited);
-    if (existing != null && widget.secretStore != null &&
-        existing.credentialRef.isNotEmpty && existing.authType != 'none') {
+    if (existing != null &&
+        widget.secretStore != null &&
+        existing.credentialRef.isNotEmpty &&
+        existing.authType != 'none') {
       widget.secretStore!.read(existing.credentialRef).then((raw) {
         if (mounted && raw != null) {
           setState(() {
@@ -340,6 +384,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       });
     }
   }
+
   void _onFieldEdited() {
     _testGeneration++;
     if (_testSuccess) {
@@ -601,6 +646,14 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
           _isSigningIn = false;
           _loginCancellation = null;
           _errorMessage = 'Sign-in cancelled.';
+        });
+      }
+    } on AntigravityOnboardingRequired {
+      if (mounted && generation == _loginRequestGeneration) {
+        setState(() {
+          _isSigningIn = false;
+          _loginCancellation = null;
+          _errorMessage = 'Complete onboarding in Antigravity, then try again.';
         });
       }
     } catch (_) {

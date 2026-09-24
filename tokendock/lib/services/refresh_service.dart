@@ -735,6 +735,7 @@ class RefreshService {
   /// Updates the periodic refresh interval in minutes.
   /// Supported values: 1, 3, 5, 10 minutes, or 0/null to disable (timer cancelled).
   void updateIntervalMinutes(int? minutes) {
+    if (minutes != null) validateRefreshIntervalMinutes(minutes);
     _periodicTimer?.cancel();
     _periodicTimer = null;
     _currentIntervalMinutes = minutes;

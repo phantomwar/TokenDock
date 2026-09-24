@@ -42,7 +42,7 @@ class WidgetShell extends StatelessWidget {
               ),
               padding: const EdgeInsets.all(TokenDockSpacing.s16),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize: MainAxisSize.max,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
                   Row(
@@ -50,20 +50,20 @@ class WidgetShell extends StatelessWidget {
                       Expanded(
                         child: Text(
                           'TokenDock',
-                          style: TokenDockTypography.titleStyle(
-                            color: colors.ink,
-                          ).copyWith(
-                            fontSize: 18,
-                            height: 22 / 18,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style:
+                              TokenDockTypography.titleStyle(color: colors.ink)
+                                  .copyWith(
+                                    fontSize: 18,
+                                    height: 22 / 18,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                         ),
                       ),
                       actions ?? const SizedBox.shrink(),
                     ],
                   ),
                   const SizedBox(height: TokenDockSpacing.s12),
-                  child,
+                  Expanded(child: child),
                 ],
               ),
             );
