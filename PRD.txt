@@ -6,13 +6,13 @@
 **Arquitetura:** aplicação local, processo único
 **Objetivo:** widget leve para monitorar múltiplas assinaturas, contas e API keys de serviços de IA.
 
-> **Status da primeira meta funcional (2026-09-23): implementada e mesclada em `master` (`b03190e`); hardening/auth adaptation também mesclado. Verificação atual: `flutter test --no-pub` 197/197, analyzer 0 erros/0 warnings/7 infos; integração Windows bloqueada por `C1083: atlstr.h not found` no plugin `flutter_secure_storage_windows`.** Pesquisa e plano: `docs/auth-research-oh-my-pi-9router.md` e `docs/auth-quota-hardening-plan.md`.
-> Funciona hoje: widget Windows 10/11 x64 (compacto/normal/expandido), janela frameless com tray e fechar-para-tray, três conexões OpenRouter independentes, CRUD com test-before-save, cache SQLite em `%LOCALAPPDATA%\TokenDock\tokendock.db`, segredos via DPAPI, refresh manual/periódico com no máximo quatro requisições simultâneas e coalescência por conexão, temas claro/escuro/alto contraste, navegação por teclado e Ctrl+R.
+> **Status da primeira meta funcional: implementada e mesclada; hardening/auth adaptation e wiring da Connections UI concluídos. Verificação atual: `flutter test --no-pub` 227/227, integração Windows 3/3 executada isoladamente, analyzer 0 erros/0 warnings/33 infos e build release concluído.** Pesquisa e plano: `docs/auth-research-oh-my-pi-9router.md` e `docs/auth-quota-hardening-plan.md`.
+> Funciona hoje: widget Windows 10/11 x64 (compacto/normal/expandido), janela frameless com tray e fechar-para-tray, conexões OpenRouter independentes sem limite configurado de quantidade, seleção de providers, fontes locais Antigravity keyless, login Antigravity Google remoto, cancelamento, reconnect in-place, CRUD com test-before-save para OpenRouter, cache SQLite em `%LOCALAPPDATA%\TokenDock\tokendock.db`, segredos via DPAPI, refresh manual/periódico com no máximo quatro requisições simultâneas e coalescência por conexão, temas claro/escuro/alto contraste, navegação por teclado e Ctrl+R.
 >
-> Desvio aprovado em relação à ordem deste PRD: o primeiro provider vivo é o OpenRouter (contrato público `GET /api/v1/key`), não o OpenCode Go; Antigravity foi adaptado como provider OAuth unofficial, backend/test-only, sem login exposto na Connections UI. O roadmap abaixo (MiniMax, OpenCode, grupos, notificações, instalador, release 0.1) permanece majoritariamente não implementado.
+> Desvio aprovado em relação à ordem deste PRD: o primeiro provider vivo é o OpenRouter (contrato público `GET /api/v1/key`), não o OpenCode Go; Antigravity é um provider OAuth unofficial, agora exposto na Connections UI para fontes locais e login remoto. O roadmap abaixo (MiniMax, OpenCode, grupos, notificações, instalador, release 0.1) permanece majoritariamente não implementado.
 >
-> Atualização técnica (2026-09-23): hardening OpenRouter e adaptação de login foram mesclados em `master` (`b03190e`): `AuthKind`, `Migration003` (`identity_key`/`provider_data`, `user_version = 3`), refresh single-flight, OAuth loopback, cooldown/quarantine, redação e Antigravity local/remoto unofficial. A meta de 3 providers ainda não foi atingida: OpenRouter e Antigravity estão registrados; MiniMax continua bloqueado por schema oficial ausente.
-> Pendências de retomada: instalar o componente C++ ATL do Visual Studio para corrigir `atlstr.h`; depois repetir `flutter test integration_test/multi_account_flow_test.dart --no-pub`; expor o login Antigravity na Connections UI; validar Google OAuth/browser/Antigravity reais; implementar fallback adaptativo, fallback entre contas, grupos, notificações e release 0.1. Não inferir contratos privados, scraping ou OAuth sem escopo/API oficial.
+> Atualização técnica: hardening OpenRouter e adaptação de login estão mesclados: `AuthKind`, `Migration003` (`identity_key`/`provider_data`, `user_version = 3`), refresh single-flight, OAuth loopback, cooldown/quarantine, redação, source selection, cancelamento e compensation de reconnect Antigravity. A meta de 3 providers ainda não foi atingida: OpenRouter e Antigravity estão registrados; MiniMax continua bloqueado por schema oficial ausente.
+> Pendências de retomada: validar Google OAuth/browser/Antigravity reais; implementar fallback adaptativo, fallback entre contas, grupos, notificações e release 0.1. Não inferir contratos privados, scraping ou OAuth sem escopo/API oficial.
 
 ---
 
@@ -990,7 +990,7 @@ malformed response
 E principalmente:
 
 ```text
-3 contas simultaneamente
+múltiplas contas simultaneamente
 ```
 
 ---
@@ -1985,11 +1985,11 @@ abre widget bonito
 ↓
 fica no tray
 ↓
-permite cadastrar 3 OpenCode Go
+permite cadastrar múltiplas conexões OpenRouter
 ↓
-protege as 3 API keys
+protege todas as API keys
 ↓
-consulta as 3 contas
+consulta todas as contas
 ↓
 mostra quotas individualmente
 ↓

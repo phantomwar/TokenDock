@@ -17,34 +17,18 @@
 
 ## Verification
 
-- `flutter test --no-pub`: **197/197 passed**.
-- `flutter analyze`: **0 errors, 0 warnings, 7 pre-existing informational diagnostics**; command exits nonzero because of infos.
-- No real Google OAuth, external browser, Antigravity process, or Windows integration flow was exercised. Tests use sanitized fake HTTP/process fixtures.
-- Latest Windows integration attempt now fails during native compilation with:
-
-```text
-flutter_secure_storage_windows_plugin.cpp(6,10): error C1083:
-Não é possível abrir arquivo incluir: 'atlstr.h'
-```
-
-The previous symlink/Developer Mode error is no longer the first blocker in this environment.
+- `flutter test --no-pub`: **227/227 passed**.
+- Focused suites: AppState 20/20, RefreshService 24/24, ConnectionsScreen 27/27, provider OAuth 21/21.
+- `flutter analyze`: **0 errors, 0 warnings, 33 informational diagnostics**; command exits nonzero because infos.
+- Windows integration passed 3/3 when run in isolation; Windows release build succeeds.
+- No real Google OAuth, external browser, or Antigravity process was exercised. Tests use sanitized fake HTTP/process fixtures.
 
 ## Resume checklist
 
-1. In Visual Studio Installer, enable **C++ ATL for latest v143 build tools (x86 & x64)** under Individual components.
-2. Restart the terminal and run:
+1. Validate one real Google account, external browser callback, refresh-token rotation, and one real Antigravity process.
+2. Keep MiniMax blocked until an official response schema is published.
+3. Decide separately whether to implement adaptive polling, sibling-account fallback, groups, notifications, installer, and release 0.1.
 
-   ```powershell
-   cd D:/Projetos/TokenDock/tokendock
-   flutter clean
-   flutter pub get
-   flutter test integration_test/multi_account_flow_test.dart --no-pub
-   ```
-
-3. If the integration test passes, wire Antigravity login and source selection into the Connections UI.
-4. Validate one real Google account, external browser callback, and one real Antigravity process.
-5. Keep MiniMax blocked until an official response schema is published.
-6. Decide separately whether to implement adaptive polling, sibling-account fallback, groups, notifications, installer, and release 0.1.
 
 ## Non-goals for the next session
 

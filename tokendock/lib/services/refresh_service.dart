@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+
 import '../models/connection.dart';
 import '../models/connection_health.dart';
 import '../models/connection_status.dart';
@@ -145,10 +146,7 @@ class RefreshService {
     _disabledListeners.remove(listener);
   }
 
-  void _publishCredentialDisabled(
-    Connection connection,
-    String cause,
-  ) {
+  void _publishCredentialDisabled(Connection connection, String cause) {
     if (_isDisposed) return;
     final event = CredentialDisabledEvent(
       connectionId: connection.id,
@@ -231,8 +229,10 @@ class RefreshService {
     final existing = _inFlight[connectionId];
     final shared = existing?.sharedResult;
     if (shared is Future<String>) return shared;
-    return runConnectionOperation(connectionId: connectionId, operation: operation)
-        .whenComplete(() {});
+    return runConnectionOperation(
+      connectionId: connectionId,
+      operation: operation,
+    ).whenComplete(() {});
   }
 
   Future<TestResult> testAdapter({
@@ -247,14 +247,18 @@ class RefreshService {
       var effectiveSecret = secret;
       if (preferStoredSecret) {
         final connections = await _connectionRepository.getAll();
-        final stored = connections.where((value) => value.id == connection.id).firstOrNull;
+        final stored = connections
+            .where((value) => value.id == connection.id)
+            .firstOrNull;
         if (stored != null) {
           effectiveConnection = stored;
-          effectiveSecret = await _secretStore.read(stored.credentialRef) ?? secret;
+          effectiveSecret =
+              await _secretStore.read(stored.credentialRef) ?? secret;
         }
       }
       final result = await adapter.test(effectiveConnection, effectiveSecret);
-      if (result.isSuccess && _isAntigravitySchemaQuarantined(effectiveConnection)) {
+      if (result.isSuccess &&
+          _isAntigravitySchemaQuarantined(effectiveConnection)) {
         return TestResult.success(
           plan: result.plan,
           quotas: result.quotas,
@@ -320,15 +324,17 @@ class RefreshService {
     }
     var connection = foundConnection;
     if (_isAntigravitySchemaQuarantined(connection)) {
-      await _persistHealthAndPublish(ProviderSnapshot(
-        connectionId: connectionId,
-        status: ConnectionStatus.error,
-        quotas: cachedQuotas,
-        balance: null,
-        fetchedAt: DateTime.now().toUtc(),
-        error: 'quota_source_changed',
-        connection: connection,
-      ));
+      await _persistHealthAndPublish(
+        ProviderSnapshot(
+          connectionId: connectionId,
+          status: ConnectionStatus.error,
+          quotas: cachedQuotas,
+          balance: null,
+          fetchedAt: DateTime.now().toUtc(),
+          error: 'quota_source_changed',
+          connection: connection,
+        ),
+      );
       return;
     }
 
@@ -382,11 +388,21 @@ class RefreshService {
     final currentSecret = secret ?? '';
     final activeSecrets = <String>{currentSecret};
 
-    ProviderSnapshot providerSnapshot = ProviderSnapshot(connectionId: connectionId, status: ConnectionStatus.error, quotas: cachedQuotas, balance: null, fetchedAt: DateTime.now().toUtc(), error: 'Refresh failed');
+    ProviderSnapshot providerSnapshot = ProviderSnapshot(
+      connectionId: connectionId,
+      status: ConnectionStatus.error,
+      quotas: cachedQuotas,
+      balance: null,
+      fetchedAt: DateTime.now().toUtc(),
+      error: 'Refresh failed',
+    );
     String? definitiveCause;
     final refreshable = adapter.refreshableCredential(currentSecret);
-    if (refreshable != null && refreshable.expiresAt != null &&
-        refreshable.expiresAt!.isBefore(DateTime.now().toUtc().add(refreshable.refreshLead))) {
+    if (refreshable != null &&
+        refreshable.expiresAt != null &&
+        refreshable.expiresAt!.isBefore(
+          DateTime.now().toUtc().add(refreshable.refreshLead),
+        )) {
       try {
         final refreshedSecret = await refreshable.refresh(currentSecret);
         connection = await _rotateCredential(connection, refreshedSecret);
@@ -396,11 +412,15 @@ class RefreshService {
         definitiveCause = definitiveOAuthFailureCause(error);
         providerSnapshot = ProviderSnapshot(
           connectionId: connectionId,
-          status: definitiveCause == null ? ConnectionStatus.error : ConnectionStatus.authError,
+          status: definitiveCause == null
+              ? ConnectionStatus.error
+              : ConnectionStatus.authError,
           quotas: cachedQuotas,
           balance: null,
           fetchedAt: DateTime.now().toUtc(),
-          error: definitiveCause ?? redactSecret(error.toString(), activeSecrets.toList()),
+          error:
+              definitiveCause ??
+              redactSecret(error.toString(), activeSecrets.toList()),
         );
         if (definitiveCause == 'invalid_grant') {
           await _deleteCredentialBestEffort(connection);
@@ -409,9 +429,16 @@ class RefreshService {
     }
     if (definitiveCause == null) {
       try {
-        providerSnapshot = await adapter.fetch(connection, secret ?? currentSecret);
-        if (providerSnapshot.failureCause == ProviderFailureCause.invalidCredential && refreshable != null) {
-          final refreshedSecret = await refreshable.refresh(secret ?? currentSecret);
+        providerSnapshot = await adapter.fetch(
+          connection,
+          secret ?? currentSecret,
+        );
+        if (providerSnapshot.failureCause ==
+                ProviderFailureCause.invalidCredential &&
+            refreshable != null) {
+          final refreshedSecret = await refreshable.refresh(
+            secret ?? currentSecret,
+          );
           connection = await _rotateCredential(connection, refreshedSecret);
           secret = refreshedSecret;
           activeSecrets.add(refreshedSecret);
@@ -421,11 +448,15 @@ class RefreshService {
         definitiveCause = definitiveOAuthFailureCause(error);
         providerSnapshot = ProviderSnapshot(
           connectionId: connectionId,
-          status: definitiveCause == null ? ConnectionStatus.error : ConnectionStatus.authError,
+          status: definitiveCause == null
+              ? ConnectionStatus.error
+              : ConnectionStatus.authError,
           quotas: cachedQuotas,
           balance: null,
           fetchedAt: DateTime.now().toUtc(),
-          error: definitiveCause ?? redactSecret(error.toString(), activeSecrets.toList()),
+          error:
+              definitiveCause ??
+              redactSecret(error.toString(), activeSecrets.toList()),
           failureCause: definitiveCause == 'bare_401'
               ? ProviderFailureCause.invalidCredential
               : null,
@@ -436,7 +467,8 @@ class RefreshService {
       }
     }
     if (definitiveCause == null &&
-        providerSnapshot.failureCause == ProviderFailureCause.invalidCredential) {
+        providerSnapshot.failureCause ==
+            ProviderFailureCause.invalidCredential) {
       definitiveCause = 'bare_401';
       providerSnapshot = ProviderSnapshot(
         connectionId: providerSnapshot.connectionId,
@@ -464,7 +496,8 @@ class RefreshService {
       );
     }
 
-    if (providerSnapshot.failureCause == ProviderFailureCause.quotaSourceChanged &&
+    if (providerSnapshot.failureCause ==
+            ProviderFailureCause.quotaSourceChanged &&
         connection.provider == 'antigravity') {
       connection = await _quarantineAntigravitySchema(connection);
     }
@@ -508,12 +541,12 @@ class RefreshService {
     await _persistHealthAndPublish(snapshot.copyWith(connection: connection));
   }
 
-
   bool _isAntigravitySchemaQuarantined(Connection connection) {
     if (connection.providerData == null) return false;
     try {
       final data = jsonDecode(connection.providerData!);
-      return data is Map && data['quotaSourceDisabled'] == 'quota_source_changed';
+      return data is Map &&
+          data['quotaSourceDisabled'] == 'quota_source_changed';
     } catch (_) {
       return false;
     }
@@ -545,7 +578,8 @@ class RefreshService {
   }
 
   bool _isLocalAntigravitySource(Connection connection) {
-    if (connection.provider != 'antigravity' || connection.providerData == null) {
+    if (connection.provider != 'antigravity' ||
+        connection.providerData == null) {
       return false;
     }
     try {
@@ -597,17 +631,34 @@ class RefreshService {
       _scheduleSecretCleanup();
     }
   }
-  List<String> get credentialCleanupWarnings => List.unmodifiable(_credentialCleanupWarnings);
+
+  List<String> get credentialCleanupWarnings =>
+      List.unmodifiable(_credentialCleanupWarnings);
+  void scheduleCredentialCleanup(String connectionId, String secretRef) {
+    _pendingSecretCleanup.add(secretRef);
+    _credentialCleanupWarnings.add(
+      'Old credential cleanup pending for $connectionId',
+    );
+    _scheduleSecretCleanup();
+  }
+
+  void cancelCredentialCleanup(String secretRef) {
+    _pendingSecretCleanup.remove(secretRef);
+  }
+
   void _scheduleSecretCleanup() {
     _secretCleanupTimer ??= Timer(_secretCleanupInterval, () async {
       _secretCleanupTimer = null;
       for (final ref in List.of(_pendingSecretCleanup)) {
-        try { await _secretStore.delete(ref); _pendingSecretCleanup.remove(ref); } catch (_) {}
+        try {
+          await _secretStore.delete(ref);
+          _pendingSecretCleanup.remove(ref);
+        } catch (_) {}
       }
-      if (!_isDisposed && _pendingSecretCleanup.isNotEmpty) _scheduleSecretCleanup();
+      if (!_isDisposed && _pendingSecretCleanup.isNotEmpty)
+        _scheduleSecretCleanup();
     });
   }
-
 
   Future<void> _persistHealthAndPublish(ProviderSnapshot snapshot) async {
     final health = ConnectionHealth(

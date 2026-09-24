@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'dart:async';
+
+import '../../providers/antigravity/antigravity_oauth.dart';
+
+import 'dart:convert';
+
 import '../../app/app_state.dart';
 import '../../models/connection.dart';
 import '../../models/test_result.dart';
@@ -89,22 +95,21 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
           quotaCacheRepository:
               widget.quotaCacheRepository ?? _state.quotaCacheRepository,
           adapter: widget.adapter,
-          providerRegistry:
-              widget.providerRegistry ?? _state.providerRegistry,
+          providerRegistry: widget.providerRegistry ?? _state.providerRegistry,
         );
       },
     );
   }
 
   Future<void> _deleteConnection(
-      BuildContext context, Connection connection) async {
+    BuildContext context,
+    Connection connection,
+  ) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
       final warning = await _state.removeConnection(connection.id);
       if (warning != null) {
-        messenger.showSnackBar(
-          SnackBar(content: Text(warning)),
-        );
+        messenger.showSnackBar(SnackBar(content: Text(warning)));
       }
     } catch (e) {
       messenger.showSnackBar(
@@ -118,9 +123,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
     final accounts = _state.accounts;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Connections'),
-      ),
+      appBar: AppBar(title: const Text('Connections')),
       floatingActionButton: FloatingActionButton.extended(
         key: const Key('addConnection'),
         tooltip: 'Add Connection',
@@ -134,9 +137,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
 
   Widget _buildBody(BuildContext context, List<AccountItem> accounts) {
     if (_state.isLoading && accounts.isEmpty) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     final colors = TokenDockTheme.colorsOf(context);
@@ -191,8 +192,9 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
                   conn.group != null && conn.group!.isNotEmpty
                       ? '${conn.provider} • ${conn.group}'
                       : conn.provider,
-                  style:
-                      TokenDockTypography.captionStyle(color: colors.mutedInk),
+                  style: TokenDockTypography.captionStyle(
+                    color: colors.mutedInk,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 StatusIndicator(status: account.snapshot.status),
@@ -203,7 +205,9 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
                       const Icon(Icons.link_off, size: 18),
                       const SizedBox(width: 6),
                       const Expanded(
-                        child: Text('Reconnect required. Cached quotas remain available.'),
+                        child: Text(
+                          'Reconnect required. Cached quotas remain available.',
+                        ),
                       ),
                       TextButton.icon(
                         key: Key('reconnectConnection_${conn.id}'),
@@ -271,10 +275,11 @@ class _ConnectionFormDialog extends StatefulWidget {
 }
 
 class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
-  late final TextEditingController _providerController;
   late final TextEditingController _displayNameController;
   late final TextEditingController _groupController;
   late final TextEditingController _credentialController;
+  late String _providerId;
+  late String _antigravitySource;
 
   /// Masked text shown in the credential field while editing.
   String? _initialMaskedSecret;
@@ -288,28 +293,43 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
   TestResult? _testResult;
   bool _isTesting = false;
   bool _isSaving = false;
+  bool _isRemoteAntigravity = false;
+  bool _isSigningIn = false;
+  Completer<void>? _loginCancellation;
+  int _loginRequestGeneration = 0;
+  int _testGeneration = 0;
   String? _errorMessage;
   String? _connectedMessage;
 
   @override
   void initState() {
     super.initState();
-    _providerController = TextEditingController(
-      text: widget.existing?.provider ?? 'OpenRouter',
-    );
+    final existing = widget.existing;
+    final registry =
+        widget.providerRegistry ??
+        widget.appState.providerRegistry ??
+        ProviderRegistry.instance;
+    final adapters = registry.getAll();
+    _providerId =
+        existing?.provider ??
+        (adapters.any((adapter) => adapter.id == 'openrouter')
+            ? 'openrouter'
+            : adapters.isEmpty
+            ? 'openrouter'
+            : adapters.first.id);
+    _antigravitySource = _sourceFromProviderData(existing?.providerData);
+    _isRemoteAntigravity =
+        _providerId == 'antigravity' && _antigravitySource == 'remote';
     _displayNameController = TextEditingController(
-      text: widget.existing?.displayName ?? '',
+      text: existing?.displayName ?? '',
     );
-    _groupController = TextEditingController(
-      text: widget.existing?.group ?? '',
-    );
+    _groupController = TextEditingController(text: existing?.group ?? '');
     _credentialController = TextEditingController();
 
-    _providerController.addListener(_onFieldEdited);
     _credentialController.addListener(_onFieldEdited);
-
-    if (widget.existing != null && widget.secretStore != null) {
-      widget.secretStore!.read(widget.existing!.credentialRef).then((raw) {
+    if (existing != null && widget.secretStore != null &&
+        existing.credentialRef.isNotEmpty && existing.authType != 'none') {
+      widget.secretStore!.read(existing.credentialRef).then((raw) {
         if (mounted && raw != null) {
           setState(() {
             _loadedRawSecret = raw;
@@ -320,8 +340,8 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       });
     }
   }
-
   void _onFieldEdited() {
+    _testGeneration++;
     if (_testSuccess) {
       setState(() {
         _testSuccess = false;
@@ -333,16 +353,105 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
 
   @override
   void dispose() {
-    _providerController.removeListener(_onFieldEdited);
+    _loginRequestGeneration++;
+    final cancellation = _loginCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
+    _loginCancellation = null;
+    _isSigningIn = false;
     _credentialController.removeListener(_onFieldEdited);
-    _providerController.dispose();
     _displayNameController.dispose();
     _groupController.dispose();
     _credentialController.dispose();
     super.dispose();
   }
 
+  ProviderRegistry get _registry =>
+      widget.providerRegistry ??
+      widget.appState.providerRegistry ??
+      ProviderRegistry.instance;
+
+  bool get _isLocalAntigravity =>
+      _providerId == 'antigravity' && _antigravitySource != 'remote';
+
+  String _sourceFromProviderData(String? providerData) {
+    if (providerData == null) return 'remote';
+    try {
+      final decoded = jsonDecode(providerData);
+      final source = decoded is Map ? decoded['source']?.toString() : null;
+      if (source == 'language-server' ||
+          source == 'agy-cli' ||
+          source == 'remote') {
+        return source!;
+      }
+    } catch (_) {}
+    return 'remote';
+  }
+
+  String _providerDataWithSource() {
+    final data = <String, dynamic>{};
+    final existingData = widget.existing?.providerData;
+    if (existingData != null) {
+      try {
+        final decoded = jsonDecode(existingData);
+        if (decoded is Map) data.addAll(Map<String, dynamic>.from(decoded));
+      } catch (_) {}
+    }
+    data['source'] = _antigravitySource;
+    return jsonEncode(data);
+  }
+
+  void _onProviderChanged(String? value) {
+    if (value == null) return;
+    setState(() {
+      _providerId = value;
+      if (value == 'antigravity') {
+        _antigravitySource = 'remote';
+      }
+      _isRemoteAntigravity =
+          value == 'antigravity' && _antigravitySource == 'remote';
+      _invalidateTestGate();
+    });
+  }
+
+  List<DropdownMenuItem<String>> _providerItems() {
+    final adapters = _registry.getAll();
+    final items = adapters
+        .map(
+          (adapter) => DropdownMenuItem<String>(
+            value: adapter.id,
+            child: Text(adapter.name),
+          ),
+        )
+        .toList();
+    if (widget.existing != null &&
+        !items.any((item) => item.value == _providerId)) {
+      items.add(
+        DropdownMenuItem<String>(value: _providerId, child: Text(_providerId)),
+      );
+    }
+    return items;
+  }
+
+  void _onSourceChanged(String? value) {
+    if (value == null) return;
+    setState(() {
+      _antigravitySource = value;
+      _isRemoteAntigravity = _providerId == 'antigravity' && value == 'remote';
+      _invalidateTestGate();
+    });
+  }
+
+  void _invalidateTestGate() {
+    _testSuccess = false;
+    _testResult = null;
+    _connectedMessage = null;
+    _testGeneration++;
+  }
+
   Future<void> _testConnection() async {
+    final testGeneration = _testGeneration;
     setState(() {
       _isTesting = true;
       _errorMessage = null;
@@ -358,35 +467,33 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
         secretToTest = _loadedRawSecret!;
       }
 
-      final providerRaw = _providerController.text.trim();
-      final providerId =
-          providerRaw.toLowerCase() == 'openrouter' ? 'openrouter' : providerRaw;
+      final providerId = _providerId;
+      final providerData = _isLocalAntigravity
+          ? _providerDataWithSource()
+          : null;
+      final testConn = Connection(
+        id: widget.existing?.id ?? 'test-connection-id',
+        provider: providerId,
+        displayName: _displayNameController.text.trim(),
+        group: _groupController.text.trim().isNotEmpty
+            ? _groupController.text.trim()
+            : null,
+        plan: widget.existing?.plan,
+        credentialRef: widget.existing?.credentialRef ?? '',
+        enabled: true,
+        authType:
+            widget.existing?.authType ?? (_isLocalAntigravity ? 'none' : null),
+        identityKey: widget.existing?.identityKey,
+        providerData: providerData ?? widget.existing?.providerData,
+      );
 
-      final testConn = widget.existing ??
-          Connection(
-            id: 'test-connection-id',
-            provider: providerId,
-            displayName: _displayNameController.text.trim(),
-            group: _groupController.text.trim().isNotEmpty
-                ? _groupController.text.trim()
-                : null,
-            plan: null,
-            credentialRef: '',
-            enabled: true,
-          );
-
-      final adapter = widget.adapter ??
-          widget.providerRegistry?.get(providerId) ??
-          widget.providerRegistry?.get(providerRaw) ??
-          ProviderRegistry.instance.get(providerId) ??
-          ProviderRegistry.instance.get(providerRaw);
-
+      final adapter = widget.adapter ?? _registry.get(providerId);
       if (adapter == null) {
         if (!mounted) return;
         setState(() {
           _isTesting = false;
           _testSuccess = false;
-          _errorMessage = 'Unknown provider: $providerRaw';
+          _errorMessage = 'Unknown provider: $providerId';
         });
         return;
       }
@@ -399,11 +506,14 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
         id: testConn.id,
         customAdapter: adapter,
         connection: testConn,
-        preferStoredSecret: widget.existing != null,
+        preferStoredSecret: widget.existing != null && !_isLocalAntigravity,
       );
 
       if (!mounted) return;
-
+      if (testGeneration != _testGeneration) {
+        setState(() => _isTesting = false);
+        return;
+      }
       if (result.isSuccess) {
         setState(() {
           _isTesting = false;
@@ -423,12 +533,91 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       }
     } catch (e) {
       if (!mounted) return;
+      if (testGeneration != _testGeneration) {
+        setState(() => _isTesting = false);
+        return;
+      }
       setState(() {
         _isTesting = false;
         _testSuccess = false;
         _testResult = null;
         _errorMessage = 'Test failed: $e';
       });
+    }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    if (_displayNameController.text.trim().isEmpty) {
+      setState(() => _errorMessage = 'Enter a display name.');
+      return;
+    }
+    final generation = ++_loginRequestGeneration;
+    final cancellation = Completer<void>();
+    _loginCancellation = cancellation;
+    setState(() {
+      _isSigningIn = true;
+      _errorMessage = null;
+      _connectedMessage = null;
+    });
+    final provider = _registry.get('antigravity');
+    if (provider is! AntigravityOAuthProvider) {
+      if (mounted)
+        setState(() {
+          _isSigningIn = false;
+          _loginCancellation = null;
+          _errorMessage = 'Google sign-in is unavailable.';
+        });
+      return;
+    }
+    try {
+      if (widget.existing == null) {
+        await widget.appState.addAntigravityConnection(
+          displayName: _displayNameController.text.trim(),
+          group: _groupController.text.trim().isEmpty
+              ? null
+              : _groupController.text.trim(),
+          provider: provider,
+          cancellation: cancellation.future,
+        );
+      } else {
+        await widget.appState.reconnectAntigravityConnection(
+          widget.existing!,
+          _displayNameController.text.trim(),
+          _groupController.text.trim().isEmpty
+              ? null
+              : _groupController.text.trim(),
+          provider: provider,
+          cancellation: cancellation.future,
+        );
+      }
+      if (!mounted ||
+          generation != _loginRequestGeneration ||
+          cancellation.isCompleted)
+        return;
+      Navigator.of(context).pop(true);
+    } on AntigravityLoginCancelled {
+      if (mounted && generation == _loginRequestGeneration) {
+        setState(() {
+          _isSigningIn = false;
+          _loginCancellation = null;
+          _errorMessage = 'Sign-in cancelled.';
+        });
+      }
+    } catch (_) {
+      if (mounted && generation == _loginRequestGeneration) {
+        setState(() {
+          _isSigningIn = false;
+          _loginCancellation = null;
+          _errorMessage = 'Unable to sign in. Please try again.';
+        });
+      }
+    }
+  }
+
+  void _cancelSignIn() {
+    final cancellation = _loginCancellation;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
     }
   }
 
@@ -439,49 +628,60 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
     });
 
     try {
-      final providerRaw = _providerController.text.trim();
-      final providerId =
-          providerRaw.toLowerCase() == 'openrouter' ? 'openrouter' : providerRaw;
-
+      final providerId = _providerId;
       final displayName = _displayNameController.text.trim();
       final group = _groupController.text.trim().isNotEmpty
           ? _groupController.text.trim()
           : null;
-
       final secretText = _credentialController.text.trim();
-      final bool isSecretModified = widget.existing == null ||
+      final bool isSecretModified =
+          widget.existing == null ||
           (_initialMaskedSecret == null || secretText != _initialMaskedSecret);
       final replacementSecret = _testResult?.replacementSecret;
 
       if (widget.existing == null) {
-        await widget.appState.addConnection(
-          provider: providerId,
+        if (_isLocalAntigravity) {
+          await widget.appState.addAntigravityLocalConnection(
+            displayName: displayName,
+            group: group,
+            source: _antigravitySource,
+            initialQuotas: _testResult?.quotas ?? const [],
+          );
+        } else {
+          await widget.appState.addConnection(
+            provider: providerId,
+            displayName: displayName,
+            group: group,
+            secret: replacementSecret ?? secretText,
+            plan: _testResult?.plan,
+            initialQuotas: _testResult?.quotas ?? const [],
+            providerData: _providerId == 'antigravity'
+                ? jsonEncode({'source': _antigravitySource})
+                : null,
+          );
+        }
+      } else if (_isLocalAntigravity) {
+        await widget.appState.updateAntigravityLocalConnection(
+          existing: widget.existing!,
           displayName: displayName,
           group: group,
-          secret: replacementSecret ?? secretText,
-          plan: _testResult?.plan,
-          initialQuotas: _testResult?.quotas ?? const [],
+          newQuotas: _testResult?.quotas,
+          clearSchemaQuarantine: _testResult?.schemaRevalidated ?? false,
         );
       } else {
         await widget.appState.updateConnection(
           existing: widget.existing!,
           displayName: displayName,
           group: group,
-          newSecret: isSecretModified
-              ? secretText
-              : replacementSecret,
+          newSecret: isSecretModified ? secretText : replacementSecret,
           plan: _testResult?.plan ?? widget.existing!.plan,
           newQuotas: _testResult?.quotas,
-          clearSchemaQuarantine:
-              _testResult?.schemaRevalidated ?? false,
+          clearSchemaQuarantine: _testResult?.schemaRevalidated ?? false,
         );
       }
 
       _credentialController.clear();
-
-      if (mounted) {
-        Navigator.of(context).pop(true);
-      }
+      if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -502,177 +702,241 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
           policy: ReadingOrderTraversalPolicy(),
           child: Padding(
             padding: const EdgeInsets.all(16.0),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  widget.existing == null
-                      ? 'Add Connection'
-                      : 'Edit Connection',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const Key('connectionProviderField'),
-                  controller: _providerController,
-                  readOnly: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Provider',
-                    border: OutlineInputBorder(),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    key: const Key('connectionFormDialogTitle'),
+                    widget.existing == null
+                        ? 'Add Connection'
+                        : 'Edit Connection',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const Key('connectionDisplayNameField'),
-                  controller: _displayNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Display name',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const Key('connectionGroupField'),
-                  controller: _groupController,
-                  decoration: const InputDecoration(
-                    labelText: 'Group',
-                    border: OutlineInputBorder(),
-                    hintText: 'Optional',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const Key('connectionCredentialField'),
-                  controller: _credentialController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Credential',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (_isTesting)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8.0),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 8),
-                        Text('Testing connection...'),
-                      ],
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    key: const Key('connectionProviderField'),
+                    initialValue: _providerId,
+                    items: _providerItems(),
+                    onChanged: widget.existing == null
+                        ? _onProviderChanged
+                        : null,
+                    decoration: const InputDecoration(
+                      labelText: 'Provider',
+                      border: OutlineInputBorder(),
                     ),
                   ),
-                if (_connectedMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.check_circle,
-                                color: Colors.green, size: 18),
-                            const SizedBox(width: 6),
-                            Text(
-                              _connectedMessage!,
-                              style: const TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (_testResult != null &&
-                            _testResult!.quotas.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Quota preview:',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          ..._testResult!.quotas.map((quota) {
-                            final remainingStr = quota.remaining != null
-                                ? quota.remaining!.toStringAsFixed(1)
-                                : '-';
-                            final limitStr = quota.limit != null
-                                ? quota.limit!.toStringAsFixed(1)
-                                : '-';
-                            final unitStr =
-                                quota.unit != null ? ' ${quota.unit}' : '';
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 2.0),
-                              child: Text(
-                                '${quota.label}: $remainingStr / $limitStr$unitStr',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            );
-                          }),
-                        ],
-                      ],
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const Key('connectionDisplayNameField'),
+                    controller: _displayNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Display name',
+                      border: OutlineInputBorder(),
                     ),
                   ),
-                if (_errorMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8.0),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.error_outline,
-                            color: Colors.red, size: 18),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            _errorMessage!,
-                            style: const TextStyle(color: Colors.red),
-                          ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    key: const Key('connectionGroupField'),
+                    controller: _groupController,
+                    decoration: const InputDecoration(
+                      labelText: 'Group',
+                      border: OutlineInputBorder(),
+                      hintText: 'Optional',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_providerId == 'antigravity') ...[
+                    DropdownButtonFormField<String>(
+                      key: const Key('antigravitySourceField'),
+                      initialValue: _antigravitySource,
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'remote',
+                          child: Text('remote'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'language-server',
+                          child: Text('language-server'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'agy-cli',
+                          child: Text('agy-cli'),
                         ),
                       ],
+                      onChanged: widget.existing == null
+                          ? _onSourceChanged
+                          : null,
+                      decoration: const InputDecoration(
+                        labelText: 'Source',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                const SizedBox(height: 16),
-                OverflowBar(
-                  spacing: 8,
-                  overflowSpacing: 8,
-                  alignment: MainAxisAlignment.end,
-                  children: [
-                    ElevatedButton(
-                      key: const Key('testConnectionButton'),
-                      onPressed:
-                          _isTesting || _isSaving ? null : _testConnection,
-                      child: const Text('Test Connection'),
-                    ),
-                    TextButton(
-                      onPressed:
-                          _isSaving ? null : () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      key: const Key('saveConnection'),
-                      onPressed: _testSuccess && !_isSaving ? _save : null,
-                      child: _isSaving
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Save'),
-                    ),
+                    const SizedBox(height: 12),
                   ],
-                ),
-              ],
+                  if (!_isLocalAntigravity && !_isRemoteAntigravity) ...[
+                    TextFormField(
+                      key: const Key('connectionCredentialField'),
+                      controller: _credentialController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Credential',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (_isRemoteAntigravity) ...[
+                    const SizedBox(height: 12),
+                    if (_isSigningIn)
+                      OutlinedButton.icon(
+                        key: const Key('antigravityCancelLoginButton'),
+                        onPressed: _cancelSignIn,
+                        icon: const Icon(Icons.close),
+                        label: const Text('Cancel sign-in'),
+                      )
+                    else
+                      ElevatedButton.icon(
+                        key: const Key('antigravitySignInButton'),
+                        onPressed: _signInWithGoogle,
+                        icon: const Icon(Icons.login),
+                        label: const Text('Sign in with Google'),
+                      ),
+                  ],
+                  const SizedBox(height: 12),
+                  if (_isTesting)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 8),
+                          Text('Testing connection...'),
+                        ],
+                      ),
+                    ),
+                  if (_connectedMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                _connectedMessage!,
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_testResult != null &&
+                              _testResult!.quotas.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Quota preview:',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            ..._testResult!.quotas.map((quota) {
+                              final remainingStr = quota.remaining != null
+                                  ? quota.remaining!.toStringAsFixed(1)
+                                  : '-';
+                              final limitStr = quota.limit != null
+                                  ? quota.limit!.toStringAsFixed(1)
+                                  : '-';
+                              final unitStr = quota.unit != null
+                                  ? ' ${quota.unit}'
+                                  : '';
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 2.0),
+                                child: Text(
+                                  '${quota.label}: $remainingStr / $limitStr$unitStr',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              );
+                            }),
+                          ],
+                        ],
+                      ),
+                    ),
+                  if (_errorMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            color: Colors.red,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style: const TextStyle(color: Colors.red),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  if (!_isRemoteAntigravity)
+                    OverflowBar(
+                      spacing: 8,
+                      overflowSpacing: 8,
+                      alignment: MainAxisAlignment.end,
+                      children: [
+                        ElevatedButton(
+                          key: const Key('testConnectionButton'),
+                          onPressed: _isTesting || _isSaving
+                              ? null
+                              : _testConnection,
+                          child: const Text('Test Connection'),
+                        ),
+                        TextButton(
+                          onPressed: _isSaving
+                              ? null
+                              : () => Navigator.of(context).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                        ElevatedButton(
+                          key: const Key('saveConnection'),
+                          onPressed: _testSuccess && !_isSaving ? _save : null,
+                          child: _isSaving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text('Save'),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
   }
 }

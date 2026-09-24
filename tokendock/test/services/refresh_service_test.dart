@@ -130,7 +130,8 @@ class _RefreshableAntigravityProvider implements ProviderAdapter {
   int refreshCalls = 0;
   final fetchedSecrets = <String>[];
   Future<void> Function()? beforeRefresh;
-  Future<ProviderSnapshot> Function(Connection connection, String secret)? onFetch;
+  Future<ProviderSnapshot> Function(Connection connection, String secret)?
+  onFetch;
 
   @override
   String get id => 'antigravity';
@@ -142,8 +143,9 @@ class _RefreshableAntigravityProvider implements ProviderAdapter {
   AuthKind get authKind => AuthKind.oauth;
 
   @override
-  Map<String, String> buildAuthHeader(String secret) =>
-      {'Authorization': 'Bearer $secret'};
+  Map<String, String> buildAuthHeader(String secret) => {
+    'Authorization': 'Bearer $secret',
+  };
 
   @override
   RefreshableCredential refreshableCredential(String secret) =>
@@ -226,16 +228,21 @@ class _TestOverlapProvider extends _RefreshableAntigravityProvider {
     final expiresAt = credential.expiresAt;
     if (secret == 'old-secret' &&
         expiresAt != null &&
-        expiresAt.isBefore(DateTime.now().toUtc().add(credential.refreshLead))) {
+        expiresAt.isBefore(
+          DateTime.now().toUtc().add(credential.refreshLead),
+        )) {
       testedSecret = await credential.refresh(secret);
     }
     await testGate.future;
-    return TestResult.success(replacementSecret: testedSecret == secret ? null : testedSecret);
+    return TestResult.success(
+      replacementSecret: testedSecret == secret ? null : testedSecret,
+    );
   }
 }
 
 class _CleanupFailingSecretStore implements SecretStore {
-  _CleanupFailingSecretStore(Map<String, String> initial) : values = Map<String, String>.from(initial);
+  _CleanupFailingSecretStore(Map<String, String> initial)
+    : values = Map<String, String>.from(initial);
 
   final Map<String, String> values;
   final deleteAttempts = <String>[];
@@ -314,25 +321,28 @@ void main() {
       service.dispose();
     });
 
-    test('local Antigravity source refreshes without a stored credential', () async {
-      final provider = ControlledProvider(id: 'antigravity');
-      final service = RefreshService.forTest(
-        provider: provider,
-        connectionRepository: _FakeConnectionRepository([
-          createConnection(
-            id: 'conn-local',
-            provider: 'antigravity',
-            providerData: '{"source":"language-server","port":1234}',
-          ),
-        ]),
-        secretStore: MemorySecretStore(),
-      );
+    test(
+      'local Antigravity source refreshes without a stored credential',
+      () async {
+        final provider = ControlledProvider(id: 'antigravity');
+        final service = RefreshService.forTest(
+          provider: provider,
+          connectionRepository: _FakeConnectionRepository([
+            createConnection(
+              id: 'conn-local',
+              provider: 'antigravity',
+              providerData: '{"source":"language-server","port":1234}',
+            ),
+          ]),
+          secretStore: MemorySecretStore(),
+        );
 
-      await service.refreshOne('conn-local');
+        await service.refreshOne('conn-local');
 
-      expect(provider.fetchCalls, 1);
-      service.dispose();
-    });
+        expect(provider.fetchCalls, 1);
+        service.dispose();
+      },
+    );
 
     test(
       'token operations are single-flight and return the token value',
@@ -358,12 +368,40 @@ void main() {
         gate.complete();
 
         Future<String> typedResult = first;
-        expect(
-          await Future.wait([typedResult, duplicate, otherConnection]),
-          ['secret-conn-a', 'secret-conn-a', 'secret-conn-b'],
-        );
+        expect(await Future.wait([typedResult, duplicate, otherConnection]), [
+          'secret-conn-a',
+          'secret-conn-a',
+          'secret-conn-b',
+        ]);
         expect(calls, 2);
 
+        service.dispose();
+      },
+    );
+    test(
+      'runConnectionOperation queues same-id operations deterministically',
+      () async {
+        final service = RefreshService.forTest(provider: ControlledProvider());
+        final gate = Completer<void>();
+        final events = <String>[];
+        final first = service.runConnectionOperation<void>(
+          connectionId: 'shared-id',
+          operation: () async {
+            events.add('first-start');
+            await gate.future;
+            events.add('first-end');
+          },
+        );
+        final second = service.runConnectionOperation<void>(
+          connectionId: 'shared-id',
+          operation: () async {
+            events.add('second');
+          },
+        );
+        expect(events, ['first-start']);
+        gate.complete();
+        await Future.wait([first, second]);
+        expect(events, ['first-start', 'first-end', 'second']);
         service.dispose();
       },
     );
@@ -372,10 +410,15 @@ void main() {
       'refreshOne and test-time OAuth refresh share one connection operation',
       () async {
         final provider = _TestOverlapProvider(
-          expiresAt: DateTime.now().toUtc().subtract(const Duration(minutes: 2)),
+          expiresAt: DateTime.now().toUtc().subtract(
+            const Duration(minutes: 2),
+          ),
         );
         provider.beforeRefresh = () => provider.testGate.future;
-        final connection = createConnection(id: 'conn-a', provider: 'antigravity');
+        final connection = createConnection(
+          id: 'conn-a',
+          provider: 'antigravity',
+        );
         final connections = _FakeConnectionRepository([connection]);
         final service = RefreshService.forTest(
           provider: provider,
@@ -403,23 +446,26 @@ void main() {
       },
     );
 
-    test('runTokenOperation fails after dispose without starting work', () async {
-      final service = RefreshService.forTest(provider: ControlledProvider());
-      var calls = 0;
-      service.dispose();
+    test(
+      'runTokenOperation fails after dispose without starting work',
+      () async {
+        final service = RefreshService.forTest(provider: ControlledProvider());
+        var calls = 0;
+        service.dispose();
 
-      await expectLater(
-        service.runTokenOperation(
-          connectionId: 'conn-a',
-          operation: () async {
-            calls++;
-            return 'new-secret';
-          },
-        ),
-        throwsA(isA<StateError>()),
-      );
-      expect(calls, 0);
-    });
+        await expectLater(
+          service.runTokenOperation(
+            connectionId: 'conn-a',
+            operation: () async {
+              calls++;
+              return 'new-secret';
+            },
+          ),
+          throwsA(isA<StateError>()),
+        );
+        expect(calls, 0);
+      },
+    );
 
     test('concurrency cap: refreshAll() with multiple accounts executes at most 4 simultaneous provider requests', () async {
       final controlled = ControlledProvider();
@@ -736,92 +782,109 @@ void main() {
       },
     );
 
-    test('proactive Antigravity rotation swaps credential before fetch', () async {
-      final provider = _RefreshableAntigravityProvider(
-        expiresAt: DateTime.now().toUtc().subtract(const Duration(minutes: 2)),
-      );
-      final connections = _FakeConnectionRepository([
-        createConnection(id: 'conn-proactive', provider: 'antigravity'),
-      ]);
-      final store = MemorySecretStore({'cred-conn-proactive': 'old-secret'});
-      final snapshots = <ProviderSnapshot>[];
-      final service = RefreshService.forTest(
-        provider: provider,
-        connectionRepository: connections,
-        secretStore: store,
-        onSnapshotUpdated: snapshots.add,
-      );
+    test(
+      'proactive Antigravity rotation swaps credential before fetch',
+      () async {
+        final provider = _RefreshableAntigravityProvider(
+          expiresAt: DateTime.now().toUtc().subtract(
+            const Duration(minutes: 2),
+          ),
+        );
+        final connections = _FakeConnectionRepository([
+          createConnection(id: 'conn-proactive', provider: 'antigravity'),
+        ]);
+        final store = MemorySecretStore({'cred-conn-proactive': 'old-secret'});
+        final snapshots = <ProviderSnapshot>[];
+        final service = RefreshService.forTest(
+          provider: provider,
+          connectionRepository: connections,
+          secretStore: store,
+          onSnapshotUpdated: snapshots.add,
+        );
 
-      await service.refreshOne('conn-proactive');
+        await service.refreshOne('conn-proactive');
 
-      expect(provider.refreshCalls, 1);
-      expect(provider.fetchCalls, 1);
-      expect(provider.fetchedSecrets.single, 'rotated-1');
-      final current = (await connections.getAll()).single;
-      expect(current.credentialRef, isNot('cred-conn-proactive'));
-      expect(await store.read(current.credentialRef), 'rotated-1');
-      expect(await store.read('cred-conn-proactive'), isNull);
-      expect(snapshots.last.connection?.credentialRef, current.credentialRef);
+        expect(provider.refreshCalls, 1);
+        expect(provider.fetchCalls, 1);
+        expect(provider.fetchedSecrets.single, 'rotated-1');
+        final current = (await connections.getAll()).single;
+        expect(current.credentialRef, isNot('cred-conn-proactive'));
+        expect(await store.read(current.credentialRef), 'rotated-1');
+        expect(await store.read('cred-conn-proactive'), isNull);
+        expect(snapshots.last.connection?.credentialRef, current.credentialRef);
 
-      provider.onFetch = (connection, secret) async {
-        throw StateError('fetch failed old rotated-1 $secret');
-      };
-      await service.refreshOne('conn-proactive');
-      expect(snapshots.last.error, isNot(contains('old-secret')));
-      expect(snapshots.last.error, isNot(contains('rotated-1')));
-      expect(snapshots.last.error, isNot(contains('rotated-2')));
-      service.dispose();
-    });
+        provider.onFetch = (connection, secret) async {
+          throw StateError('fetch failed old rotated-1 $secret');
+        };
+        await service.refreshOne('conn-proactive');
+        expect(snapshots.last.error, isNot(contains('old-secret')));
+        expect(snapshots.last.error, isNot(contains('rotated-1')));
+        expect(snapshots.last.error, isNot(contains('rotated-2')));
+        service.dispose();
+      },
+    );
 
+    test(
+      'cache failure after rotation publishes the rotated connection',
+      () async {
+        final provider = _RefreshableAntigravityProvider(
+          expiresAt: DateTime.now().toUtc().subtract(
+            const Duration(minutes: 2),
+          ),
+        );
+        final connections = _FakeConnectionRepository([
+          createConnection(id: 'conn-cache-rotation', provider: 'antigravity'),
+        ]);
+        final snapshots = <ProviderSnapshot>[];
+        final service = RefreshService.forTest(
+          provider: provider,
+          connectionRepository: connections,
+          quotaCacheRepository: _FailingQuotaCacheRepository(),
+          secretStore: MemorySecretStore({
+            'cred-conn-cache-rotation': 'old-secret',
+          }),
+          onSnapshotUpdated: snapshots.add,
+        );
 
+        await service.refreshOne('conn-cache-rotation');
 
-    test('cache failure after rotation publishes the rotated connection', () async {
-      final provider = _RefreshableAntigravityProvider(
-        expiresAt: DateTime.now().toUtc().subtract(const Duration(minutes: 2)),
-      );
-      final connections = _FakeConnectionRepository([
-        createConnection(id: 'conn-cache-rotation', provider: 'antigravity'),
-      ]);
-      final snapshots = <ProviderSnapshot>[];
-      final service = RefreshService.forTest(
-        provider: provider,
-        connectionRepository: connections,
-        quotaCacheRepository: _FailingQuotaCacheRepository(),
-        secretStore: MemorySecretStore({'cred-conn-cache-rotation': 'old-secret'}),
-        onSnapshotUpdated: snapshots.add,
-      );
+        final current = (await connections.getAll()).single;
+        expect(snapshots.last.status, ConnectionStatus.error);
+        expect(snapshots.last.connection?.credentialRef, current.credentialRef);
+        service.dispose();
+      },
+    );
 
-      await service.refreshOne('conn-cache-rotation');
+    test(
+      'health failure after rotation publishes the rotated connection',
+      () async {
+        final provider = _RefreshableAntigravityProvider(
+          expiresAt: DateTime.now().toUtc().subtract(
+            const Duration(minutes: 2),
+          ),
+        );
+        final connections = _FakeConnectionRepository([
+          createConnection(id: 'conn-health-rotation', provider: 'antigravity'),
+        ]);
+        final snapshots = <ProviderSnapshot>[];
+        final service = RefreshService.forTest(
+          provider: provider,
+          connectionRepository: connections,
+          connectionHealthRepository: _FailingConnectionHealthRepository(),
+          secretStore: MemorySecretStore({
+            'cred-conn-health-rotation': 'old-secret',
+          }),
+          onSnapshotUpdated: snapshots.add,
+        );
 
-      final current = (await connections.getAll()).single;
-      expect(snapshots.last.status, ConnectionStatus.error);
-      expect(snapshots.last.connection?.credentialRef, current.credentialRef);
-      service.dispose();
-    });
+        await service.refreshOne('conn-health-rotation');
 
-    test('health failure after rotation publishes the rotated connection', () async {
-      final provider = _RefreshableAntigravityProvider(
-        expiresAt: DateTime.now().toUtc().subtract(const Duration(minutes: 2)),
-      );
-      final connections = _FakeConnectionRepository([
-        createConnection(id: 'conn-health-rotation', provider: 'antigravity'),
-      ]);
-      final snapshots = <ProviderSnapshot>[];
-      final service = RefreshService.forTest(
-        provider: provider,
-        connectionRepository: connections,
-        connectionHealthRepository: _FailingConnectionHealthRepository(),
-        secretStore: MemorySecretStore({'cred-conn-health-rotation': 'old-secret'}),
-        onSnapshotUpdated: snapshots.add,
-      );
-
-      await service.refreshOne('conn-health-rotation');
-
-      final current = (await connections.getAll()).single;
-      expect(snapshots.last.status, ConnectionStatus.error);
-      expect(snapshots.last.connection?.credentialRef, current.credentialRef);
-      service.dispose();
-    });
+        final current = (await connections.getAll()).single;
+        expect(snapshots.last.status, ConnectionStatus.error);
+        expect(snapshots.last.connection?.credentialRef, current.credentialRef);
+        service.dispose();
+      },
+    );
 
     test('reactive 401 performs one refresh and retries once', () async {
       final provider = _RefreshableAntigravityProvider(unauthorizedFirst: true);
@@ -891,114 +954,123 @@ void main() {
       service.dispose();
     });
 
-    test('typed provider failures retain status and only 401 disables credentials', () async {
-      final cases = <ProviderFailureCause, ConnectionStatus>{
-        ProviderFailureCause.onboardingRequired: ConnectionStatus.error,
-        ProviderFailureCause.accountMismatch: ConnectionStatus.error,
-        ProviderFailureCause.quotaSourceChanged: ConnectionStatus.error,
-        ProviderFailureCause.forbidden: ConnectionStatus.error,
-        ProviderFailureCause.transport: ConnectionStatus.error,
-        ProviderFailureCause.transient: ConnectionStatus.warning,
-      };
+    test(
+      'typed provider failures retain status and only 401 disables credentials',
+      () async {
+        final cases = <ProviderFailureCause, ConnectionStatus>{
+          ProviderFailureCause.onboardingRequired: ConnectionStatus.error,
+          ProviderFailureCause.accountMismatch: ConnectionStatus.error,
+          ProviderFailureCause.quotaSourceChanged: ConnectionStatus.error,
+          ProviderFailureCause.forbidden: ConnectionStatus.error,
+          ProviderFailureCause.transport: ConnectionStatus.error,
+          ProviderFailureCause.transient: ConnectionStatus.warning,
+        };
 
-      for (final entry in cases.entries) {
+        for (final entry in cases.entries) {
+          final provider = _RefreshableAntigravityProvider(
+            snapshotError: entry.key.name,
+            failureCause: entry.key,
+          );
+          final events = <CredentialDisabledEvent>[];
+          final snapshots = <ProviderSnapshot>[];
+          final connectionId = 'typed-${entry.key.name}';
+          final connections = _FakeConnectionRepository([
+            createConnection(id: connectionId, provider: 'antigravity'),
+          ]);
+          final service = RefreshService.forTest(
+            provider: provider,
+            connectionRepository: connections,
+            secretStore: MemorySecretStore({'cred-$connectionId': 'secret'}),
+            onSnapshotUpdated: snapshots.add,
+          )..addDisabledListener(events.add);
+
+          await service.refreshOne(connectionId);
+
+          expect(snapshots.last.status, entry.value, reason: entry.key.name);
+          expect(events, isEmpty, reason: entry.key.name);
+          if (entry.key == ProviderFailureCause.quotaSourceChanged) {
+            final persisted = (await connections.getAll()).single;
+            expect(persisted.enabled, isTrue);
+            expect(provider.fetchCalls, 1);
+          }
+          service.dispose();
+        }
+      },
+    );
+
+    test(
+      'quota schema quarantine survives service recreation without refetching',
+      () async {
         final provider = _RefreshableAntigravityProvider(
-          snapshotError: entry.key.name,
-          failureCause: entry.key,
+          snapshotError: 'quota_source_changed',
+          failureCause: ProviderFailureCause.quotaSourceChanged,
         );
-        final events = <CredentialDisabledEvent>[];
-        final snapshots = <ProviderSnapshot>[];
-        final connectionId = 'typed-${entry.key.name}';
         final connections = _FakeConnectionRepository([
-          createConnection(id: connectionId, provider: 'antigravity'),
+          createConnection(id: 'conn-recreate', provider: 'antigravity'),
         ]);
+        final first = RefreshService.forTest(
+          provider: provider,
+          connectionRepository: connections,
+          secretStore: MemorySecretStore({'cred-conn-recreate': 'secret'}),
+        );
+        await first.refreshOne('conn-recreate');
+        first.dispose();
+        final second = RefreshService.forTest(
+          provider: provider,
+          connectionRepository: connections,
+          secretStore: MemorySecretStore({'cred-conn-recreate': 'secret'}),
+        );
+
+        await second.refreshOne('conn-recreate');
+
+        expect(provider.fetchCalls, 1);
+        expect((await connections.getAll()).single.enabled, isTrue);
+
+        provider.snapshotError = null;
+        final result = await second.testAdapter(
+          adapter: provider,
+          connection: (await connections.getAll()).single,
+          secret: 'secret',
+          preferStoredSecret: true,
+        );
+
+        expect(result.isSuccess, isTrue);
+        expect(result.schemaRevalidated, isTrue);
+        expect((await connections.getAll()).single.enabled, isTrue);
+        await second.refreshOne('conn-recreate');
+        expect(provider.fetchCalls, 1);
+        second.dispose();
+      },
+    );
+
+    test(
+      'reactive rotation deletes the current ref and leaves no orphan',
+      () async {
+        final provider = _RefreshableAntigravityProvider(
+          unauthorizedFirst: true,
+          snapshotError: null,
+        );
+        final connections = _FakeConnectionRepository([
+          createConnection(id: 'conn-current-ref', provider: 'antigravity'),
+        ]);
+        final store = MemorySecretStore({
+          'cred-conn-current-ref': 'old-secret',
+        });
         final service = RefreshService.forTest(
           provider: provider,
           connectionRepository: connections,
-          secretStore: MemorySecretStore({
-            'cred-$connectionId': 'secret',
-          }),
-          onSnapshotUpdated: snapshots.add,
-        )..addDisabledListener(events.add);
+          secretStore: store,
+        );
 
-        await service.refreshOne(connectionId);
+        await service.refreshOne('conn-current-ref');
 
-        expect(snapshots.last.status, entry.value, reason: entry.key.name);
-        expect(events, isEmpty, reason: entry.key.name);
-        if (entry.key == ProviderFailureCause.quotaSourceChanged) {
-          final persisted = (await connections.getAll()).single;
-          expect(persisted.enabled, isTrue);
-          expect(provider.fetchCalls, 1);
-        }
+        final current = (await connections.getAll()).single;
+        expect(current.credentialRef, isNot('cred-conn-current-ref'));
+        expect(await store.read('cred-conn-current-ref'), isNull);
+        expect(await store.read(current.credentialRef), 'rotated-1');
         service.dispose();
-      }
-    });
-
-    test('quota schema quarantine survives service recreation without refetching', () async {
-      final provider = _RefreshableAntigravityProvider(
-        snapshotError: 'quota_source_changed',
-        failureCause: ProviderFailureCause.quotaSourceChanged,
-      );
-      final connections = _FakeConnectionRepository([
-        createConnection(id: 'conn-recreate', provider: 'antigravity'),
-      ]);
-      final first = RefreshService.forTest(
-        provider: provider,
-        connectionRepository: connections,
-        secretStore: MemorySecretStore({'cred-conn-recreate': 'secret'}),
-      );
-      await first.refreshOne('conn-recreate');
-      first.dispose();
-      final second = RefreshService.forTest(
-        provider: provider,
-        connectionRepository: connections,
-        secretStore: MemorySecretStore({'cred-conn-recreate': 'secret'}),
-      );
-
-      await second.refreshOne('conn-recreate');
-
-      expect(provider.fetchCalls, 1);
-      expect((await connections.getAll()).single.enabled, isTrue);
-
-      provider.snapshotError = null;
-      final result = await second.testAdapter(
-        adapter: provider,
-        connection: (await connections.getAll()).single,
-        secret: 'secret',
-        preferStoredSecret: true,
-      );
-
-      expect(result.isSuccess, isTrue);
-      expect(result.schemaRevalidated, isTrue);
-      expect((await connections.getAll()).single.enabled, isTrue);
-      await second.refreshOne('conn-recreate');
-      expect(provider.fetchCalls, 1);
-      second.dispose();
-    });
-
-    test('reactive rotation deletes the current ref and leaves no orphan', () async {
-      final provider = _RefreshableAntigravityProvider(
-        unauthorizedFirst: true,
-        snapshotError: null,
-      );
-      final connections = _FakeConnectionRepository([
-        createConnection(id: 'conn-current-ref', provider: 'antigravity'),
-      ]);
-      final store = MemorySecretStore({'cred-conn-current-ref': 'old-secret'});
-      final service = RefreshService.forTest(
-        provider: provider,
-        connectionRepository: connections,
-        secretStore: store,
-      );
-
-      await service.refreshOne('conn-current-ref');
-
-      final current = (await connections.getAll()).single;
-      expect(current.credentialRef, isNot('cred-conn-current-ref'));
-      expect(await store.read('cred-conn-current-ref'), isNull);
-      expect(await store.read(current.credentialRef), 'rotated-1');
-      service.dispose();
-    });
+      },
+    );
 
     test('repeated rotations retry every orphan ref and dispose stops later retries', () async {
       final provider = _RefreshableAntigravityProvider(
@@ -1022,13 +1094,18 @@ void main() {
       expect(orphanRefs, hasLength(2));
 
       await Future<void>.delayed(const Duration(milliseconds: 110));
-      final firstCleanupPass = store.deleteAttempts.take(orphanRefs.length).toSet();
+      final firstCleanupPass = store.deleteAttempts
+          .take(orphanRefs.length)
+          .toSet();
       expect(firstCleanupPass, hasLength(2));
       expect(firstCleanupPass, containsAll(orphanRefs));
 
       await Future<void>.delayed(const Duration(milliseconds: 110));
       for (final ref in orphanRefs) {
-        expect(store.deleteAttempts.where((attempt) => attempt == ref).length, greaterThanOrEqualTo(2));
+        expect(
+          store.deleteAttempts.where((attempt) => attempt == ref).length,
+          greaterThanOrEqualTo(2),
+        );
       }
       expect(service.credentialCleanupWarnings, hasLength(2));
       expect(store.values, hasLength(3));

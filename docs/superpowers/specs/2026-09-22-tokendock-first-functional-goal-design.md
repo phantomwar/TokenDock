@@ -1,6 +1,6 @@
 # TokenDock First Functional Goal Design
 
-**Goal:** Deliver a Windows desktop widget that securely tracks and refreshes up to three independent OpenRouter API-key connections, keeps a usable cached view offline, and remains available through the system tray.
+**Goal:** Deliver a Windows desktop widget that securely tracks and refreshes any number of independent OpenRouter API-key connections, keeps a usable cached view offline, and remains available through the system tray.
 
 **Source:** `PRD.txt`, sections 1–41, 67–71, 83–90, and 94–97.
 
@@ -13,14 +13,14 @@
 
 ## Scope
 
-This design implements the approved first functional slice. OpenRouter replaces OpenCode Go as the first live provider because it exposes an official API-key quota contract; the technical architecture and multi-account validation goal remain unchanged.
+This design implements the approved first functional slice. OpenRouter replaces OpenCode Go as the first live provider because it exposes an official API-key quota contract; the technical architecture and multi-account validation goal remain unchanged. Connection count is not capped.
 
 ```text
 TokenDock.exe
 → attractive responsive widget
 → tray resident after close
-→ add, test, save three OpenRouter API-key connections
-→ protect all three credentials
+→ add, test, and save independent OpenRouter API-key connections
+→ protect every connection credential
 → independently fetch and display key limits and remaining credit
 → refresh automatically
 → restore saved connections and cached quotas after restart
@@ -198,16 +198,16 @@ Map 401 and 403 to `authError`, 402 to `limited`, 429 to `warning` with `Rate li
 - Storage tests use a temporary database to verify Migration001, CRUD, cache replacement, cache deletion, UTC timestamp serialization, and connection-scoped isolation.
 - Secret-store tests use a fake behind the `SecretStore` interface to verify reference-only persistence, replacement cleanup, deletion behavior, and masking without testing DPAPI internals.
 - OpenRouter parser tests use sanitized fixtures for valid finite and unlimited keys, invalid/forbidden authentication, 402 exhausted limit, 429, 500, timeout, malformed JSON, and absent or non-timestamp reset policies.
-- Refresh-service tests prove queue concurrency never exceeds four, concurrent requests for one connection coalesce, background refresh preserves cache on failure, manual refresh targets one connection, UTC reset values display correctly, and three connections update/fail independently.
+- Refresh-service tests prove queue concurrency never exceeds four, concurrent requests for one connection coalesce, background refresh preserves cache on failure, manual refresh targets one connection, UTC reset values display correctly, and more than three connections update and fail independently.
 - A Windows smoke run confirms the frameless app launches, first-run keyboard navigation reaches Add Connection, close hides to tray, tray double-click restores the widget, Ctrl+R refreshes all from the widget, Exit terminates it, and cached fixture-backed data appears after restart.
 
 ## Acceptance criteria
 
 The slice is complete only when `flutter run -d windows` starts without critical warnings and the following end-to-end path works:
 
-1. Add three separately named OpenRouter accounts with distinct API keys.
+1. Add more than three separately named OpenRouter accounts with distinct API keys.
 2. Test each account, save it only after a valid result, close and reopen the app.
-3. Confirm all three connections and their last cached quotas restore independently.
+3. Confirm all connections and their last cached quotas restore independently without a configured count limit.
 4. Refresh all accounts with at most four simultaneous requests.
 5. Force one account to fail and verify its prior quota remains visible with a stale/error state while other accounts refresh normally.
 6. Close the window, restore it from the tray, and exit explicitly from the tray menu.
@@ -224,7 +224,7 @@ The following are recorded for future evaluation, not authorized for the first s
 
 - **Providers and accounts:** OpenCode live quota monitoring, MiniMax, Antigravity, provider autodetection, and multi-account Antigravity. Each requires an official credential and quota contract before implementation.
 - **Operational workflow:** groups, manual/provider/status ordering, drag-and-drop, configurable status thresholds, configurable notifications, startup with Windows, persisted window geometry, and sleep/wake refresh.
-- **Data and command surfaces:** usage history, charts, OpenRouter Management API imports, a command palette, workspace personalization, and AI-generated summaries. Reconsider only after the widget serves more than the initial three connections without degrading glanceability or local-first behavior.
+- **Data and command surfaces:** usage history, charts, OpenRouter Management API imports, a command palette, workspace personalization, and AI-generated summaries. Reconsider these only after the widget has proven stable with a large account set without degrading glanceability or local-first behavior.
 - **Distribution and expansion:** portable ZIP, installer, update checking, documentation, web, mobile, server, cloud synchronization, analytics, and a plugin system.
 - **Explicitly rejected experimental route:** OpenCode Console scraping, browser automation, private RPC use, or storage of session cookies. Reconsider only through a new security review and explicit user approval; it must never enter the standard provider path by accident.
 

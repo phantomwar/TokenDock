@@ -15,19 +15,16 @@ adivinhados; cache-first (falha nunca apaga valor); SQLite só com `secret_ref`.
 
 - Login adaptation and final-review recovery are merged in `master` (`b03190e`): `AuthKind` distinguishes `apiKey`, `oauth`, `structuredBearer`, and `none`; the registry exposes `openrouter` and `antigravity`; `Migration001` creates `auth_type`; `Migration003` adds `identity_key` and `provider_data` and sets SQLite `user_version = 3`.
 - OpenRouter hardening remains implemented: 401/402/403/429/503 classification, `Retry-After` seconds/HTTP-date for 429/503, per-connection cooldown/health persistence, cache preservation, and named credential-field redaction.
-- Antigravity Appendix A is backend/test-only, explicit opt-in local read-only quota. `AntigravityProvider` dispatches only `language-server` and `agy-cli` to `AntigravityLocalReader`; absent/`remote` source remains remote OAuth. CSRF is supplied only through in-memory runtime configuration and stripped from SQLite `provider_data`. The Connections UI is not wired to select local mode.
-- Antigravity Appendix B is backend/test-only per-account remote OAuth: external loopback + PKCE, form-encoded Google token requests, least scopes, typed failure causes, selected-account guard, quota retrieval, onboarding prompt, per-connection test-time locking, rotated-token reuse revocation, bounded Full Jitter retries, and durable schema quarantine preserving cache. The Connections UI is not wired to launch login; definitive credential failures do surface a Reconnect action while cached quotas remain available.
-- Refreshable credentials use per-connection single-flight coordination and rotate/delete the current credential reference. Invalid-grant/reuse deletes the local pair best effort and forces interactive re-login while preserving quota cache.
-- Current evidence: the recorded focused command passes 98 tests; full `flutter test --no-pub` passes 197 tests. `flutter analyze` reports 0 errors and 0 warnings with 7 pre-existing informational diagnostics and exits nonzero. No real Google integration, external browser launch, or Antigravity process was exercised; fixtures are sanitized. Windows integration is blocked at native build by `C1083: atlstr.h not found` from `flutter_secure_storage_windows`; install the Visual Studio C++ ATL component before retrying.
-- MiniMax remains blocked because its official FAQ does not publish a response schema. OpenCode Go remains deferred because no verified public subscription-quota API exists. The three-provider product target is still unmet because only OpenRouter and Antigravity are registered.
+- Antigravity is now UI-exposed: local `language-server`/`agy-cli` mode is explicit and keyless; remote mode uses per-account Google OAuth with external browser, PKCE, offline refresh-token request, form-encoded token exchange, least scopes, selected-account guard, quota retrieval, onboarding, per-connection operation locking, rotated-token reuse revocation, bounded `Retry-After` + Full Jitter retries, durable schema quarantine, cancellation, and reconnect while preserving cache. Access, refresh, ID, and CSRF values never enter SQLite; stable identity/project/tier metadata may be persisted in `provider_data`.
+- Connections are uncapped. Refresh and token/reconnect work share same-ID coordination with at most four concurrent connection operations. The current focused suites cover 20 AppState, 24 RefreshService, 27 ConnectionsScreen, and 21 provider OAuth tests; full `flutter test --no-pub` passes 227 tests. Windows integration passes 3/3 when run in isolation and the release build succeeds. `flutter analyze` has 0 errors, 0 warnings, and 33 informational diagnostics. No real Google integration, external browser launch, or Antigravity process was exercised; fixtures are sanitized.
+- MiniMax remains blocked because its official FAQ does not publish a response schema. OpenCode Go remains deferred because no verified public subscription-quota API exists. The three-provider product target remains unmet because only OpenRouter and Antigravity are registered.
 
-### Checkpoint de retomada (2026-09-23)
+### Checkpoint de retomada (2026-09-24)
 
-- Branch de trabalho mesclada em `master`; nenhum worktree de implementação registrado.
-- Próximo bloqueio de ambiente: instalar **C++ ATL for latest v143 build tools (x86 & x64)** e repetir `flutter test integration_test/multi_account_flow_test.dart --no-pub`.
-- Próximo produto: expor o login Antigravity e a seleção `language-server`/`agy-cli` na Connections UI.
-- Próxima validação: login Google real, browser externo real, processo Antigravity real e integração Windows.
-- Meta de três providers continua pendente: MiniMax permanece bloqueado por schema oficial ausente.
+- Branch de trabalho continua em `master`; o wiring da Connections UI está implementado.
+- Validar uma conta Google real, callback do navegador externo, refresh token rotation e um processo Antigravity real.
+- Manter MiniMax bloqueado até existir schema oficial.
+- Decidir separadamente polling adaptativo, fallback entre contas, grupos, notificações, installer e release 0.1.
 
 ## 2. O que 2026 confirma, corrige ou acrescenta ao relatório prévio
 

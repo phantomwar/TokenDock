@@ -1,10 +1,10 @@
 # TokenDock
 
-Windows 10/11 x64 desktop widget that tracks up to three independent OpenRouter API-key connections: quota, reset time, persisted per-connection health/cooldown, and cached state. See `../PRODUCT.md` and `../PRD.txt`.
+Windows 10/11 x64 desktop widget that tracks an unlimited number of independently authenticated provider connections: quota, reset time, persisted per-connection health/cooldown, and cached state. See `../PRODUCT.md` and `../PRD.txt`.
 
 ## Status
 
-Login adaptation and final-review recovery are merged in `master` (`b03190e`). Registered providers are `openrouter` (`AuthKind.apiKey`) and `antigravity` (`AuthKind.oauth`). Antigravity routes only explicit `providerData.source` values `language-server` and `agy-cli` to the opt-in local reader; absent/`remote` source uses per-account remote OAuth. Local CSRF custody is in-memory and sanitized out of SQLite `provider_data`. Google authorization-code and refresh calls are form-encoded, v1internal RPCs remain JSON, transient quota calls use bounded Full Jitter retries, schema changes durably quarantine the connection, and definitive failures retain cached quotas while showing a Reconnect action. Both Antigravity source selection and remote login entry remain backend-only and are not wired into the Connections UI. OpenRouter hardening and Antigravity quota/auth handling are covered by sanitized fake HTTP/process fixtures; no real Google integration, external browser launch, or Antigravity process was exercised.
+Login adaptation, final-review recovery, and Connections UI wiring are implemented in the current working tree. Registered providers are `openrouter` (`AuthKind.apiKey`) and `antigravity` (`AuthKind.oauth`). Antigravity local mode exposes explicit `language-server` and `agy-cli` read-only sources; remote mode uses per-account Google OAuth. Local CSRF custody is in-memory and sanitized out of SQLite `provider_data`. Google authorization-code and refresh calls are form-encoded, v1internal RPCs remain JSON, transient quota calls use bounded Full Jitter retries, schema changes durably quarantine the connection, and definitive failures retain cached quotas while showing a Reconnect action. OAuth credentials are stored only in secure storage; real Google/browser/process validation remains pending.
 
 ## Run
 
@@ -17,22 +17,23 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-- `flutter test --no-pub`: 197/197 tests passed.
-- `flutter test integration_test/multi_account_flow_test.dart`: Windows build currently stops at the native plugin with `C1083: atlstr.h not found` from `flutter_secure_storage_windows`; install the Visual Studio C++ ATL component, then retry. The previous symlink/Developer Mode blocker is no longer the first failure in this environment.
-- `flutter analyze`: 0 errors and 0 warnings; 7 pre-existing informational diagnostics, so the command exits nonzero.
+- `flutter test --no-pub`: 227/227 tests passed.
+- `flutter test integration_test/multi_account_flow_test.dart --no-pub`: Windows Debug build and 3/3 tests passed when run in isolation.
+- `flutter analyze --no-pub`: 0 errors and 0 warnings; 33 informational diagnostics, so the command exits nonzero.
+- `flutter build windows --release --no-pub`: succeeds; plugin C/C++ conversion and `strcpy` warnings remain.
 - `flutter run -d windows`: frameless 360x600 widget; first run shows `No connections yet` with one `Add Connection` action.
 - Release smoke: `%LOCALAPPDATA%\TokenDock\tokendock.db` is created; close hides the window to the tray; Exit terminates.
 
 ## Checkpoint
 
-Checkpoint date: 2026-09-23. Current branch is `master`; no implementation worktree remains registered. Resume by installing **C++ ATL for latest v143 build tools (x86 & x64)**, rerunning the integration test, then wiring Antigravity login/source selection into the Connections UI. See `../docs/checkpoints/2026-09-23-login-adaptation-checkpoint.md`.
+Checkpoint date: 2026-09-23. The previous C++ ATL integration blocker is resolved in the current environment. Antigravity provider/source selection, remote onboarding, cancellation, and reconnect are now wired into the Connections UI. Resume with validation of one real Google account, external browser callback, and one real Antigravity process. See `../docs/checkpoints/2026-09-23-login-adaptation-checkpoint.md`.
 
 ## First use
 
 1. Open the widget from the tray: `No connections yet` → `Add Connection`.
 2. Enter provider `OpenRouter`, a display name, optional group, and the API key credential.
 3. `Test Connection` must succeed before Save enables.
-4. Repeat for up to three accounts. Refresh with Ctrl+R (ignored inside text fields), the header button, or the tray menu.
+4. Repeat for any number of accounts. Refresh with Ctrl+R (ignored inside text fields), the header button, or the tray menu. TokenDock has no configured account-count limit; refresh remains bounded to four concurrent requests.
 
 ## Security model
 
@@ -44,7 +45,7 @@ Checkpoint date: 2026-09-23. Current branch is `master`; no implementation workt
 
 ## Not in this slice
 
-No installer, portable ZIP, auto-start, charts, history, notifications, command palette, cloud sync, analytics, plugin system, web/mobile builds, or additional providers. OpenCode Go remains deferred: no verified public subscription-quota API.
+No installer, portable ZIP, auto-start, charts, history, notifications, command palette, cloud sync, analytics, plugin system, web/mobile builds, or additional providers. OpenCode Go remains deferred: no verified public subscription-quota API. MiniMax remains blocked until an official response schema is available.
 
 ## Further reading
 
