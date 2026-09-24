@@ -8,6 +8,7 @@ import '../../models/provider_snapshot.dart';
 import '../../models/test_result.dart';
 import '../provider_adapter.dart';
 import 'openrouter_response.dart';
+import '../../services/refreshable_credential.dart';
 
 class OpenRouterProvider implements ProviderAdapter {
   OpenRouterProvider({HttpClient? client}) : _client = client ?? HttpClient() {
@@ -27,9 +28,21 @@ class OpenRouterProvider implements ProviderAdapter {
   String get name => 'OpenRouter';
 
   @override
+  AuthKind get authKind => AuthKind.apiKey;
+
+  @override
+  Map<String, String> buildAuthHeader(String secret) =>
+      {'Authorization': 'Bearer $secret'};
+
+  @override
+  RefreshableCredential? refreshableCredential(String secret) => null;
+
+  @override
   Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
     try {
-      final request = await _client.getUrl(_endpoint).timeout(_connectionTimeout);
+      final request = await _client
+          .getUrl(_endpoint)
+          .timeout(_connectionTimeout);
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $secret');
       final response = await request.close().timeout(_responseTimeout);
       final body = await utf8.decodeStream(response).timeout(_responseTimeout);
@@ -48,6 +61,7 @@ class OpenRouterProvider implements ProviderAdapter {
         fetchedAt: fetchedAt,
         statusCode: response.statusCode,
         body: body,
+        retryAfter: response.headers.value('retry-after'),
       );
     } on TimeoutException {
       return OpenRouterResponse.timeoutSnapshot(
@@ -75,13 +89,8 @@ class OpenRouterProvider implements ProviderAdapter {
   Future<TestResult> test(Connection connection, String secret) async {
     final snapshot = await fetch(connection, secret);
     if (snapshot.status == ConnectionStatus.ok) {
-      return TestResult.success(
-        quotas: snapshot.quotas,
-        plan: connection.plan,
-      );
+      return TestResult.success(quotas: snapshot.quotas, plan: connection.plan);
     }
-    return TestResult.failure(
-      error: snapshot.error ?? 'Connection failed',
-    );
+    return TestResult.failure(error: snapshot.error ?? 'Connection failed');
   }
 }

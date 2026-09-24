@@ -13,15 +13,18 @@ adivinhados; cache-first (falha nunca apaga valor); SQLite só com `secret_ref`.
 
 ## 1. Onde estamos (base)
 
-Slice OpenRouter funcional: `ProviderAdapter.test()/fetch()`
-(`lib/providers/provider_adapter.dart`), registro só-`openrouter`
-(`lib/providers/provider_registry.dart`), `SecretStore` + UUIDv4 + `maskSecret`
-(`lib/storage/secret_store.dart`), DPAPI via flutter_secure_storage v11
-(`lib/storage/secure_secret_store.dart`), `Migration001` (`user_version = 1`),
-`RefreshService` (≤4 concorrentes, coalescência por conexão, timer 1/3/5/10/manual),
-gate test-before-save (`lib/ui/settings/connections_screen.dart`), erro mapeado
-em `lib/providers/openrouter/openrouter_response.dart:mapHttpStatus`,
-96+3 testes, `analyze` limpo, `build windows` ok.
+- Login adaptation and final-review recovery are merged in `master` (`b03190e`): `AuthKind` distinguishes `apiKey`, `oauth`, `structuredBearer`, and `none`; the registry exposes `openrouter` and `antigravity`; `Migration001` creates `auth_type`; `Migration003` adds `identity_key` and `provider_data` and sets SQLite `user_version = 3`.
+- OpenRouter hardening remains implemented: 401/402/403/429/503 classification, `Retry-After` seconds/HTTP-date for 429/503, per-connection cooldown/health persistence, cache preservation, and named credential-field redaction.
+- Antigravity is now UI-exposed: local `language-server`/`agy-cli` mode is explicit and keyless; remote mode uses per-account Google OAuth with external browser, PKCE, offline refresh-token request, form-encoded token exchange, least scopes, selected-account guard, quota retrieval, onboarding, per-connection operation locking, rotated-token reuse revocation, bounded `Retry-After` + Full Jitter retries, durable schema quarantine, cancellation, and reconnect while preserving cache. Access, refresh, ID, and CSRF values never enter SQLite; stable identity/project/tier metadata may be persisted in `provider_data`.
+- Connections are uncapped. Refresh and token/reconnect work share same-ID coordination with at most four concurrent connection operations. The current focused suites cover 20 AppState, 24 RefreshService, 27 ConnectionsScreen, and 21 provider OAuth tests; full `flutter test --no-pub` passes 227 tests. Windows integration passes 3/3 when run in isolation and the release build succeeds. `flutter analyze` has 0 errors, 0 warnings, and 33 informational diagnostics. No real Google integration, external browser launch, or Antigravity process was exercised; fixtures are sanitized.
+- MiniMax remains blocked because its official FAQ does not publish a response schema. OpenCode Go remains deferred because no verified public subscription-quota API exists. The three-provider product target remains unmet because only OpenRouter and Antigravity are registered.
+
+### Checkpoint de retomada (2026-09-24)
+
+- Branch de trabalho continua em `master`; o wiring da Connections UI está implementado.
+- Validar uma conta Google real, callback do navegador externo, refresh token rotation e um processo Antigravity real.
+- Manter MiniMax bloqueado até existir schema oficial.
+- Decidir separadamente polling adaptativo, fallback entre contas, grupos, notificações, installer e release 0.1.
 
 ## 2. O que 2026 confirma, corrige ou acrescenta ao relatório prévio
 
@@ -73,12 +76,7 @@ logs; refresh OAuth em 3 momentos + single-flight; `AuthKind` por provider;
   `provider_code` + fallback automático; 429 mid-stream chega como SSE
   `finish_reason:error` (status já 200). **Sucesso nunca traz `X-RateLimit-*`.**
   Doc manda retry com exponential backoff honrando `Retry-After`.
-- MiniMax hoje (docs oficiais): limites **RPM+TPM por modelo e tipo de conta,
-  compartilhados master+sub**; erros são **códigos numéricos no body**
-  (1002 frequência, 2045 rajada, 1041 conexões, 1039 tokens, 1008 saldo,
-  2056 Token Plan); **sem `Retry-After` documentado**. Token Plan (coding plan):
-  janelas fixas 5h + semanal sem rollover, throttling com recuperação ~1min e
-  aperto no pico (15–17:30 dias úteis); saldo via `GET /v1/token_plan/remains`.
+- MiniMax hoje (docs oficiais): limites RPM+TPM por modelo e tipo de conta, compartilhados master+sub; erros são códigos numéricos no body (1002 frequência, 2045 rajada, 1041 conexões, 1039 tokens, 1008 saldo, 2056 Token Plan); sem `Retry-After` documentado. Token Plan usa janelas rolling de 5h + semanal e o endpoint oficial `GET /v1/token_plan/remains`; a FAQ não publica o schema JSON da resposta.
 - Escopo da pausa: **só a conta/chave afetada, nunca global** (Azure
   per-principal, Graph por client-app, OpenRouter `limit_source`).
 - Semântica: 429 = transitório (retry + backoff); 402 sem `Retry-After` e
@@ -277,6 +275,9 @@ mudança arquitetural — se exigir remodelar, a fase 4 falhou.
   https://openrouter.ai/docs/api-reference/errors-and-debugging); MiniMax
   rate-limits + errorcode + token-plan
   (https://platform.minimaxi.com/docs/guides/rate-limits).
+- MiniMax Token Plan FAQ (`GET /v1/token_plan/remains`, quotas e janelas; schema de resposta ausente): https://platform.minimax.io/docs/token-plan/faq.
+- Antigravity CLI Model Quotas (`/usage` e `/quota`, painel TUI): https://antigravity.google/docs/cli/commands/usage/.
+- Google OAuth desktop/native-app protocol (fluxo OAuth genérico; não documenta recurso de quota Antigravity): https://developers.google.com/identity/protocols/oauth2/native-app.
 - Repos: `can1357/oh-my-pi` (`AuthStorage`, `sqlite-credential-store`,
   `auth-classify`, `rate-limit`, `auth-retry`, `http-inspector`);
   `decolua/9router` (`providerConnections`, `accountFallback`, `errorConfig`,

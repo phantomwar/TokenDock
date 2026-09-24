@@ -4,8 +4,8 @@ import 'package:tokendock/ui/widget/token_dock_widget.dart';
 
 import '../test/support/test_app.dart';
 
-/// Integration proofs for the first functional goal: three separate OpenRouter
-/// accounts restore, refresh, cache, and fail independently.
+/// Integration proofs for independent OpenRouter accounts: more than three
+/// connections restore, refresh, cache, and fail independently.
 ///
 /// Transport is fixture-backed and test-only; production construction still
 /// resolves the live OpenRouter adapter and the real `%LOCALAPPDATA%` database.
@@ -37,88 +37,106 @@ void main() {
     unit: 'USD',
     resetAt: null,
   );
+  const cachedResearch = Quota(
+    id: 'key-limit',
+    label: 'Key limit',
+    percent: 15,
+    remaining: 8.5,
+    limit: 10,
+    unit: 'USD',
+    resetAt: null,
+  );
 
-  testWidgets('three OpenRouter accounts restore and fail independently',
-      (tester) async {
-    final app = TestApp.withConnections(
-      connections: const ['Production', 'Personal', 'Client'],
-      responses: const {
-        'Production': FixtureResponse.success,
-        'Personal': FixtureResponse.limited,
-        'Client': FixtureResponse.timeout,
-      },
-    );
+  const accountNames = ['Production', 'Personal', 'Client', 'Research'];
 
-    await tester.pumpWidget(app);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Production'), findsOneWidget);
-    expect(find.text('Personal'), findsOneWidget);
-    expect(find.text('Client'), findsOneWidget);
-    expect(find.text('Timeout'), findsOneWidget);
-  });
+  const accountResponses = {
+    'Production': FixtureResponse.success,
+    'Personal': FixtureResponse.limited,
+    'Client': FixtureResponse.timeout,
+    'Research': FixtureResponse.success,
+  };
 
   testWidgets(
-      'a failing account keeps its cached quota while a healthy account refreshes',
-      (tester) async {
-    final app = TestApp.withConnections(
-      connections: const ['Production', 'Personal', 'Client'],
-      responses: const {
-        'Production': FixtureResponse.success,
-        'Personal': FixtureResponse.limited,
-        'Client': FixtureResponse.timeout,
-      },
-      initialCachedQuotas: const {
-        'Production': [cachedProduction],
-        'Personal': [cachedPersonal],
-        'Client': [cachedClient],
-      },
-    );
+    'more than three OpenRouter accounts restore and fail independently',
+    (tester) async {
+      final app = TestApp.withConnections(
+        connections: accountNames,
+        responses: accountResponses,
+      );
 
-    await tester.pumpWidget(app);
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(app);
+      await tester.pumpAndSettle();
 
-    // Production refreshed successfully, so the provider value replaced the
-    // cached one rather than being merged with it.
-    expect(find.text('2.5/10 USD'), findsOneWidget);
-    expect(find.text('7.5/10 USD'), findsNothing);
-
-    // Client failed with a timeout: the failure did not erase its cache.
-    expect(find.text('1/10 USD'), findsOneWidget);
-    expect(find.text('Timeout'), findsOneWidget);
-
-    // Personal reported an exhausted key: user-visible limited copy, and the
-    // other two accounts are unaffected by it.
-    expect(find.text('Limited'), findsOneWidget);
-    expect(find.text('Key limit exceeded'), findsOneWidget);
-  });
+      expect(find.text('Production'), findsOneWidget);
+      expect(find.text('Personal'), findsOneWidget);
+      expect(find.text('Client'), findsOneWidget);
+      expect(find.text('Research'), findsOneWidget);
+      expect(find.text('Timeout'), findsOneWidget);
+    },
+  );
 
   testWidgets(
-      'restart restores all three accounts from cache when every provider is unreachable',
-      (tester) async {
-    final app = TestApp.withConnections(
-      connections: const ['Production', 'Personal', 'Client'],
-      responses: const {
-        'Production': FixtureResponse.timeout,
-        'Personal': FixtureResponse.timeout,
-        'Client': FixtureResponse.timeout,
-      },
-      initialCachedQuotas: const {
-        'Production': [cachedProduction],
-        'Personal': [cachedPersonal],
-        'Client': [cachedClient],
-      },
-    );
+    'a failing account keeps its cached quota while healthy accounts refresh',
+    (tester) async {
+      final app = TestApp.withConnections(
+        connections: accountNames,
+        responses: accountResponses,
+        initialCachedQuotas: const {
+          'Production': [cachedProduction],
+          'Personal': [cachedPersonal],
+          'Client': [cachedClient],
+          'Research': [cachedResearch],
+        },
+      );
 
-    await tester.pumpWidget(app);
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(app);
+      await tester.pumpAndSettle();
 
-    // Every provider call failed, so the only possible source for these values
-    // is persisted cache restored on startup.
-    expect(find.text('7.5/10 USD'), findsOneWidget);
-    expect(find.text('4/10 USD'), findsOneWidget);
-    expect(find.text('1/10 USD'), findsOneWidget);
-    expect(find.text('Timeout'), findsNWidgets(3));
-    expect(find.byType(TokenDockWidget), findsOneWidget);
-  });
+      // Production and Research refreshed successfully, so provider values
+      // replaced their cached values independently.
+      expect(find.text('2.5/10 USD'), findsNWidgets(2));
+      expect(find.text('7.5/10 USD'), findsNothing);
+      expect(find.text('8.5/10 USD'), findsNothing);
+
+      // Client failed with a timeout: the failure did not erase its cache.
+      expect(find.text('1/10 USD'), findsOneWidget);
+      expect(find.text('Timeout'), findsOneWidget);
+
+      // Personal reported an exhausted key without affecting the other accounts.
+      expect(find.text('Limited'), findsOneWidget);
+      expect(find.text('Key limit exceeded'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'restart restores more than three accounts from cache when every provider is unreachable',
+    (tester) async {
+      final app = TestApp.withConnections(
+        connections: accountNames,
+        responses: const {
+          'Production': FixtureResponse.timeout,
+          'Personal': FixtureResponse.timeout,
+          'Client': FixtureResponse.timeout,
+          'Research': FixtureResponse.timeout,
+        },
+        initialCachedQuotas: const {
+          'Production': [cachedProduction],
+          'Personal': [cachedPersonal],
+          'Client': [cachedClient],
+          'Research': [cachedResearch],
+        },
+      );
+
+      await tester.pumpWidget(app);
+      await tester.pumpAndSettle();
+
+      // Every provider call failed, so these values can only come from cache.
+      expect(find.text('7.5/10 USD'), findsOneWidget);
+      expect(find.text('4/10 USD'), findsOneWidget);
+      expect(find.text('1/10 USD'), findsOneWidget);
+      expect(find.text('8.5/10 USD'), findsOneWidget);
+      expect(find.text('Timeout'), findsNWidgets(4));
+      expect(find.byType(TokenDockWidget), findsOneWidget);
+    },
+  );
 }

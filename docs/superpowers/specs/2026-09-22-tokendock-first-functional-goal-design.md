@@ -1,26 +1,26 @@
 # TokenDock First Functional Goal Design
 
-**Goal:** Deliver a Windows desktop widget that securely tracks and refreshes up to three independent OpenRouter API-key connections, keeps a usable cached view offline, and remains available through the system tray.
+**Goal:** Deliver a Windows desktop widget that securely tracks and refreshes any number of independent OpenRouter API-key connections, keeps a usable cached view offline, and remains available through the system tray.
 
 **Source:** `PRD.txt`, sections 1–41, 67–71, 83–90, and 94–97.
 
-## Implementation status — complete (2026-09-23, `master` `7154db3`); deps upgraded same day (`flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3`)
+## Implementation status — first slice complete (2026-09-23, `master` `7154db3`); deps upgraded same day (`flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3`); OpenRouter quota hardening merged later the same day (`master` `17d489e`)
 
-- All contracts above are implemented in `tokendock/` and verified: 96 widget/unit tests, 3 fixture-backed integration proofs, `flutter analyze` clean, and a Windows release build that runs. Re-verified after the v11 upgrade: 96/96 + 3/3 + analyze 0 errors (5 pre-existing infos) + release build ok.
+- All contracts above are implemented in `tokendock/` and verified: 96 widget/unit tests, 3 fixture-backed integration proofs, `flutter analyze` clean, and a Windows release build that runs. Re-verified after the v11 upgrade: 96/96 + 3/3 + analyze 0 errors (5 pre-existing infos) + release build ok. Hardening merged at `17d489e`: classification 401/402/403/429/503, documented `Retry-After`, per-connection persisted health/cooldown (`Migration002`, `user_version = 2`), cache preservation, secret redaction, cooldown cleared on success; re-verified `flutter test --no-pub` 109/109, `analyze` 0 errors/0 warnings/5 infos, Windows integration pending on symlink/Developer Mode.
 - Deviations from this design text: `secure_secret_store.dart` is the shipped filename for the adapter this document calls `dpapi_secret_store.dart`; production never renders the original five-provider mock data — first run shows skeleton rows, then `No connections yet` with one `Add Connection` action; seeded fixtures live only in `test/fixtures/` and `test/support/`.
 - Live-provider end-to-end against three real OpenRouter keys was not exercised; see the scope guard and the review record in `.superpowers/sdd/tokendock-openrouter-first-goal/task-12-review.md`.
-- Post-slice research (planned, not implemented): `docs/auth-research-oh-my-pi-9router.md`, `docs/auth-quota-hardening-plan.md`.
+- Post-slice research: `docs/auth-research-oh-my-pi-9router.md`; hardening implemented and merged per `docs/auth-quota-hardening-plan.md`.
 
 ## Scope
 
-This design implements the approved first functional slice. OpenRouter replaces OpenCode Go as the first live provider because it exposes an official API-key quota contract; the technical architecture and multi-account validation goal remain unchanged.
+This design implements the approved first functional slice. OpenRouter replaces OpenCode Go as the first live provider because it exposes an official API-key quota contract; the technical architecture and multi-account validation goal remain unchanged. Connection count is not capped.
 
 ```text
 TokenDock.exe
 → attractive responsive widget
 → tray resident after close
-→ add, test, save three OpenRouter API-key connections
-→ protect all three credentials
+→ add, test, and save independent OpenRouter API-key connections
+→ protect every connection credential
 → independently fetch and display key limits and remaining credit
 → refresh automatically
 → restore saved connections and cached quotas after restart
@@ -130,7 +130,7 @@ SQLite resides at `%LOCALAPPDATA%\\TokenDock\\tokendock.db` and begins at `schem
 - `quota_cache`: connection_id, quota_key, label, percent, remaining, limit_value, unit, reset_at, status, updated_at.
 - `settings`: key and value.
 
-`Migration001` is the sole schema migration. It creates the tables and appropriate primary keys/indexes needed to query connection quotas efficiently; there is no ORM.
+- `Migration001` creates the initial tables and appropriate primary keys/indexes needed to query connection quotas efficiently; there is no ORM. `Migration002` adds `last_status`, `last_checked_at`, `cooldown_until`, and `last_error` to `connections`; the database is at `user_version = 2`.
 
 Adding or editing a connection validates the credential before it can be saved. Saving generates a UUID reference, writes the secret through `SecretStore`, then saves the connection's `secret_ref`. If database persistence fails after writing a newly generated secret, delete that secret before surfacing the failure. Replacing an existing secret writes a new reference first, commits the connection, then deletes the previous reference.
 
@@ -198,16 +198,16 @@ Map 401 and 403 to `authError`, 402 to `limited`, 429 to `warning` with `Rate li
 - Storage tests use a temporary database to verify Migration001, CRUD, cache replacement, cache deletion, UTC timestamp serialization, and connection-scoped isolation.
 - Secret-store tests use a fake behind the `SecretStore` interface to verify reference-only persistence, replacement cleanup, deletion behavior, and masking without testing DPAPI internals.
 - OpenRouter parser tests use sanitized fixtures for valid finite and unlimited keys, invalid/forbidden authentication, 402 exhausted limit, 429, 500, timeout, malformed JSON, and absent or non-timestamp reset policies.
-- Refresh-service tests prove queue concurrency never exceeds four, concurrent requests for one connection coalesce, background refresh preserves cache on failure, manual refresh targets one connection, UTC reset values display correctly, and three connections update/fail independently.
+- Refresh-service tests prove queue concurrency never exceeds four, concurrent requests for one connection coalesce, background refresh preserves cache on failure, manual refresh targets one connection, UTC reset values display correctly, and more than three connections update and fail independently.
 - A Windows smoke run confirms the frameless app launches, first-run keyboard navigation reaches Add Connection, close hides to tray, tray double-click restores the widget, Ctrl+R refreshes all from the widget, Exit terminates it, and cached fixture-backed data appears after restart.
 
 ## Acceptance criteria
 
 The slice is complete only when `flutter run -d windows` starts without critical warnings and the following end-to-end path works:
 
-1. Add three separately named OpenRouter accounts with distinct API keys.
+1. Add more than three separately named OpenRouter accounts with distinct API keys.
 2. Test each account, save it only after a valid result, close and reopen the app.
-3. Confirm all three connections and their last cached quotas restore independently.
+3. Confirm all connections and their last cached quotas restore independently without a configured count limit.
 4. Refresh all accounts with at most four simultaneous requests.
 5. Force one account to fail and verify its prior quota remains visible with a stale/error state while other accounts refresh normally.
 6. Close the window, restore it from the tray, and exit explicitly from the tray menu.
@@ -224,7 +224,7 @@ The following are recorded for future evaluation, not authorized for the first s
 
 - **Providers and accounts:** OpenCode live quota monitoring, MiniMax, Antigravity, provider autodetection, and multi-account Antigravity. Each requires an official credential and quota contract before implementation.
 - **Operational workflow:** groups, manual/provider/status ordering, drag-and-drop, configurable status thresholds, configurable notifications, startup with Windows, persisted window geometry, and sleep/wake refresh.
-- **Data and command surfaces:** usage history, charts, OpenRouter Management API imports, a command palette, workspace personalization, and AI-generated summaries. Reconsider only after the widget serves more than the initial three connections without degrading glanceability or local-first behavior.
+- **Data and command surfaces:** usage history, charts, OpenRouter Management API imports, a command palette, workspace personalization, and AI-generated summaries. Reconsider these only after the widget has proven stable with a large account set without degrading glanceability or local-first behavior.
 - **Distribution and expansion:** portable ZIP, installer, update checking, documentation, web, mobile, server, cloud synchronization, analytics, and a plugin system.
 - **Explicitly rejected experimental route:** OpenCode Console scraping, browser automation, private RPC use, or storage of session cookies. Reconsider only through a new security review and explicit user approval; it must never enter the standard provider path by accident.
 

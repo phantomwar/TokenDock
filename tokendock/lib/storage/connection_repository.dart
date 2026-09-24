@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:sqflite_common/sqlite_api.dart';
 import 'package:tokendock/models/connection.dart';
 
@@ -27,6 +29,9 @@ class SqliteConnectionRepository implements ConnectionRepository {
         plan: row['plan'] as String?,
         credentialRef: row['secret_ref'] as String,
         enabled: (row['enabled'] as int? ?? 1) == 1,
+        authType: row['auth_type'] as String?,
+        identityKey: row['identity_key'] as String?,
+        providerData: row['provider_data'] as String?,
       );
     }).toList();
   }
@@ -34,39 +39,44 @@ class SqliteConnectionRepository implements ConnectionRepository {
   @override
   Future<void> save(Connection connection) async {
     final now = DateTime.now().toUtc().toIso8601String();
-    final existing = await _db.query(
-      'connections',
-      columns: ['created_at', 'sort_order', 'auth_type'],
-      where: 'id = ?',
-      whereArgs: [connection.id],
-      limit: 1,
-    );
-
-    final createdAt = existing.isNotEmpty
-        ? (existing.first['created_at'] as String? ?? now)
-        : now;
-    final sortOrder =
-        existing.isNotEmpty ? (existing.first['sort_order'] as int? ?? 0) : 0;
-    final authType =
-        existing.isNotEmpty ? existing.first['auth_type'] as String? : null;
-
-    await _db.insert(
-      'connections',
-      {
-        'id': connection.id,
+    await _db.transaction((txn) async {
+      final existing = await txn.query(
+        'connections',
+        columns: ['id'],
+        where: 'id = ?',
+        whereArgs: [connection.id],
+        limit: 1,
+      );
+      final connectionValues = {
         'provider': connection.provider,
         'display_name': connection.displayName,
         'group_name': connection.group,
         'plan': connection.plan,
-        'auth_type': authType,
         'secret_ref': connection.credentialRef,
         'enabled': connection.enabled ? 1 : 0,
-        'sort_order': sortOrder,
-        'created_at': createdAt,
         'updated_at': now,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+        'auth_type': connection.authType,
+        'identity_key': connection.identityKey,
+        'provider_data': _sanitizeProviderData(connection.providerData),
+      };
+
+      if (existing.isNotEmpty) {
+        await txn.update(
+          'connections',
+          connectionValues,
+          where: 'id = ?',
+          whereArgs: [connection.id],
+        );
+        return;
+      }
+
+      await txn.insert('connections', {
+        'id': connection.id,
+        ...connectionValues,
+        'sort_order': 0,
+        'created_at': now,
+      });
+    });
   }
 
   @override
@@ -77,11 +87,32 @@ class SqliteConnectionRepository implements ConnectionRepository {
         where: 'connection_id = ?',
         whereArgs: [id],
       );
-      await txn.delete(
-        'connections',
-        where: 'id = ?',
-        whereArgs: [id],
-      );
+      await txn.delete('connections', where: 'id = ?', whereArgs: [id]);
     });
   }
+}
+
+String? _sanitizeProviderData(String? value) {
+  if (value == null || value.isEmpty) return value;
+  try {
+    final decoded = jsonDecode(value);
+    if (decoded is! Map) return null;
+    return jsonEncode(_withoutCsrfFields(Map<String, dynamic>.from(decoded)));
+  } catch (_) {
+    return null;
+  }
+}
+
+dynamic _withoutCsrfFields(dynamic value) {
+  if (value is Map) {
+    return <String, dynamic>{
+      for (final entry in value.entries)
+        if (!(entry.key as String).toLowerCase().contains('csrf'))
+          entry.key as String: _withoutCsrfFields(entry.value),
+    };
+  }
+  if (value is List) {
+    return value.map(_withoutCsrfFields).toList();
+  }
+  return value;
 }

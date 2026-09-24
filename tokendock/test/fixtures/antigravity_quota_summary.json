@@ -1,0 +1,37 @@
+{
+  "response": {
+    "groups": [
+      {
+        "groupId": "gemini",
+        "buckets": [
+          {
+            "bucketId": "weekly",
+            "remaining": {"remainingFraction": 0.75},
+            "resetTime": "2026-09-30T00:00:00Z",
+            "description": "Weekly quota"
+          },
+          {
+            "bucketId": "5h",
+            "remaining": {"remainingFraction": 0.50},
+            "description": "Five hour quota"
+          }
+        ]
+      },
+      {
+        "groupId": "claude-gpt",
+        "buckets": [
+          {
+            "bucketId": "weekly",
+            "remaining": {"remainingFraction": 0.60},
+            "description": "Weekly quota"
+          },
+          {
+            "bucketId": "5h",
+            "remaining": {"remainingFraction": 0.25},
+            "description": "Five hour quota"
+          }
+        ]
+      }
+    ]
+  }
+}

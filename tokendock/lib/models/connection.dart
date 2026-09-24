@@ -7,6 +7,9 @@ class Connection {
     required this.plan,
     required this.credentialRef,
     required this.enabled,
+    this.authType,
+    this.identityKey,
+    this.providerData,
   });
 
   final String id;
@@ -16,4 +19,7 @@ class Connection {
   final String? plan;
   final String credentialRef;
   final bool enabled;
+  final String? authType;
+  final String? identityKey;
+  final String? providerData;
 }

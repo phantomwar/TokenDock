@@ -10,13 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-22-tokendock-first-functional-goal-design.md`
 
-## Implementation status — complete (2026-09-23, `master` `7154db3`); deps upgraded same day (`flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3`)
+## Implementation status — first slice complete (2026-09-23, `master` `7154db3`); deps upgraded same day (`flutter_secure_storage ^11.2.0`, `sqflite_common_ffi ^2.4.3`); OpenRouter quota hardening merged later the same day (`master` `17d489e`)
 
 - All 12 tasks executed (subagent-driven; Task 12 finished inline after two provider-quota dispatch failures).
-- Verification: `flutter test` 96/96; `flutter test integration_test/multi_account_flow_test.dart` 3/3; `flutter analyze` 0 errors, 0 warnings; `flutter build windows --release` succeeds; the release run created the real `%LOCALAPPDATA%` database, rendered the first-run state, and hid to the tray on close. Re-verified after the v11 upgrade (test fake migrated `IOSOptions/MacOsOptions` → `AppleOptions`; no `lib/` change).
+- Verification: `flutter test` 96/96; `flutter test integration_test/multi_account_flow_test.dart` 3/3; `flutter analyze` 0 errors, 0 warnings; `flutter build windows --release` succeeds; the release run created the real `%LOCALAPPDATA%` database, rendered the first-run state, and hid to the tray on close. Re-verified after the v11 upgrade (test fake migrated `IOSOptions/MacOsOptions` → `AppleOptions`; no `lib/` change). Hardening re-verified at `17d489e`: `flutter test --no-pub` 109/109, `analyze` 0 errors/0 warnings/5 infos, Windows integration pending on symlink/Developer Mode.
 - Record: `.superpowers/sdd/tokendock-openrouter-first-goal/` (ledger `progress.md`, per-task briefs/reports/reviews). Tasks 1–11 independently reviewed; Task 12 self-reviewed by the controller after subagent quota exhaustion.
 - Known deviations from the constraints above: `sqflite_common` is declared alongside `sqflite_common_ffi` (four storage files import it directly); `integration_test` SDK dev dependency was added because this plan's own verification command runs `flutter test integration_test/...`.
-- Post-slice research (planned, not implemented): `docs/auth-research-oh-my-pi-9router.md`, `docs/auth-quota-hardening-plan.md`.
+- Post-slice research: `docs/auth-research-oh-my-pi-9router.md`; hardening implemented and merged per `docs/auth-quota-hardening-plan.md`.
 
 ## Global Constraints
 

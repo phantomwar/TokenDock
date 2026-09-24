@@ -1,10 +1,24 @@
+import 'antigravity/antigravity_local.dart';
+import 'antigravity/antigravity_provider.dart';
 import 'openrouter/openrouter_provider.dart';
 import 'provider_adapter.dart';
+import '../storage/secret_store.dart';
 
 class ProviderRegistry {
-  ProviderRegistry({bool registerDefaults = true}) {
+  ProviderRegistry({
+    bool registerDefaults = true,
+    SecretStore? secretStore,
+    AntigravityLocalRuntimeConfig? antigravityLocalRuntime,
+  }) {
     if (registerDefaults) {
+      // The default OpenRouter registry entry uses API key authentication.
+      // Remote OAuth is the default Antigravity adapter; local read-only mode
+      // remains available through AntigravityLocalReader.
       register(OpenRouterProvider());
+      register(AntigravityProvider(
+        secretStore: secretStore,
+        localRuntime: antigravityLocalRuntime,
+      ));
     }
   }
 

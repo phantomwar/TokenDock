@@ -5,6 +5,7 @@ import 'app/app.dart';
 import 'app/app_state.dart';
 import 'app/tray_controller.dart';
 import 'app/window_controller.dart';
+import 'providers/antigravity/antigravity_local.dart';
 import 'providers/provider_registry.dart';
 import 'storage/database.dart';
 import 'storage/secure_secret_store.dart';
@@ -30,12 +31,19 @@ Future<void> main() async {
   await windowManager.setPreventClose(true);
 
   final db = await AppDatabase.open();
+  final secretStore = SecureSecretStore();
+  final antigravityLocalRuntime = AntigravityLocalRuntimeConfig();
   final appState = AppState(
     connectionRepository: db.connectionRepository,
+    connectionHealthRepository: db.connectionHealthRepository,
     quotaCacheRepository: db.quotaCacheRepository,
-    secretStore: SecureSecretStore(),
+    secretStore: secretStore,
     settingsRepository: db.settingsRepository,
-    providerRegistry: ProviderRegistry.instance,
+    providerRegistry: ProviderRegistry(
+      secretStore: secretStore,
+      antigravityLocalRuntime: antigravityLocalRuntime,
+    ),
+    antigravityLocalRuntime: antigravityLocalRuntime,
     autoStartRefreshTimer: true,
   );
 
@@ -59,9 +67,11 @@ Future<void> main() async {
 
   appState.load().then((_) => appState.refreshAll());
 
-  runApp(TokenDockApp(
-    appState: appState,
-    windowController: windowController,
-    navigatorKey: navigatorKey,
-  ));
+  runApp(
+    TokenDockApp(
+      appState: appState,
+      windowController: windowController,
+      navigatorKey: navigatorKey,
+    ),
+  );
 }

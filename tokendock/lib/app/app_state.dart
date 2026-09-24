@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/connection.dart';
@@ -8,6 +11,10 @@ import '../models/test_result.dart';
 import '../providers/provider_adapter.dart';
 import '../providers/provider_registry.dart';
 import '../services/refresh_service.dart';
+import '../providers/antigravity/antigravity_local.dart';
+import '../providers/antigravity/antigravity_oauth.dart';
+import '../services/credential_events.dart';
+import '../storage/connection_health_repository.dart';
 import '../storage/connection_repository.dart';
 import '../storage/quota_cache_repository.dart';
 import '../storage/secret_store.dart';
@@ -43,70 +50,90 @@ class AppState implements ChangeNotifier {
     bool isLoading = false,
     List<AccountItem> accounts = const [],
     this.connectionRepository,
+    this.connectionHealthRepository,
     this.quotaCacheRepository,
     this.secretStore,
     this.providerRegistry,
     this.settingsRepository,
     RefreshService? refreshService,
     bool autoStartRefreshTimer = false,
-  })  : _staticLoading = false,
-        _staticAccounts = const [],
-        _notifier = _StateNotifier(isLoading, accounts),
-        _refreshService = refreshService ??
-            ((connectionRepository != null &&
-                    quotaCacheRepository != null &&
-                    secretStore != null)
-                ? RefreshService(
-                    connectionRepository: connectionRepository,
-                    quotaCacheRepository: quotaCacheRepository,
-                    secretStore: secretStore,
-                    providerRegistry:
-                        providerRegistry ?? ProviderRegistry.instance,
-                    settingsRepository: settingsRepository,
-                    autoStartTimer: autoStartRefreshTimer,
-                  )
-                : null) {
+    this.antigravityLocalRuntime,
+  }) : _staticLoading = false,
+       _staticAccounts = const [],
+       _notifier = _StateNotifier(isLoading, accounts),
+       _reconnectConnectionIds = <String>{},
+       _antigravityLocks = <String, Future<void>>{},
+       _refreshService =
+           refreshService ??
+           ((connectionRepository != null &&
+                   quotaCacheRepository != null &&
+                   secretStore != null)
+               ? RefreshService(
+                   connectionRepository: connectionRepository,
+                   connectionHealthRepository: connectionHealthRepository,
+                   quotaCacheRepository: quotaCacheRepository,
+                   secretStore: secretStore,
+                   providerRegistry:
+                       providerRegistry ?? ProviderRegistry.instance,
+                   settingsRepository: settingsRepository,
+                   autoStartTimer: autoStartRefreshTimer,
+                 )
+               : null) {
     _refreshService?.addSnapshotListener(_handleSnapshotUpdate);
+    _refreshService?.addDisabledListener(_handleCredentialDisabled);
   }
 
   const AppState.loading()
-      : _staticLoading = true,
-        _staticAccounts = const [],
-        _notifier = null,
-        connectionRepository = null,
-        quotaCacheRepository = null,
-        secretStore = null,
-        providerRegistry = null,
-        settingsRepository = null,
-        _refreshService = null;
+    : _staticLoading = true,
+      _staticAccounts = const [],
+      _notifier = null,
+      connectionRepository = null,
+      connectionHealthRepository = null,
+      quotaCacheRepository = null,
+      secretStore = null,
+      providerRegistry = null,
+      settingsRepository = null,
+      _refreshService = null,
+      _reconnectConnectionIds = null,
+      _antigravityLocks = null,
+      antigravityLocalRuntime = null;
 
   const AppState.empty()
-      : _staticLoading = false,
-        _staticAccounts = const [],
-        _notifier = null,
-        connectionRepository = null,
-        quotaCacheRepository = null,
-        secretStore = null,
-        providerRegistry = null,
-        settingsRepository = null,
-        _refreshService = null;
+    : _staticLoading = false,
+      _staticAccounts = const [],
+      _notifier = null,
+      connectionRepository = null,
+      connectionHealthRepository = null,
+      quotaCacheRepository = null,
+      secretStore = null,
+      providerRegistry = null,
+      settingsRepository = null,
+      _refreshService = null,
+      _reconnectConnectionIds = null,
+      _antigravityLocks = null,
+      antigravityLocalRuntime = null;
 
   const AppState.pure({
     bool isLoading = false,
     List<AccountItem> accounts = const [],
-  })  : _staticLoading = isLoading,
-        _staticAccounts = accounts,
-        _notifier = null,
-        connectionRepository = null,
-        quotaCacheRepository = null,
-        secretStore = null,
-        providerRegistry = null,
-        settingsRepository = null,
-        _refreshService = null;
+  }) : _staticLoading = isLoading,
+       _staticAccounts = accounts,
+       _notifier = null,
+       connectionRepository = null,
+       connectionHealthRepository = null,
+       quotaCacheRepository = null,
+       secretStore = null,
+       providerRegistry = null,
+       settingsRepository = null,
+       _refreshService = null,
+       _reconnectConnectionIds = null,
+       _antigravityLocks = null,
+       antigravityLocalRuntime = null;
 
   /// Factory for creating an [AppState] configured for tests with no active timers.
   factory AppState.test({
     ConnectionRepository? connectionRepository,
+    ConnectionHealthRepository? connectionHealthRepository,
     QuotaCacheRepository? quotaCacheRepository,
     SecretStore? secretStore,
     ProviderRegistry? providerRegistry,
@@ -114,17 +141,20 @@ class AppState implements ChangeNotifier {
     RefreshService? refreshService,
     List<AccountItem> accounts = const [],
     bool isLoading = false,
+    AntigravityLocalRuntimeConfig? antigravityLocalRuntime,
   }) {
     return AppState(
       isLoading: isLoading,
       accounts: accounts,
       connectionRepository: connectionRepository,
+      connectionHealthRepository: connectionHealthRepository,
       quotaCacheRepository: quotaCacheRepository,
       secretStore: secretStore,
       providerRegistry: providerRegistry,
       settingsRepository: settingsRepository,
       refreshService: refreshService,
       autoStartRefreshTimer: false,
+      antigravityLocalRuntime: antigravityLocalRuntime,
     );
   }
   final bool _staticLoading;
@@ -136,16 +166,25 @@ class AppState implements ChangeNotifier {
 
   _StateNotifier get _effectiveNotifier {
     if (_notifier != null) return _notifier;
-    return _fallbackNotifiers[this] ??=
-        _StateNotifier(_staticLoading, _staticAccounts);
+    return _fallbackNotifiers[this] ??= _StateNotifier(
+      _staticLoading,
+      _staticAccounts,
+    );
   }
 
   final ConnectionRepository? connectionRepository;
+  final ConnectionHealthRepository? connectionHealthRepository;
   final QuotaCacheRepository? quotaCacheRepository;
   final SecretStore? secretStore;
   final ProviderRegistry? providerRegistry;
   final SettingsRepository? settingsRepository;
   final RefreshService? _refreshService;
+  final Set<String>? _reconnectConnectionIds;
+  final Map<String, Future<void>>? _antigravityLocks;
+  final AntigravityLocalRuntimeConfig? antigravityLocalRuntime;
+
+  bool requiresReconnect(String connectionId) =>
+      _reconnectConnectionIds?.contains(connectionId) ?? false;
 
   RefreshService? get refreshService => _refreshService;
 
@@ -179,18 +218,20 @@ class AppState implements ChangeNotifier {
   @override
   void dispose() {
     _refreshService?.removeSnapshotListener(_handleSnapshotUpdate);
+    _refreshService?.removeDisabledListener(_handleCredentialDisabled);
     _refreshService?.dispose();
     _effectiveNotifier.dispose();
   }
 
   void _handleSnapshotUpdate(ProviderSnapshot snapshot) {
     final currentAccounts = _effectiveNotifier.accounts;
-    final index = currentAccounts
-        .indexWhere((a) => a.connection.id == snapshot.connectionId);
+    final index = currentAccounts.indexWhere(
+      (a) => a.connection.id == snapshot.connectionId,
+    );
     if (index != -1) {
       final existing = currentAccounts[index];
       final updated = AccountItem(
-        connection: existing.connection,
+        connection: snapshot.connection ?? existing.connection,
         snapshot: snapshot,
       );
       final updatedList = List<AccountItem>.from(currentAccounts);
@@ -198,6 +239,11 @@ class AppState implements ChangeNotifier {
       _effectiveNotifier.accounts = updatedList;
       _effectiveNotifier.notify();
     }
+  }
+
+  void _handleCredentialDisabled(CredentialDisabledEvent event) {
+    _reconnectConnectionIds?.add(event.connectionId);
+    _effectiveNotifier.notify();
   }
 
   /// Refreshes quotas for a single connection.
@@ -210,8 +256,7 @@ class AppState implements ChangeNotifier {
     await _refreshService?.refreshAll();
   }
 
-  /// Loads all connections from [ConnectionRepository] and their quotas
-  /// from [QuotaCacheRepository].
+  /// Loads all connections and their cached quotas and health.
   Future<void> load() async {
     _effectiveNotifier.isLoading = true;
 
@@ -227,13 +272,17 @@ class AppState implements ChangeNotifier {
       for (final conn in connections) {
         final cachedQuotas =
             await quotaCacheRepository?.getAll(conn.id) ?? const <Quota>[];
+        final health = await connectionHealthRepository?.get(conn.id);
         final snapshot = ProviderSnapshot(
           connectionId: conn.id,
-          status: conn.enabled ? ConnectionStatus.ok : ConnectionStatus.warning,
+          status: conn.enabled
+              ? health?.status ?? ConnectionStatus.ok
+              : ConnectionStatus.warning,
           quotas: cachedQuotas,
           balance: null,
-          fetchedAt: DateTime.now().toUtc(),
-          error: null,
+          fetchedAt: health?.lastCheckedAt ?? DateTime.now().toUtc(),
+          error: health?.error,
+          cooldownUntil: health?.cooldownUntil,
         );
         items.add(AccountItem(connection: conn, snapshot: snapshot));
       }
@@ -256,12 +305,14 @@ class AppState implements ChangeNotifier {
     required String secret,
     String? plan,
     List<Quota> initialQuotas = const [],
+    String? providerData,
   }) async {
     final store = secretStore;
     final repo = connectionRepository;
     if (store == null || repo == null) {
       throw StateError(
-          'secretStore and connectionRepository must not be null to add a connection.');
+        'secretStore and connectionRepository must not be null to add a connection.',
+      );
     }
 
     final connectionId = generateSecretRef();
@@ -278,6 +329,7 @@ class AppState implements ChangeNotifier {
       plan: plan,
       credentialRef: secretRef,
       enabled: true,
+      providerData: providerData,
     );
 
     // 3: Save connection
@@ -296,6 +348,369 @@ class AppState implements ChangeNotifier {
     return connection;
   }
 
+  /// Adds a local Antigravity connection without creating a secret-store
+  /// entry. Only local read-only sources are accepted; remote OAuth is handled
+  /// by [addAntigravityConnection].
+  Future<Connection> addAntigravityLocalConnection({
+    required String displayName,
+    String? group,
+    required String source,
+    List<Quota> initialQuotas = const [],
+  }) async {
+    if (source != 'language-server' && source != 'agy-cli') {
+      throw ArgumentError.value(source, 'source', 'Unsupported local source');
+    }
+    final repo = connectionRepository;
+    if (repo == null) {
+      throw StateError('connectionRepository is required.');
+    }
+    final connection = Connection(
+      id: generateSecretRef(),
+      provider: 'antigravity',
+      displayName: displayName.trim(),
+      group: (group != null && group.trim().isNotEmpty) ? group.trim() : null,
+      plan: null,
+      credentialRef: '',
+      enabled: true,
+      authType: 'none',
+      providerData: jsonEncode({'source': source}),
+    );
+    try {
+      await repo.save(connection);
+      if (initialQuotas.isNotEmpty && quotaCacheRepository != null) {
+        await quotaCacheRepository!.saveAll(connection.id, initialQuotas);
+      }
+    } catch (error, stackTrace) {
+      try { await repo.delete(connection.id); } catch (_) {}
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    await load();
+    return connection;
+  }
+
+  /// Updates a local Antigravity connection without requiring or touching the
+  /// SecretStore. Provider metadata is immutable in this phase and therefore
+  /// preserved as-is.
+  Future<Connection> updateAntigravityLocalConnection({
+    required Connection existing,
+    required String displayName,
+    String? group,
+    List<Quota>? newQuotas,
+    bool clearSchemaQuarantine = false,
+  }) async {
+    if (existing.provider != 'antigravity' ||
+        !_isLocalAntigravitySource(existing.providerData)) {
+      throw ArgumentError.value(
+        existing.id,
+        'existing',
+        'Connection must use a local Antigravity source',
+      );
+    }
+    final repo = connectionRepository;
+    if (repo == null) {
+      throw StateError('connectionRepository is required.');
+    }
+    final updated = Connection(
+      id: existing.id,
+      provider: existing.provider,
+      displayName: displayName.trim(),
+      group: (group != null && group.trim().isNotEmpty) ? group.trim() : null,
+      plan: existing.plan,
+      credentialRef: existing.credentialRef,
+      enabled: existing.enabled,
+      authType: existing.authType,
+      identityKey: existing.identityKey,
+      providerData: clearSchemaQuarantine
+          ? _withoutSchemaQuarantine(existing.providerData)
+          : existing.providerData,
+    );
+    try {
+      await repo.save(updated);
+      if (newQuotas != null && quotaCacheRepository != null) {
+        await quotaCacheRepository!.saveAll(updated.id, newQuotas);
+      }
+    } catch (error, stackTrace) {
+      try { await repo.save(existing); } catch (_) {}
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+    await load();
+    _reconnectConnectionIds?.remove(updated.id);
+    _effectiveNotifier.notify();
+    return updated;
+  }
+
+  /// Runs the Antigravity loopback login and persists the returned account
+  /// metadata together with the connection row. Credentials remain in the
+  /// supplied SecretStore under the connection's secret ref.
+  Future<Connection> addAntigravityConnection({
+    required String displayName,
+    String? group,
+    AntigravityOAuthProvider? provider,
+    Future<void>? cancellation,
+  }) async {
+    if (displayName.trim().isEmpty) {
+      throw ArgumentError.value(
+        displayName,
+        'displayName',
+        'must not be empty',
+      );
+    }
+    final store = secretStore;
+    final repo = connectionRepository;
+    if (store == null || repo == null) {
+      throw StateError('secretStore and connectionRepository are required.');
+    }
+    final id = generateSecretRef();
+    final ref = generateSecretRef();
+    var cancellationRequested = false;
+    cancellation?.then((_) => cancellationRequested = true);
+    final provisional = Connection(
+      id: id,
+      provider: 'antigravity',
+      displayName: displayName.trim(),
+      group: (group != null && group.trim().isNotEmpty) ? group.trim() : null,
+      plan: null,
+      credentialRef: ref,
+      enabled: true,
+      authType: 'oauth',
+    );
+    try {
+      final registered = providerRegistry?.get('antigravity');
+      final selectedProvider =
+          provider ??
+          (registered is AntigravityOAuthProvider ? registered : null);
+      if (selectedProvider == null) {
+        throw StateError('Antigravity OAuth provider is not registered');
+      }
+      final result = await selectedProvider.loginWithLoopback(
+        provisional,
+        cancellation: cancellation,
+      );
+      await Future<void>.value();
+      if (cancellationRequested) throw const AntigravityLoginCancelled();
+      await Future<void>.value();
+      await Future<void>.value();
+      if (cancellationRequested) {
+        try {
+          await store.delete(ref);
+        } catch (_) {}
+        throw const AntigravityLoginCancelled();
+      }
+      if (cancellationRequested) throw const AntigravityLoginCancelled();
+      await store.write(ref, result.secret);
+      await Future<void>.value();
+      if (cancellationRequested) {
+        try {
+          await store.delete(ref);
+        } catch (_) {}
+        throw const AntigravityLoginCancelled();
+      }
+      final connection = Connection(
+        id: id,
+        provider: 'antigravity',
+        displayName: provisional.displayName,
+        group: provisional.group,
+        plan: result.tier,
+        credentialRef: ref,
+        enabled: true,
+        authType: 'oauth',
+        identityKey: result.identityKey,
+        providerData: jsonEncode({
+          'source': 'remote',
+          'projectId': result.projectId,
+          'tier': result.tier,
+        }),
+      );
+      await repo.save(connection);
+      await Future<void>.value();
+      if (cancellationRequested) {
+        try {
+          await repo.delete(id);
+        } finally {
+          await store.delete(ref);
+        }
+        throw const AntigravityLoginCancelled();
+      }
+      await load();
+      await Future<void>.value();
+      if (cancellationRequested) throw const AntigravityLoginCancelled();
+      return connection;
+    } catch (error) {
+      try {
+        await repo.delete(id);
+      } finally {
+        await store.delete(ref);
+      }
+      rethrow;
+    }
+  }
+
+  Future<Connection> reconnectAntigravityConnection(
+    Connection existing,
+    String displayName,
+    String? group, {
+    AntigravityOAuthProvider? provider,
+    Future<void>? cancellation,
+  }) {
+    final service = _refreshService;
+    var queuedCancellation = false;
+    cancellation?.then((_) => queuedCancellation = true);
+    final operation = () {
+      if (queuedCancellation) {
+        return Future<Connection>.error(const AntigravityLoginCancelled());
+      }
+      return _reconnectAntigravityConnectionLocked(
+        existing,
+        displayName,
+        group,
+        provider: provider,
+        cancellation: cancellation,
+      );
+    };
+    if (service != null) {
+      return service.runConnectionOperation(
+        connectionId: existing.id,
+        operation: operation,
+      );
+    }
+    return operation();
+  }
+
+  Future<Connection> _reconnectAntigravityConnectionLocked(
+    Connection existing,
+    String displayName,
+    String? group, {
+    AntigravityOAuthProvider? provider,
+    Future<void>? cancellation,
+  }) async {
+    if (displayName.trim().isEmpty) {
+      throw ArgumentError.value(
+        displayName,
+        'displayName',
+        'must not be empty',
+      );
+    }
+    final store = secretStore;
+    final repo = connectionRepository;
+    if (store == null || repo == null) {
+      throw StateError('secretStore and connectionRepository are required.');
+    }
+    final locks = _antigravityLocks;
+    final previous = locks?[existing.id];
+    final gate = Completer<void>();
+    var cancellationRequested = false;
+    cancellation?.then((_) => cancellationRequested = true);
+    if (locks != null) locks[existing.id] = gate.future;
+    if (previous != null) await previous;
+    try {
+      if (cancellationRequested) throw const AntigravityLoginCancelled();
+      final rows = await repo.getAll();
+      final current = rows.where((row) => row.id == existing.id).firstOrNull;
+      if (current == null)
+        throw StateError('Antigravity connection no longer exists');
+      final registered = providerRegistry?.get('antigravity');
+      final selectedProvider =
+          provider ??
+          (registered is AntigravityOAuthProvider ? registered : null);
+      if (selectedProvider == null) {
+        throw StateError('Antigravity OAuth provider is not registered');
+      }
+      final newRef = generateSecretRef();
+      final provisional = Connection(
+        id: current.id,
+        provider: current.provider,
+        displayName: displayName.trim(),
+        group: (group != null && group.trim().isNotEmpty) ? group.trim() : null,
+        plan: current.plan,
+        credentialRef: newRef,
+        enabled: current.enabled,
+        authType: 'oauth',
+        identityKey: current.identityKey,
+        providerData: current.providerData,
+      );
+      var newSecretWritten = false;
+      var oldSecretDeleted = false;
+      var rowSaved = false;
+      try {
+        final result = await selectedProvider.loginWithLoopback(
+          provisional,
+          cancellation: cancellation,
+        );
+        await Future<void>.value();
+        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        await store.write(newRef, result.secret);
+        newSecretWritten = true;
+        await Future<void>.value();
+        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        final replacement = Connection(
+          id: current.id,
+          provider: current.provider,
+          displayName: provisional.displayName,
+          group: provisional.group,
+          plan: result.tier,
+          credentialRef: newRef,
+          enabled: current.enabled,
+          authType: 'oauth',
+          identityKey: result.identityKey,
+          providerData: jsonEncode({
+            'source': 'remote',
+            'projectId': result.projectId,
+            'tier': result.tier,
+          }),
+        );
+        await repo.save(replacement);
+        rowSaved = true;
+        await Future<void>.value();
+        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        await load();
+        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        try {
+          await store.delete(current.credentialRef);
+          oldSecretDeleted = true;
+        } catch (error) {
+          _refreshService?.scheduleCredentialCleanup(
+            current.id,
+            current.credentialRef,
+          );
+          if (_refreshService == null) rethrow;
+        }
+        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        _reconnectConnectionIds?.remove(current.id);
+        _effectiveNotifier.notify();
+        return replacement;
+      } catch (error, stackTrace) {
+        if (oldSecretDeleted) {
+          _reconnectConnectionIds?.remove(current.id);
+          _effectiveNotifier.notify();
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+        if (cancellationRequested) {
+          _refreshService?.cancelCredentialCleanup(current.credentialRef);
+        }
+        var rowRestored = !rowSaved;
+        if (rowSaved) {
+          try {
+            await repo.save(current);
+            rowRestored = true;
+          } catch (_) {}
+        }
+        if (newSecretWritten && rowRestored) {
+          try {
+            await store.delete(newRef);
+          } catch (cleanupError) {
+            _refreshService?.scheduleCredentialCleanup(current.id, newRef);
+          }
+        }
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+    } finally {
+      gate.complete();
+      if (locks != null && identical(locks[existing.id], gate.future)) {
+        locks.remove(existing.id);
+      }
+    }
+  }
+
   /// Updates an existing connection using credential replacement compensation:
   /// 1. If secret was changed: write new secret under newSecretRef.
   /// 2. Save updated connection to [connectionRepository].
@@ -308,12 +723,14 @@ class AppState implements ChangeNotifier {
     String? newSecret,
     String? plan,
     List<Quota>? newQuotas,
+    bool clearSchemaQuarantine = false,
   }) async {
     final store = secretStore;
     final repo = connectionRepository;
     if (store == null || repo == null) {
       throw StateError(
-          'secretStore and connectionRepository must not be null to update a connection.');
+        'secretStore and connectionRepository must not be null to update a connection.',
+      );
     }
 
     final bool secretChanged = newSecret != null && newSecret.trim().isNotEmpty;
@@ -334,18 +751,34 @@ class AppState implements ChangeNotifier {
       plan: plan ?? existing.plan,
       credentialRef: targetSecretRef,
       enabled: existing.enabled,
+      authType: existing.authType,
+      identityKey: existing.identityKey,
+      providerData: clearSchemaQuarantine
+          ? _withoutSchemaQuarantine(existing.providerData)
+          : existing.providerData,
     );
 
+    var rowSaved = false;
     try {
       await repo.save(updatedConnection);
+      rowSaved = true;
       if (newQuotas != null && quotaCacheRepository != null) {
         await quotaCacheRepository!.saveAll(existing.id, newQuotas);
       }
-    } catch (e) {
-      if (secretChanged && newSecretRef != null) {
+    } catch (error, stackTrace) {
+      var restored = !rowSaved;
+      if (rowSaved) {
+        try {
+          await repo.save(existing);
+          restored = true;
+        } catch (_) {
+          // Keep the replacement secret if the row cannot be restored.
+        }
+      }
+      if (secretChanged && newSecretRef != null && restored) {
         await store.delete(newSecretRef);
       }
-      rethrow;
+      Error.throwWithStackTrace(error, stackTrace);
     }
 
     if (secretChanged && newSecretRef != null) {
@@ -357,6 +790,8 @@ class AppState implements ChangeNotifier {
     }
 
     await load();
+    _reconnectConnectionIds?.remove(existing.id);
+    _effectiveNotifier.notify();
     return updatedConnection;
   }
 
@@ -400,7 +835,8 @@ class AppState implements ChangeNotifier {
     final store = secretStore;
     if (repo == null) {
       throw StateError(
-          'connectionRepository must not be null to remove a connection.');
+        'connectionRepository must not be null to remove a connection.',
+      );
     }
 
     final connections = await repo.getAll();
@@ -411,12 +847,15 @@ class AppState implements ChangeNotifier {
 
     // 2: Delete secret
     String? warning;
-    if (target != null && store != null) {
+    if (target != null && store != null && target.credentialRef.isNotEmpty && target.authType != 'none') {
       try {
         await store.delete(target.credentialRef);
       } catch (e) {
-        warning =
-            'Connection deleted, but credential could not be removed from secure storage.';
+        _refreshService?.scheduleCredentialCleanup(
+          target.id,
+          target.credentialRef,
+        );
+        warning = 'Connection deleted, but credential could not be removed from secure storage.';
       }
     }
 
@@ -429,7 +868,8 @@ class AppState implements ChangeNotifier {
     final repo = connectionRepository;
     if (repo == null) {
       throw StateError(
-          'connectionRepository must not be null to toggle connection.');
+        'connectionRepository must not be null to toggle connection.',
+      );
     }
     final connections = await repo.getAll();
     final target = connections.where((c) => c.id == id).firstOrNull;
@@ -443,6 +883,9 @@ class AppState implements ChangeNotifier {
       plan: target.plan,
       credentialRef: target.credentialRef,
       enabled: enabled,
+      authType: target.authType,
+      identityKey: target.identityKey,
+      providerData: target.providerData,
     );
     await repo.save(updated);
     await load();
@@ -454,11 +897,15 @@ class AppState implements ChangeNotifier {
     required String displayName,
     String? group,
     required String secret,
+
     String? id,
     ProviderAdapter? customAdapter,
+    Connection? connection,
+    bool preferStoredSecret = false,
   }) async {
     final normalizedProvider = provider.trim().toLowerCase();
-    final adapter = customAdapter ??
+    final adapter =
+        customAdapter ??
         providerRegistry?.get(normalizedProvider) ??
         providerRegistry?.get(provider) ??
         ProviderRegistry.instance.get(normalizedProvider) ??
@@ -466,15 +913,49 @@ class AppState implements ChangeNotifier {
     if (adapter == null) {
       return TestResult.failure(error: 'Unknown provider "$provider"');
     }
-    final connection = Connection(
-      id: id ?? 'temp-test-connection',
-      provider: normalizedProvider,
-      displayName: displayName,
-      group: group,
-      plan: null,
-      credentialRef: '',
-      enabled: true,
+    final testConnection =
+        connection ??
+        Connection(
+          id: id ?? 'temp-test-connection',
+          provider: normalizedProvider,
+          displayName: displayName,
+          group: group,
+          plan: null,
+          credentialRef: '',
+          enabled: true,
+        );
+    final service = _refreshService;
+    if (service == null) return adapter.test(testConnection, secret);
+    return service.testAdapter(
+      adapter: adapter,
+      connection: testConnection,
+      secret: secret,
+      preferStoredSecret: preferStoredSecret,
     );
-    return adapter.test(connection, secret);
+  }
+}
+
+String? _withoutSchemaQuarantine(String? providerData) {
+  if (providerData == null || providerData.isEmpty) return providerData;
+  try {
+    final decoded = jsonDecode(providerData);
+    if (decoded is! Map) return providerData;
+    return jsonEncode(
+      Map<String, dynamic>.from(decoded)..remove('quotaSourceDisabled'),
+    );
+  } catch (_) {
+    return providerData;
+  }
+}
+
+bool _isLocalAntigravitySource(String? providerData) {
+  if (providerData == null) return false;
+  try {
+    final decoded = jsonDecode(providerData);
+    if (decoded is! Map) return false;
+    final source = decoded['source']?.toString();
+    return source == 'language-server' || source == 'agy-cli';
+  } catch (_) {
+    return false;
   }
 }

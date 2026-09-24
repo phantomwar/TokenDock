@@ -1,0 +1,5 @@
+{
+  "response": {
+    "availability": {"gemini": 1.0, "claude": 1.0, "gpt": 1.0}
+  }
+}
