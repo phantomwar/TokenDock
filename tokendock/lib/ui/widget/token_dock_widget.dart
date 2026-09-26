@@ -8,6 +8,7 @@ import '../components/quota_row.dart';
 import '../components/status_indicator.dart';
 import '../settings/connections_screen.dart';
 import 'countdown_text.dart';
+import 'relative_age_text.dart';
 import 'widget_shell.dart';
 
 /// Responsive mock widget surface with first-run states.
@@ -53,20 +54,12 @@ class TokenDockWidget extends StatelessWidget {
   final VoidCallback? onOpenConnections;
   final VoidCallback? onRefreshAll;
 
-  /// Formats relative age for a timestamp, e.g. `just now`, `5m ago`, `2h ago`.
-  static String formatRelativeAge(DateTime dateTime, {DateTime? now}) {
-    final current = now ?? DateTime.now();
-    final diff = current.difference(dateTime);
-    if (diff.isNegative || diff.inSeconds < 60) {
-      return 'just now';
-    } else if (diff.inMinutes < 60) {
-      return '${diff.inMinutes}m ago';
-    } else if (diff.inHours < 24) {
-      return '${diff.inHours}h ago';
-    } else {
-      return '${diff.inDays}d ago';
-    }
-  }
+  /// Relative cache-age formatting, e.g. `just now`, `5m ago`, `2h ago`.
+  ///
+  /// Kept as a forwarder so existing callers and tests keep a stable entry
+  /// point; the ticking label itself lives in [RelativeAgeText].
+  static String formatRelativeAge(DateTime dateTime, {DateTime? now}) =>
+      RelativeAgeText.format(dateTime, now: now);
 
   void _openConnections(BuildContext context) {
     if (onOpenConnections != null) {
@@ -238,12 +231,7 @@ class TokenDockWidget extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: TokenDockSpacing.s4),
-                  Text(
-                    'Last updated ${formatRelativeAge(accounts[i].snapshot.fetchedAt)}',
-                    style: TokenDockTypography.captionStyle(
-                      color: colors.mutedInk,
-                    ),
-                  ),
+                  RelativeAgeText(since: accounts[i].snapshot.fetchedAt),
                 ],
               ),
             ),
@@ -286,12 +274,7 @@ class TokenDockWidget extends StatelessWidget {
                     ],
                   ],
                   const SizedBox(height: TokenDockSpacing.s4),
-                  Text(
-                    'Last updated ${formatRelativeAge(accounts[i].snapshot.fetchedAt)}',
-                    style: TokenDockTypography.captionStyle(
-                      color: colors.mutedInk,
-                    ),
-                  ),
+                  RelativeAgeText(since: accounts[i].snapshot.fetchedAt),
                   if (accounts[i].snapshot.error != null &&
                       accounts[i].snapshot.error!.isNotEmpty) ...<Widget>[
                     const SizedBox(height: TokenDockSpacing.s4),
@@ -341,12 +324,7 @@ class TokenDockWidget extends StatelessWidget {
                     ],
                   ],
                   const SizedBox(height: TokenDockSpacing.s8),
-                  Text(
-                    'Last updated ${formatRelativeAge(accounts[i].snapshot.fetchedAt)}',
-                    style: TokenDockTypography.captionStyle(
-                      color: colors.mutedInk,
-                    ),
-                  ),
+                  RelativeAgeText(since: accounts[i].snapshot.fetchedAt),
                   if (accounts[i].snapshot.error != null &&
                       accounts[i].snapshot.error!.isNotEmpty) ...<Widget>[
                     const SizedBox(height: TokenDockSpacing.s4),
