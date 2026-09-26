@@ -26,10 +26,10 @@ class TrayController {
 
   final WindowController _windowController;
 
-  /// Stub point for the later refresh service. Defaults to a no-op.
+  /// Invoked when the user picks "Refresh All". `null` disables the item.
   final Future<void> Function()? onRefreshAll;
 
-  /// Stub point for opening connections UI. Defaults to a no-op.
+  /// Invoked when the user picks "Connections". `null` disables the item.
   final Future<void> Function()? onConnections;
 
   /// Flutter asset path of the tray icon, declared in `pubspec.yaml`.

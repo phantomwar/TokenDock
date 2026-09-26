@@ -1585,7 +1585,10 @@ void main() {
         await tester.pumpAndSettle();
 
         // Masked secret is displayed
-        expect(find.text('sk-...1111'), findsOneWidget);
+        expect(
+          find.text('sk-${secretMaskGlyph * secretMaskLength}1111'),
+          findsOneWidget,
+        );
 
         // Enter new secret
         await tester.enterText(
@@ -1716,8 +1719,11 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Masked secret (sk-...9999) is displayed
-        expect(find.text('sk-...9999'), findsOneWidget);
+        // Masked secret is displayed
+        expect(
+          find.text('sk-${secretMaskGlyph * secretMaskLength}9999'),
+          findsOneWidget,
+        );
 
         // Plaintext secret is NEVER revealed in the widget tree
         expect(find.text(secretValue), findsNothing);

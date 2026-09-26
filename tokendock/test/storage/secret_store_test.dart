@@ -135,22 +135,38 @@ void main() {
   });
 
   group('maskSecret', () {
+    // U+2022, written as an escape so the expectation cannot be corrupted by a
+    // tool that guesses the file's encoding. Not `const`: `String * int` is
+    // not a constant expression.
+    final bullets = secretMaskGlyph * secretMaskLength;
+
     test('masks standard keys ending with last 4 characters and redacted middle', () {
       const secret = 'sk-or-v1-abcdef0123456789';
       final masked = maskSecret(secret);
 
-      expect(masked, equals('sk-...6789'));
+      // The spec's masked form is `sk-` + ten bullets + the last four. A fixed
+      // bullet run, not an ellipsis: an ellipsis reads as a truncated value
+      // (audit C-34).
+      expect(masked, equals('sk-${bullets}6789'));
       expect(masked.endsWith('6789'), isTrue);
       expect(masked.startsWith('sk-'), isTrue);
-      expect(masked.contains('...'), isTrue);
+      expect(masked, isNot(contains('...')));
       expect(masked, isNot(equals(secret)));
       expect(secret.contains(masked), isFalse);
+    });
+
+    test('the masked form is the same length for every long credential', () {
+      // A variable-width mask would reflow the field between connections.
+      expect(
+        maskSecret('sk-or-v1-abcdef0123456789').length,
+        maskSecret('123456789').length,
+      );
     });
 
     test('masks arbitrary keys with leading characters prefix', () {
       const key = 'abcdefghijklmnop';
       final masked = maskSecret(key);
-      expect(masked, equals('abc...mnop'));
+      expect(masked, equals('abc${bullets}mnop'));
       expect(masked.endsWith('mnop'), isTrue);
       expect(masked.startsWith('abc'), isTrue);
     });
@@ -158,7 +174,7 @@ void main() {
     test('masks keys of length 9 correctly', () {
       const key = '123456789';
       final masked = maskSecret(key);
-      expect(masked, equals('123...6789'));
+      expect(masked, equals('123${bullets}6789'));
     });
 
     test('masks short strings (<= 8 characters) with **** safely', () {
@@ -191,10 +207,13 @@ void main() {
       expect(result, equals('top_secret_val'));
     });
 
-    test('returns null when reading non-existent key via injected storage', () async {
-      final result = await store.read('missing_key');
-      expect(result, isNull);
-    });
+    test(
+      'returns null when reading non-existent key via injected storage',
+      () async {
+        final result = await store.read('missing_key');
+        expect(result, isNull);
+      },
+    );
 
     test('overwrites an existing secret via injected storage', () async {
       await store.write('ref_x', 'first_val');

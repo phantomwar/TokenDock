@@ -63,14 +63,30 @@ String generateSecretRef() {
 
 /// Masks an API key or secret safely.
 ///
-/// Returns prefix (e.g. `sk-` or leading characters) plus `...` plus the final
-/// 4 characters (e.g. `sk-...1234`). For short strings (<= 8 chars), returns `****`.
-/// Never returns the full secret.
+/// Returns prefix (e.g. `sk-`), a fixed run of bullets, and the final 4
+/// characters: `sk-••••••••••1234`. For short strings (<= 8 chars), returns
+/// `****`. Never returns the full secret, and the masked form is a fixed width
+/// so a field does not reflow between connections.
+///
+/// The bullet run rather than `...` because an ellipsis reads as a truncated
+/// value. A fixed-width mask reads as a mask, and it is what the first-goal
+/// spec specifies (audit C-34).
 String maskSecret(String value) {
   if (value.length <= 8) {
     return '****';
   }
   final prefix = value.substring(0, 3);
   final suffix = value.substring(value.length - 4);
-  return '$prefix...$suffix';
+  return '$prefix${secretMaskGlyph * secretMaskLength}$suffix';
 }
+
+/// The glyph between the prefix and the suffix. U+2022 BULLET.
+///
+/// Written as an escape rather than a literal so the masked form cannot be
+/// corrupted by an editor or shell that guesses the file's encoding. Getting
+/// this wrong is invisible in a diff and produces a mask that renders as tofu.
+const String secretMaskGlyph = '\u2022';
+
+/// The number of [secretMaskGlyph]s between the prefix and the suffix. Fixed,
+/// so the masked form is the same length for every credential.
+const int secretMaskLength = 10;
