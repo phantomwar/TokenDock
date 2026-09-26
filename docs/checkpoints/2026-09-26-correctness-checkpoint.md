@@ -619,29 +619,36 @@ from.
 
 ### Product decisions, deliberately unmade
 
-3. **The embedded Antigravity OAuth credential — and it is blocking the push.**
-   The repo is **public** and GitHub push protection rejects the commit as a
-   detected secret, which is correct: a desktop binary is readable, the
-   credential is extractable, and it is *Google's* client rather than the
-   maintainer's. It does not grant account access without interactive consent,
-   but it does allow minting tokens for Antigravity's client, and publishing it to
-   a public repository makes that permanent — forks, archives and scanners
-   capture it forever, which is materially worse than "in a binary I distribute".
-   **This was not clicked through.** The unblock link is
-   `https://github.com/phantomwar/TokenDock/security/secret-scanning/unblock-secret/3JshGfZsw4d1UyvRh1zs7sqsPyQ`
-   and it is the maintainer's call, not this agent's.
-   Three ways forward, in the order I would rank them:
+3. **The embedded Antigravity OAuth credential — decision made 2026-09-26.**
+   **The maintainer chose to allow the secret**, so remote Antigravity login
+   works out of the box for every user. The concern was stated before the choice
+   and is recorded here rather than dropped: the repo is **public**, GitHub push
+   protection rejects the commit as a detected secret, and that is correct — the
+   credential is Google's, it is extractable from a binary, and publishing it is
+   permanent, because forks, archives and scanners capture it forever. That is a
+   licence question about a third party's credential, not a technical one, and it
+   is the maintainer's to answer.
+
+   The alternatives that were on the table and not taken:
    - **Own credentials, read at runtime.** The maintainer creates a Google Cloud
-     OAuth client with the five scopes and the app reads the id and secret from
-     a gitignored config or an environment variable. Nothing third-party is
-     published and this is the route Google supports for a desktop app. The cost
+     OAuth client with the five scopes and the app reads the id and secret from a
+     gitignored config or an environment variable. Nothing third-party is
+     published, and this is the route Google supports for a desktop app. The cost
      is that every user wanting Antigravity must supply their own credentials,
      which makes the provider a power-user feature rather than a default one.
-   - **Allow the secret once.** Accepts permanent public disclosure of Google's
-     credential in exchange for login working for everyone out of the box.
+     **Worth revisiting if the credential is rotated, or if there is uptake
+     pressure to make the provider work for everyone.**
    - **Ship Antigravity local only.** The keyless `language-server` and `agy-cli`
-     modes need no OAuth at all, so the provider stays useful and the remote
-     path is simply absent.
+     modes need no OAuth at all, so the provider stays useful and the remote path
+     is simply absent.
+
+   Consequences worth remembering, which is why this is written down at all: the
+   secret cannot be un-publiced. If Google rotates it, or changes the five
+   scopes, login breaks for **every installed copy at once** and the fix ships in
+   a new release rather than a config change. The app already has a breakage
+   policy for a *schema* change — per-connection tombstone
+   `quota_source_changed` with the cache preserved — but a credential change has
+   no equivalent, because the failure is upstream of the app.
 
 4. **The window restores off-screen.** PRD §60 requires moving a window to the
    primary display when its monitor no longer exists, "to avoid opening
