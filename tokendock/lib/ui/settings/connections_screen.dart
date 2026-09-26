@@ -334,11 +334,6 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
   /// Masked text shown in the credential field while editing.
   String? _initialMaskedSecret;
 
-  /// Unmasked credential loaded for an existing connection, retained only so a
-  /// re-test can run when the user leaves the masked field untouched. Never
-  /// rendered; cleared with the dialog.
-  String? _loadedRawSecret;
-
   bool _testSuccess = false;
   TestResult? _testResult;
   bool _isTesting = false;
@@ -384,7 +379,6 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       widget.secretStore!.read(existing.credentialRef).then((raw) {
         if (mounted && raw != null) {
           setState(() {
-            _loadedRawSecret = raw;
             _initialMaskedSecret = maskSecret(raw);
             _credentialController.text = _initialMaskedSecret!;
           });
@@ -513,11 +507,22 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
 
     try {
       String secretToTest = _credentialController.text.trim();
-      if (widget.existing != null &&
+      final existing = widget.existing;
+      final store = widget.secretStore;
+      if (existing != null &&
           _initialMaskedSecret != null &&
           _credentialController.text == _initialMaskedSecret &&
-          _loadedRawSecret != null) {
-        secretToTest = _loadedRawSecret!;
+          existing.authType != 'none' &&
+          existing.credentialRef.isNotEmpty &&
+          store != null) {
+        // Read the credential back rather than keeping a plaintext copy for the
+        // dialog's lifetime (audit C-30). A secret parked in a State object
+        // outlives the dialog for as long as anything holds the element, and
+        // `RefreshService.testAdapter` re-reads the same value from the store
+        // anyway whenever `preferStoredSecret` is set, so the copy was only ever
+        // reachable as a fallback for a store read that had already failed.
+        final raw = await store.read(existing.credentialRef);
+        if (raw != null) secretToTest = raw;
       }
 
       final providerId = _providerId;

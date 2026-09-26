@@ -315,6 +315,7 @@ class AntigravityLocalReader {
     this.csrfTokenFor,
     AntigravitySessionDiscovery? sessionDiscovery,
     this.discoveryBudget = defaultDiscoveryBudget,
+    this.tempDirCleanup,
   }) : _processRunner = processRunner ?? _SystemProcessRunner(),
        _httpRunner = httpRunner ?? _LoopbackHttpRunner(),
        _sessionDiscovery =
@@ -325,6 +326,11 @@ class AntigravityLocalReader {
   final AntigravityLocalRuntimeConfig? runtimeConfig;
   final String? Function(Connection connection, int port)? csrfTokenFor;
   final AntigravitySessionDiscovery _sessionDiscovery;
+
+  /// Overrides how the per-read scratch directory is removed. Present so a
+  /// cleanup failure can be exercised without a real locked file, which is
+  /// itself a platform-specific flake source (audit C-29).
+  final void Function(Directory directory)? tempDirCleanup;
 
   /// Overrides the discovery budget. Present so the bound can be tested without
   /// a multi-second wall-clock wait, which is itself a flake source.
@@ -651,7 +657,31 @@ class AntigravityLocalReader {
         'agy usage unavailable',
       );
     } finally {
-      privateCwd.deleteSync(recursive: true);
+      _removeScratchDir(privateCwd);
+    }
+  }
+
+  /// Removes the scratch directory, tolerating failure.
+  ///
+  /// Audit C-29: this used to be a bare `deleteSync` in the `finally`, and a
+  /// throw from a `finally` block discards whatever the `try` was about to
+  /// return. On Windows the directory is regularly still in use when the
+  /// `agy` child process's handles are closing, so a successful quota read
+  /// surfaced as a raw `FileSystemException` and a provider failure lost its
+  /// own error copy. The directory is disposable; leaking one is cheaper than
+  /// losing the snapshot, and nothing here is worth an unhandled throw.
+  void _removeScratchDir(Directory directory) {
+    final cleanup = tempDirCleanup ?? _deleteRecursively;
+    try {
+      cleanup(directory);
+    } catch (_) {
+      // Best effort. See above: a throw here would mask the snapshot.
+    }
+  }
+
+  static void _deleteRecursively(Directory directory) {
+    if (directory.existsSync()) {
+      directory.deleteSync(recursive: true);
     }
   }
 

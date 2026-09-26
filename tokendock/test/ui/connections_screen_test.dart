@@ -58,8 +58,7 @@ class _ControlledAntigravityOAuthProvider extends AntigravityOAuthProvider {
   }
 }
 
-class _OnboardingRequiredAntigravityProvider
-    extends AntigravityOAuthProvider {
+class _OnboardingRequiredAntigravityProvider extends AntigravityOAuthProvider {
   _OnboardingRequiredAntigravityProvider()
     : super(launchExternalBrowser: (_) async {});
 
@@ -92,6 +91,25 @@ class _GatedControlledProvider extends ControlledProvider {
     await gate.future;
     return result;
   }
+}
+
+class _CountingSecretStore implements SecretStore {
+  _CountingSecretStore(this.delegate);
+
+  final SecretStore delegate;
+  final List<String> reads = [];
+
+  @override
+  Future<void> write(String key, String value) => delegate.write(key, value);
+
+  @override
+  Future<String?> read(String key) {
+    reads.add(key);
+    return delegate.read(key);
+  }
+
+  @override
+  Future<void> delete(String key) => delegate.delete(key);
 }
 
 class _EmptyKeyRejectingSecretStore implements SecretStore {
@@ -178,7 +196,9 @@ void main() {
     store = MemorySecretStore();
   });
 
-  testWidgets('refresh interval selector persists supported values', (tester) async {
+  testWidgets('refresh interval selector persists supported values', (
+    tester,
+  ) async {
     final settings = _MemorySettingsRepository(5);
     final state = AppState.test(
       connectionRepository: connectionRepo,
@@ -217,7 +237,9 @@ void main() {
     state.dispose();
   });
 
-  testWidgets('late initial load cannot overwrite a newer interval choice', (tester) async {
+  testWidgets('late initial load cannot overwrite a newer interval choice', (
+    tester,
+  ) async {
     final settings = _BlockingSettingsRepository(5);
     final state = AppState.test(
       connectionRepository: connectionRepo,
@@ -321,7 +343,9 @@ void main() {
       },
     );
 
-    testWidgets('onboarding requirement explains the next action', (tester) async {
+    testWidgets('onboarding requirement explains the next action', (
+      tester,
+    ) async {
       final registry = ProviderRegistry(registerDefaults: false)
         ..register(_OnboardingRequiredAntigravityProvider());
       final state = AppState.test(
@@ -683,32 +707,57 @@ void main() {
         expect(find.text('Connected'), findsNothing);
       },
     );
-    testWidgets('changing credential during in-flight test cannot enable Save', (tester) async {
-      final started = Completer<void>();
-      final gate = Completer<void>();
-      final provider = _GatedControlledProvider(
-        id: 'openrouter', name: 'OpenRouter', started: started, gate: gate,
-        result: TestResult.success(quotas: const []),
-      );
-      final registry = ProviderRegistry(registerDefaults: false)..register(provider);
-      await tester.pumpWidget(TestConnectionsScreen(
-        connectionRepo: connectionRepo, quotaCacheRepo: quotaCacheRepo,
-        secretStore: store, registry: registry,
-      ));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('addConnection')));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('connectionDisplayNameField')), 'Stale');
-      await tester.enterText(find.byKey(const Key('connectionCredentialField')), 'old');
-      await tester.tap(find.byKey(const Key('testConnectionButton')));
-      await tester.pump();
-      await started.future;
-      await tester.enterText(find.byKey(const Key('connectionCredentialField')), 'new');
-      gate.complete();
-      await tester.pumpAndSettle();
-      expect(tester.widget<ElevatedButton>(find.byKey(const Key('saveConnection'))).onPressed, isNull);
-      expect(find.text('Connected'), findsNothing);
-    });
+    testWidgets(
+      'changing credential during in-flight test cannot enable Save',
+      (tester) async {
+        final started = Completer<void>();
+        final gate = Completer<void>();
+        final provider = _GatedControlledProvider(
+          id: 'openrouter',
+          name: 'OpenRouter',
+          started: started,
+          gate: gate,
+          result: TestResult.success(quotas: const []),
+        );
+        final registry = ProviderRegistry(registerDefaults: false)
+          ..register(provider);
+        await tester.pumpWidget(
+          TestConnectionsScreen(
+            connectionRepo: connectionRepo,
+            quotaCacheRepo: quotaCacheRepo,
+            secretStore: store,
+            registry: registry,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('addConnection')));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('connectionDisplayNameField')),
+          'Stale',
+        );
+        await tester.enterText(
+          find.byKey(const Key('connectionCredentialField')),
+          'old',
+        );
+        await tester.tap(find.byKey(const Key('testConnectionButton')));
+        await tester.pump();
+        await started.future;
+        await tester.enterText(
+          find.byKey(const Key('connectionCredentialField')),
+          'new',
+        );
+        gate.complete();
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<ElevatedButton>(find.byKey(const Key('saveConnection')))
+              .onPressed,
+          isNull,
+        );
+        expect(find.text('Connected'), findsNothing);
+      },
+    );
 
     testWidgets(
       'Successful test enables Save, and saving creates connection and stores secret in secret store',
@@ -1054,14 +1103,120 @@ void main() {
         expect(edited.displayName, 'Edited Local Keyless');
 
         await tester.tap(
-          find.byKey(
-            const Key('deleteConnection_local-keyless-edit-remove'),
-          ),
+          find.byKey(const Key('deleteConnection_local-keyless-edit-remove')),
         );
         await tester.pumpAndSettle();
 
         expect(await connectionRepo.getAll(), isEmpty);
         expect(find.text('No connections yet'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      're-testing an untouched existing credential still authenticates after '
+      'the dialog stops retaining the plaintext (C-30)',
+      (tester) async {
+        final existing = Connection(
+          id: 'retained',
+          provider: 'openrouter',
+          displayName: 'Retained',
+          group: null,
+          plan: null,
+          credentialRef: 'retained-secret',
+          enabled: true,
+        );
+        await connectionRepo.save(existing);
+        await store.write('retained-secret', 'sk-retained-value');
+        final registry = ProviderRegistry(registerDefaults: false)
+          ..register(
+            FakeProviderAdapter(
+              id: 'openrouter',
+              name: 'OpenRouter',
+              testResult: TestResult.success(quotas: const []),
+            ),
+          );
+
+        await tester.pumpWidget(
+          TestConnectionsScreen(
+            connectionRepo: connectionRepo,
+            quotaCacheRepo: quotaCacheRepo,
+            secretStore: store,
+            registry: registry,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('editConnection_retained')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('testConnectionButton')), findsOneWidget);
+
+        // The field still shows the mask, and re-testing must still work.
+        await tester.tap(find.byKey(const Key('testConnectionButton')));
+        await tester.pumpAndSettle();
+
+        final save = tester.widget<ElevatedButton>(
+          find.byKey(const Key('saveConnection')),
+        );
+        expect(save.onPressed, isNotNull);
+      },
+    );
+
+    testWidgets(
+      'a rotated credential is used by a later re-test, not a stale copy (C-30)',
+      (tester) async {
+        final existing = Connection(
+          id: 'rotated',
+          provider: 'openrouter',
+          displayName: 'Rotated',
+          group: null,
+          plan: null,
+          credentialRef: 'rotated-secret',
+          enabled: true,
+        );
+        await connectionRepo.save(existing);
+        await store.write('rotated-secret', 'sk-original-value');
+        final counter = _CountingSecretStore(store);
+        final registry = ProviderRegistry(registerDefaults: false)
+          ..register(
+            FakeProviderAdapter(
+              id: 'openrouter',
+              name: 'OpenRouter',
+              testResult: TestResult.success(quotas: const []),
+            ),
+          );
+
+        await tester.pumpWidget(
+          TestConnectionsScreen(
+            connectionRepo: connectionRepo,
+            quotaCacheRepo: quotaCacheRepo,
+            secretStore: counter,
+            registry: registry,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('editConnection_rotated')));
+        await tester.pumpAndSettle();
+
+        // The credential is rotated while the dialog is open. Anything that
+        // kept a plaintext copy from open time would authenticate against the
+        // old value; the dialog must go back to the store.
+        await store.write('rotated-secret', 'sk-rotated-value');
+        final readsBeforeTest = counter.reads.length;
+
+        await tester.tap(find.byKey(const Key('testConnectionButton')));
+        await tester.pumpAndSettle();
+
+        final save = tester.widget<ElevatedButton>(
+          find.byKey(const Key('saveConnection')),
+        );
+        expect(save.onPressed, isNotNull);
+        expect(
+          counter.reads.length,
+          greaterThan(readsBeforeTest),
+          reason:
+              're-testing must consult the store rather than a retained copy',
+        );
       },
     );
 
