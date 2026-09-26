@@ -112,13 +112,26 @@ class _LoopbackHttpRunner implements AntigravityHttpRunner {
     client.badCertificateCallback = (certificate, host, port) =>
         host == '127.0.0.1' || host == 'localhost';
     try {
-      final request = await client.postUrl(uri).timeout(const Duration(seconds: 10));
-      request.headers.set('X-Codeium-Csrf-Token', headers['X-Codeium-Csrf-Token'] ?? '');
-      request.headers.set('Connect-Protocol-Version', headers['Connect-Protocol-Version'] ?? '1');
+      final request = await client
+          .postUrl(uri)
+          .timeout(const Duration(seconds: 10));
+      request.headers.set(
+        'X-Codeium-Csrf-Token',
+        headers['X-Codeium-Csrf-Token'] ?? '',
+      );
+      request.headers.set(
+        'Connect-Protocol-Version',
+        headers['Connect-Protocol-Version'] ?? '1',
+      );
       request.write(body);
-      final response = await request.close().timeout(const Duration(seconds: 15));
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
       final text = await response.transform(utf8.decoder).join();
-      return AntigravityHttpResponse(statusCode: response.statusCode, body: text);
+      return AntigravityHttpResponse(
+        statusCode: response.statusCode,
+        body: text,
+      );
     } finally {
       client.close(force: true);
     }
@@ -148,7 +161,57 @@ class AntigravityLocalSession {
   final String csrfToken;
 }
 
-class _WindowsAntigravitySessionDiscovery implements AntigravitySessionDiscovery {
+/// A session list is a handful of small objects; anything larger is not the
+/// output the discovery script produces.
+const int maxDiscoveryOutputBytes = 64 * 1024;
+
+/// Parses the JSON emitted by the session-discovery script.
+///
+/// Exposed so the defensive behaviour is testable without spawning PowerShell:
+/// a body this version did not write, or one beyond [maxBytes], yields no
+/// sessions rather than throwing out of a read on the quota fetch path.
+List<AntigravityLocalSession> parseAntigravityDiscoveryOutput(
+  String output, {
+  int maxBytes = maxDiscoveryOutputBytes,
+}) {
+  if (output.trim().isEmpty) return const [];
+  if (output.length > maxBytes) return const [];
+  final Object? decoded;
+  try {
+    decoded = jsonDecode(output);
+  } catch (_) {
+    return const [];
+  }
+  final values = decoded is List ? decoded : [decoded];
+  final sessions = <AntigravityLocalSession>[];
+  for (final value in values) {
+    if (value is! Map) continue;
+    final port = (value['port'] as num?)?.toInt();
+    final processId = (value['processId'] as num?)?.toInt();
+    final csrfToken = value['csrfToken']?.toString();
+    if (port != null &&
+        processId != null &&
+        csrfToken != null &&
+        csrfToken.isNotEmpty) {
+      sessions.add(
+        AntigravityLocalSession(
+          port: port,
+          processId: processId,
+          csrfToken: csrfToken,
+        ),
+      );
+    }
+  }
+  return sessions;
+}
+
+class _WindowsAntigravitySessionDiscovery
+    implements AntigravitySessionDiscovery {
+  /// `Get-CimInstance Win32_Process` enumerates every process on the machine,
+  /// which can take seconds. [AntigravityLocalReader.discoveryBudget] bounds
+  /// this; the cap here keeps a wedged child from buffering without limit.
+  static const int maxDiscoveryOutputBytes = 64 * 1024;
+
   @override
   Future<List<AntigravityLocalSession>> discover() async {
     if (!Platform.isWindows) return const [];
@@ -166,34 +229,22 @@ Get-CimInstance Win32_Process |
       }
     }
   } | ConvertTo-Json -Compress''';
-    final result = await Process.run(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', script],
-      runInShell: false,
-    );
-    if (result.exitCode != 0) return const [];
-    final output = '${result.stdout}'.trim();
-    if (output.isEmpty) return const [];
-    final decoded = jsonDecode(output);
-    final values = decoded is List ? decoded : [decoded];
-    final sessions = <AntigravityLocalSession>[];
-    for (final value in values) {
-      if (value is! Map) continue;
-      final port = (value['port'] as num?)?.toInt();
-      final processId = (value['processId'] as num?)?.toInt();
-      final csrfToken = value['csrfToken']?.toString();
-      if (port != null &&
-          processId != null &&
-          csrfToken != null &&
-          csrfToken.isNotEmpty) {
-        sessions.add(AntigravityLocalSession(
-          port: port,
-          processId: processId,
-          csrfToken: csrfToken,
-        ));
-      }
+    final ProcessResult result;
+    try {
+      result = await Process.run('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        script,
+      ], runInShell: false);
+    } on ProcessException {
+      return const [];
     }
-    return sessions;
+    if (result.exitCode != 0) return const [];
+    return parseAntigravityDiscoveryOutput(
+      '${result.stdout}'.trim(),
+      maxBytes: maxDiscoveryOutputBytes,
+    );
   }
 }
 
@@ -221,7 +272,9 @@ class AntigravityLocalRuntimeConfig {
     required int processId,
   }) {
     final cached = _csrfSessionsByConnectionId[connectionId];
-    if (cached == null || cached.port != port || cached.processId != processId) {
+    if (cached == null ||
+        cached.port != port ||
+        cached.processId != processId) {
       return null;
     }
     return cached.token;
@@ -257,15 +310,21 @@ class AntigravityLocalReader {
     this.runtimeConfig,
     this.csrfTokenFor,
     AntigravitySessionDiscovery? sessionDiscovery,
-  })  : _processRunner = processRunner ?? _SystemProcessRunner(),
-        _httpRunner = httpRunner ?? _LoopbackHttpRunner(),
-        _sessionDiscovery = sessionDiscovery ?? _WindowsAntigravitySessionDiscovery();
+    this.discoveryBudget = defaultDiscoveryBudget,
+  }) : _processRunner = processRunner ?? _SystemProcessRunner(),
+       _httpRunner = httpRunner ?? _LoopbackHttpRunner(),
+       _sessionDiscovery =
+           sessionDiscovery ?? _WindowsAntigravitySessionDiscovery();
 
   final AntigravityProcessRunner _processRunner;
   final AntigravityHttpRunner _httpRunner;
   final AntigravityLocalRuntimeConfig? runtimeConfig;
   final String? Function(Connection connection, int port)? csrfTokenFor;
   final AntigravitySessionDiscovery _sessionDiscovery;
+
+  /// Overrides the discovery budget. Present so the bound can be tested without
+  /// a multi-second wall-clock wait, which is itself a flake source.
+  final Duration discoveryBudget;
 
   static ProviderSnapshot parseQuotaSummary({
     required String body,
@@ -304,15 +363,17 @@ class AntigravityLocalReader {
         return ProviderSnapshot(
           connectionId: connectionId,
           status: ConnectionStatus.warning,
-          quotas: const [Quota(
-            id: 'limits-not-available',
-            label: 'Limits not available',
-            percent: null,
-            remaining: null,
-            limit: null,
-            unit: null,
-            resetAt: null,
-          )],
+          quotas: const [
+            Quota(
+              id: 'limits-not-available',
+              label: 'Limits not available',
+              percent: null,
+              remaining: null,
+              limit: null,
+              unit: null,
+              resetAt: null,
+            ),
+          ],
           balance: null,
           fetchedAt: now,
           error: null,
@@ -328,7 +389,9 @@ class AntigravityLocalReader {
         balance: null,
         fetchedAt: now,
         error: error.message,
-        failureCause: schemaChanged ? ProviderFailureCause.quotaSourceChanged : ProviderFailureCause.accountMismatch,
+        failureCause: schemaChanged
+            ? ProviderFailureCause.quotaSourceChanged
+            : ProviderFailureCause.accountMismatch,
       );
     } catch (_) {
       return _error(connectionId, now, 'Limits not available');
@@ -358,7 +421,9 @@ class AntigravityLocalReader {
           fetchedAt: now,
         );
       }
-      return quotas.isEmpty ? _error(connectionId, now, 'Limits not available') : _ok(connectionId, now, quotas);
+      return quotas.isEmpty
+          ? _error(connectionId, now, 'Limits not available')
+          : _ok(connectionId, now, quotas);
     } on AntigravitySourceException catch (error) {
       final schemaChanged = error.message == 'quota_source_changed';
       return ProviderSnapshot(
@@ -368,7 +433,9 @@ class AntigravityLocalReader {
         balance: null,
         fetchedAt: now,
         error: error.message,
-        failureCause: schemaChanged ? ProviderFailureCause.quotaSourceChanged : ProviderFailureCause.accountMismatch,
+        failureCause: schemaChanged
+            ? ProviderFailureCause.quotaSourceChanged
+            : ProviderFailureCause.accountMismatch,
       );
     } catch (_) {
       return _error(connectionId, now, 'Limits not available');
@@ -379,7 +446,11 @@ class AntigravityLocalReader {
     final providerData = _decodeProviderData(connection.providerData);
     final source = providerData['source'] as String?;
     if (source != 'language-server' && source != 'agy-cli') {
-      return _error(connection.id, DateTime.now().toUtc(), 'Antigravity source is not enabled');
+      return _error(
+        connection.id,
+        DateTime.now().toUtc(),
+        'Antigravity source is not enabled',
+      );
     }
     if (source == 'agy-cli') return _fetchAgy(connection, providerData);
     var port = providerData['port'] as int?;
@@ -395,7 +466,8 @@ class AntigravityLocalReader {
       session = await _sessionForPort(port);
     }
     if (port != null) {
-      var csrfToken = session?.csrfToken ?? csrfTokenFor?.call(connection, port);
+      var csrfToken =
+          session?.csrfToken ?? csrfTokenFor?.call(connection, port);
       if (session != null) {
         runtimeConfig?.setCsrfToken(
           connection.id,
@@ -412,7 +484,8 @@ class AntigravityLocalReader {
         );
       }
       final shouldRediscover = runtimeConfig != null || session != null;
-      endpointLoop: for (final endpoint in const [
+      endpointLoop:
+      for (final endpoint in const [
         'RetrieveUserQuotaSummary',
         'GetUserStatus',
         'GetCommandModelConfigs',
@@ -435,7 +508,9 @@ class AntigravityLocalReader {
               final snapshot = parseQuotaSummary(
                 body: response.body,
                 connectionId: connection.id,
-                expectedAccountKey: accountMatched ? connection.identityKey : null,
+                expectedAccountKey: accountMatched
+                    ? connection.identityKey
+                    : null,
               );
               if (snapshot.quotas.isNotEmpty &&
                   (connection.identityKey == null ||
@@ -457,9 +532,12 @@ class AntigravityLocalReader {
           }
           final refreshedSession = await _sessionForPort(port);
           final refreshedToken =
-              refreshedSession?.csrfToken ?? csrfTokenFor?.call(connection, port);
-          final replacementFound = csrfToken != refreshedToken ||
-              (refreshedSession != null && !_sameSession(session, refreshedSession));
+              refreshedSession?.csrfToken ??
+              csrfTokenFor?.call(connection, port);
+          final replacementFound =
+              csrfToken != refreshedToken ||
+              (refreshedSession != null &&
+                  !_sameSession(session, refreshedSession));
           if (!retriedCurrentSession &&
               replacementFound &&
               refreshedToken != null &&
@@ -485,9 +563,20 @@ class AntigravityLocalReader {
     return _fetchAgy(connection, providerData);
   }
 
+  /// Budget for session discovery.
+  ///
+  /// The bound lives here rather than in one discovery implementation, because
+  /// this runs inline on the quota fetch path: whatever the implementation does,
+  /// a refresh must not be held open by it (audit C-18).
+  static const Duration defaultDiscoveryBudget = Duration(seconds: 5);
+
   Future<List<AntigravityLocalSession>> _discoverSessions() async {
+    // A discovery failure means "no session found", never an exception out of
+    // a quota refresh.
     try {
-      return await _sessionDiscovery.discover();
+      return await _sessionDiscovery.discover().timeout(discoveryBudget);
+    } on TimeoutException {
+      return const [];
     } catch (_) {
       return const [];
     }
@@ -506,10 +595,13 @@ class AntigravityLocalReader {
     AntigravityLocalSession? first,
     AntigravityLocalSession? second,
   ) {
-    return first?.port == second?.port &&
-        first?.processId == second?.processId;
+    return first?.port == second?.port && first?.processId == second?.processId;
   }
-  Future<ProviderSnapshot> _fetchAgy(Connection connection, Map<String, dynamic> data) async {
+
+  Future<ProviderSnapshot> _fetchAgy(
+    Connection connection,
+    Map<String, dynamic> data,
+  ) async {
     final executable = data['agyBin'] as String? ?? 'agy';
     final privateCwd = Directory.systemTemp.createTempSync('tokendock_agy_');
     try {
@@ -521,7 +613,11 @@ class AntigravityLocalReader {
         maxOutputBytes: 64 * 1024,
       );
       if (version.exitCode != 0 || !_supportsPrintMode(version.stdout)) {
-        return _error(connection.id, DateTime.now().toUtc(), 'agy version is too old');
+        return _error(
+          connection.id,
+          DateTime.now().toUtc(),
+          'agy version is too old',
+        );
       }
       final usage = await _processRunner.run(
         executable,
@@ -530,7 +626,12 @@ class AntigravityLocalReader {
         timeout: const Duration(seconds: 90),
         maxOutputBytes: 1024 * 1024,
       );
-      if (usage.exitCode != 0) return _error(connection.id, DateTime.now().toUtc(), 'agy usage unavailable');
+      if (usage.exitCode != 0)
+        return _error(
+          connection.id,
+          DateTime.now().toUtc(),
+          'agy usage unavailable',
+        );
       return parseAgyPrint(
         usage.stdout,
         connectionId: connection.id,
@@ -539,7 +640,11 @@ class AntigravityLocalReader {
     } on AntigravitySourceException catch (error) {
       return _error(connection.id, DateTime.now().toUtc(), error.message);
     } catch (_) {
-      return _error(connection.id, DateTime.now().toUtc(), 'agy usage unavailable');
+      return _error(
+        connection.id,
+        DateTime.now().toUtc(),
+        'agy usage unavailable',
+      );
     } finally {
       privateCwd.deleteSync(recursive: true);
     }
@@ -551,14 +656,17 @@ class AntigravityLocalReader {
     final major = int.parse(match.group(1)!);
     final minor = int.parse(match.group(2)!);
     final patch = int.parse(match.group(3)!);
-    return major > 1 || (major == 1 && (minor > 1 || (minor == 1 && patch >= 11)));
+    return major > 1 ||
+        (major == 1 && (minor > 1 || (minor == 1 && patch >= 11)));
   }
 
   static Map<String, dynamic> _decodeProviderData(String? value) {
     if (value == null || value.isEmpty) return <String, dynamic>{};
     try {
       final decoded = jsonDecode(value);
-      return decoded is Map ? Map<String, dynamic>.from(decoded) : <String, dynamic>{};
+      return decoded is Map
+          ? Map<String, dynamic>.from(decoded)
+          : <String, dynamic>{};
     } catch (_) {
       return <String, dynamic>{};
     }
@@ -569,7 +677,9 @@ class AntigravityLocalReader {
     for (final rawGroup in groups) {
       final group = _map(rawGroup);
       if (group == null) continue;
-      final groupId = (group['groupId'] ?? group['id'] ?? '').toString().toLowerCase();
+      final groupId = (group['groupId'] ?? group['id'] ?? '')
+          .toString()
+          .toLowerCase();
       final pool = _pool(groupId);
       if (pool == null) continue;
       final buckets = group['buckets'];
@@ -577,7 +687,9 @@ class AntigravityLocalReader {
       for (final rawBucket in buckets) {
         final bucket = _map(rawBucket);
         if (bucket == null) continue;
-        final window = _window((bucket['bucketId'] ?? bucket['id'] ?? '').toString());
+        final window = _window(
+          (bucket['bucketId'] ?? bucket['id'] ?? '').toString(),
+        );
         final rawFraction = bucket.containsKey('remainingFraction')
             ? bucket['remainingFraction']
             : _map(bucket['remaining'])?['remainingFraction'];
@@ -586,16 +698,24 @@ class AntigravityLocalReader {
         }
         final fraction = _number(rawFraction);
         final reset = _date(bucket['resetTime'] ?? bucket['resetAt']);
-        final candidate = _Bucket(fraction, reset, bucket['description']?.toString());
+        final candidate = _Bucket(
+          fraction,
+          reset,
+          bucket['description']?.toString(),
+        );
         final key = '$pool-$window';
         final current = values[key];
-        if (current == null || (candidate.fraction != null &&
-            (current.fraction == null || candidate.fraction! < current.fraction!))) {
+        if (current == null ||
+            (candidate.fraction != null &&
+                (current.fraction == null ||
+                    candidate.fraction! < current.fraction!))) {
           values[key] = candidate;
         }
       }
     }
-    return values.entries.map((entry) => _quota(entry.key, entry.value)).toList();
+    return values.entries
+        .map((entry) => _quota(entry.key, entry.value))
+        .toList();
   }
 
   static List<Quota> _quotasFromLegacy(Map<String, dynamic> info) {
@@ -613,11 +733,15 @@ class AntigravityLocalReader {
       if (fraction == null && reset == null) return;
       final id = '$pool-5h';
       final current = merged[id];
-      if (current == null || (fraction != null && (current.fraction == null || fraction < current.fraction!))) {
+      if (current == null ||
+          (fraction != null &&
+              (current.fraction == null || fraction < current.fraction!))) {
         merged[id] = _Bucket(fraction, reset, null);
       }
     });
-    return merged.entries.map((entry) => _quota(entry.key, entry.value)).toList();
+    return merged.entries
+        .map((entry) => _quota(entry.key, entry.value))
+        .toList();
   }
 
   static Quota _quota(String id, _Bucket value) {
@@ -634,7 +758,8 @@ class AntigravityLocalReader {
   }
 
   static String? _pool(String id) {
-    if (id.contains('gemini') || id.contains('pro') || id.contains('flash')) return 'gemini';
+    if (id.contains('gemini') || id.contains('pro') || id.contains('flash'))
+      return 'gemini';
     if (id.contains('claude') || id.contains('gpt')) return 'claude-gpt';
     return null;
   }
@@ -651,22 +776,35 @@ class AntigravityLocalReader {
 
   static double? _number(dynamic value) {
     if (value == null) return null;
-    final parsed = value is num ? value.toDouble() : double.tryParse(value.toString());
-    return parsed != null && parsed.isFinite && parsed >= 0 && parsed <= 1 ? parsed : null;
+    final parsed = value is num
+        ? value.toDouble()
+        : double.tryParse(value.toString());
+    return parsed != null && parsed.isFinite && parsed >= 0 && parsed <= 1
+        ? parsed
+        : null;
   }
 
   static DateTime? _date(dynamic value) {
     if (value == null) return null;
     if (value is num) {
-      return DateTime.fromMillisecondsSinceEpoch(value.toInt() * 1000, isUtc: true);
+      return DateTime.fromMillisecondsSinceEpoch(
+        value.toInt() * 1000,
+        isUtc: true,
+      );
     }
     final text = value.toString();
     return DateTime.tryParse(text)?.toUtc() ??
-        (int.tryParse(text) == null ? null : DateTime.fromMillisecondsSinceEpoch(int.parse(text) * 1000, isUtc: true));
+        (int.tryParse(text) == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(
+                int.parse(text) * 1000,
+                isUtc: true,
+              ));
   }
 
   static bool _looksAvailabilityOnly(Map<String, dynamic> root) {
-    if (root.containsKey('groups') || root.containsKey('quotaInfo')) return false;
+    if (root.containsKey('groups') || root.containsKey('quotaInfo'))
+      return false;
     final availability = root['availability'];
     if (availability is! Map || availability.isEmpty) return false;
     return availability.values.every((value) => _number(value) == 1.0);
@@ -684,14 +822,20 @@ class AntigravityLocalReader {
     }
   }
 
-  static void _rejectMismatchedAccount(Map<String, dynamic> root, String? expected) {
+  static void _rejectMismatchedAccount(
+    Map<String, dynamic> root,
+    String? expected,
+  ) {
     if (expected == null || expected.isEmpty) return;
     if (!_identityMatches(root, expected) && _responseIdentity(root) != null) {
       throw const AntigravitySourceException('Account mismatch');
     }
   }
 
-  static void _requireAccountIdentity(Map<String, dynamic> root, String? expected) {
+  static void _requireAccountIdentity(
+    Map<String, dynamic> root,
+    String? expected,
+  ) {
     if (expected == null || expected.isEmpty) return;
     if (!_identityMatches(root, expected)) {
       throw const AntigravitySourceException('Account mismatch');
@@ -703,30 +847,49 @@ class AntigravityLocalReader {
       return _responseIdentity(root)?.toLowerCase() == expected.toLowerCase();
     }
     final email = (root['accountEmail'] ?? root['email'])?.toString().trim();
-    final account =
-        (root['accountId'] ?? root['account_id'] ?? root['account'])?.toString().trim();
+    final account = (root['accountId'] ?? root['account_id'] ?? root['account'])
+        ?.toString()
+        .trim();
     final normalized = expected.toLowerCase();
-    return email?.toLowerCase() == normalized || account?.toLowerCase() == normalized;
+    return email?.toLowerCase() == normalized ||
+        account?.toLowerCase() == normalized;
   }
 
   static String? _responseIdentity(Map<String, dynamic> root) {
     final email = (root['accountEmail'] ?? root['email'])?.toString().trim();
-    final account =
-        (root['accountId'] ?? root['account_id'] ?? root['account'])?.toString().trim();
-    if (email != null && email.isNotEmpty && account != null && account.isNotEmpty) {
+    final account = (root['accountId'] ?? root['account_id'] ?? root['account'])
+        ?.toString()
+        .trim();
+    if (email != null &&
+        email.isNotEmpty &&
+        account != null &&
+        account.isNotEmpty) {
       return '$email|$account';
     }
     if (email != null && email.isNotEmpty) return email;
     return account != null && account.isNotEmpty ? account : null;
   }
 
-  static ProviderSnapshot _ok(String id, DateTime at, List<Quota> quotas) => ProviderSnapshot(
-        connectionId: id, status: ConnectionStatus.ok, quotas: quotas, balance: null, fetchedAt: at, error: null,
+  static ProviderSnapshot _ok(String id, DateTime at, List<Quota> quotas) =>
+      ProviderSnapshot(
+        connectionId: id,
+        status: ConnectionStatus.ok,
+        quotas: quotas,
+        balance: null,
+        fetchedAt: at,
+        error: null,
       );
-  static ProviderSnapshot _error(String id, DateTime at, String error) => ProviderSnapshot(
-        connectionId: id, status: ConnectionStatus.error, quotas: const [], balance: null, fetchedAt: at, error: error,
+  static ProviderSnapshot _error(String id, DateTime at, String error) =>
+      ProviderSnapshot(
+        connectionId: id,
+        status: ConnectionStatus.error,
+        quotas: const [],
+        balance: null,
+        fetchedAt: at,
+        error: error,
       );
-  static Map<String, dynamic>? _map(dynamic value) => value is Map ? Map<String, dynamic>.from(value) : null;
+  static Map<String, dynamic>? _map(dynamic value) =>
+      value is Map ? Map<String, dynamic>.from(value) : null;
 }
 
 class _Bucket {
