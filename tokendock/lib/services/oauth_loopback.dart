@@ -33,12 +33,19 @@ abstract final class OAuthLoopback {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     HttpServer? ipv6Server;
     try {
+      // Exclusive on both families. A shared socket would let another local
+      // process bind the same [::1]:port and receive the authorization code and
+      // state, which the design spec and hardening plan both forbid
+      // (SO_EXCLUSIVEADDRUSE-like semantics, audit C-14).
       ipv6Server = await HttpServer.bind(
         InternetAddress.loopbackIPv6,
         server.port,
-        shared: true,
+        shared: false,
       );
     } on SocketException {
+      // IPv6 may be unavailable or the port may already be held exclusively.
+      // The IPv4 literal is always the redirect target, so v4-only still
+      // completes the flow correctly.
       ipv6Server = null;
     }
     final session = OAuthLoopbackSession._(
@@ -87,13 +94,15 @@ final class OAuthLoopbackSession {
 
   void _startListening() {
     for (final server in _servers) {
-      _requestSubscriptions.add(server.listen(
-        (request) => unawaited(_handleRequest(request)),
-        onError: (Object error, StackTrace stackTrace) {
-          _fail(error, stackTrace);
-        },
-        cancelOnError: false,
-      ));
+      _requestSubscriptions.add(
+        server.listen(
+          (request) => unawaited(_handleRequest(request)),
+          onError: (Object error, StackTrace stackTrace) {
+            _fail(error, stackTrace);
+          },
+          cancelOnError: false,
+        ),
+      );
     }
   }
 
@@ -102,10 +111,7 @@ final class OAuthLoopbackSession {
     Map<String, String> parameters = const {},
   }) {
     return authorizationEndpoint.replace(
-      queryParameters: {
-        ...parameters,
-        'redirect_uri': redirectUri.toString(),
-      },
+      queryParameters: {...parameters, 'redirect_uri': redirectUri.toString()},
     );
   }
 
@@ -195,9 +201,7 @@ final class OAuthLoopbackSession {
   }
 
   Future<void> _closeInternal(bool force) async {
-    _fail(
-      StateError('OAuth loopback session was closed before completion.'),
-    );
+    _fail(StateError('OAuth loopback session was closed before completion.'));
     _closed = true;
     _timer.cancel();
     for (final subscription in _requestSubscriptions) {
