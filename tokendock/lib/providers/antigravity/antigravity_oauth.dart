@@ -221,6 +221,194 @@ class AntigravityOAuthProvider implements ProviderAdapter {
 
   static const String accessType = 'offline';
 
+  /// How this client identifies itself to the Cloud Code Assist endpoints.
+  ///
+  /// These three values were **inverted**, and the endpoint answered
+  /// `400 INVALID_ARGUMENT` with nothing pointing at the cause:
+  ///
+  /// ```
+  /// 'pluginType': 'ANTIGRAVITY',   // wrong field
+  /// 'ideType': 'IDE_UNSPECIFIED',  // and not an accepted value here
+  /// ```
+  ///
+  /// The correct pair is `ideType: ANTIGRAVITY` with `pluginType: GEMINI`. That
+  /// reads like a typo and is not: Antigravity is the *IDE surface*, and the
+  /// plugin that reaches it is the Gemini one. `platform` was missing entirely.
+  ///
+  /// Two independent working implementations agree, which is why this is a
+  /// correction rather than a guess:
+  ///
+  /// - `opencode-antigravity-auth` `docs/ANTIGRAVITY_API_SPEC.md`, verified by
+  ///   direct API testing, lists `Client-Metadata` as
+  ///   `{"ideType":"ANTIGRAVITY","platform":"...","pluginType":"GEMINI"}`.
+  /// - `wiseai/picoclaw` `docs/security/ANTIGRAVITY_AUTH.md` sends
+  ///   `loadCodeAssist` with the same body metadata.
+  ///
+  /// One map, built once, because the two call sites previously wrote it
+  /// independently and that is how they came to disagree.
+  static const Map<String, String> clientMetadata = <String, String>{
+    'ideType': 'ANTIGRAVITY',
+    'platform': 'PLATFORM_UNSPECIFIED',
+    'pluginType': 'GEMINI',
+  };
+
+  /// Sent as the `Client-Metadata` header on Cloud Code calls, alongside the same
+  /// map in the request body.
+  static String get clientMetadataHeader => jsonEncode(clientMetadata);
+
+  /// `X-Goog-Api-Client`, required by both reference implementations and absent
+  /// here until a live sign-in failed.
+  static const String apiClientHeader = 'X-Goog-Api-Client';
+
+  static const String apiClientValue =
+      'google-cloud-sdk vscode_cloudshelleditor/0.1';
+
+  /// The `User-Agent` these endpoints expect.
+  ///
+  /// `antigravity` alone, as both references send it. TokenDock is not claiming
+  /// to be a specific Antigravity build: it is declaring which client surface it
+  /// speaks, the same role the `User-Agent` plays anywhere else, and the version
+  /// number in a reference's value is not something TokenDock can honestly assert.
+  static const String userAgent = 'antigravity';
+
+  /// The OAuth error codes that may appear in a log line.
+  ///
+  /// An **allow-list**, and the first attempt was a shape test — "lowercase,
+  /// digits, underscore, dot, dash, at most 40 characters" — which was wrong, and
+  /// the test that now guards this caught it. `sk-or-v1-0123456789abcdefghij`
+  /// satisfies that pattern exactly: a lowercase hex API key is shaped like an
+  /// OAuth error code, so the shape test would have logged it. A shape test asks
+  /// "does this look harmless"; an allow-list asks "did I recognise this", and
+  /// only the second question has an answer that is guaranteed rather than
+  /// probable.
+  ///
+  /// RFC 6749 section 4.1.2.1 and 4.1.2.6, plus the Google extensions that turn
+  /// up in practice.
+  static const Set<String> _loggableErrorCodes = <String>{
+    // RFC 6749 4.1.2.1, authorization errors.
+    'invalid_request',
+    'invalid_client',
+    'invalid_grant',
+    'unauthorized_client',
+    'unsupported_grant_type',
+    'invalid_scope',
+    'access_denied',
+    'unsupported_response_type',
+    // RFC 6749 4.1.2.6, token errors.
+    'server_error',
+    'temporarily_unavailable',
+    // Google extensions.
+    'consent_required',
+    'login_required',
+    'interaction_required',
+    'user_cancelled',
+    'bad_verification_code',
+  };
+
+  /// The OAuth `error` code in [body], or `null` when there is none to report.
+  ///
+  /// Added because a failed Google login was otherwise undiagnosable from the
+  /// app: the sign-in path converts every failure into a fixed, deliberately
+  /// vague user-facing string, which is right for the user and useless for
+  /// whoever has to fix it. The original `Error 400: invalid_scope
+  /// [invalid=[cloud-platform, userinfo.email, userinfo.profile]]` could only be
+  /// read off a browser error page.
+  ///
+  /// Only the `error` field is read, and only when it is one of
+  /// [_loggableErrorCodes]. `error_description` is never touched: Google echoes
+  /// the request back in it, so it is a credential-shaped channel.
+  ///
+  /// The result is a *diagnostic label*, never an input to control flow.
+  /// Classification still runs on the status code (audit C-11), and
+  /// [AntigravityHttpStatus] is still what propagates.
+  static String? oauthErrorCodeOf(String body) {
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final value = decoded['error'];
+    if (value is! String) return null;
+    final code = value.trim();
+    return _loggableErrorCodes.contains(code) ? code : null;
+  }
+
+  /// The canonical Google API status in [body], or `null`.
+  ///
+  /// The two error shapes are not interchangeable. Google's OAuth token endpoint
+  /// answers with RFC 6749's `{"error": "invalid_scope"}`; the Cloud Code
+  /// Assist endpoints answer with the Google API envelope,
+  /// `{"error": {"code": 400, "message": "...", "status": "INVALID_ARGUMENT"}}`,
+  /// where the code is nested and the useful field is called `status`. Reading
+  /// only the flat shape meant a `loadCodeAssist` rejection logged as a bare
+  /// `HTTP 400` with no reason attached — which is what happened on the first
+  /// live sign-in attempt.
+  ///
+  /// `message` is never read: it is free text that can echo the request.
+  /// `status` is a closed enum, and is allow-listed for the same reason the OAuth
+  /// codes are.
+  static const Set<String> _loggableApiStatuses = <String>{
+    'CANCELLED',
+    'UNKNOWN',
+    'INVALID_ARGUMENT',
+    'DEADLINE_EXCEEDED',
+    'NOT_FOUND',
+    'ALREADY_EXISTS',
+    'PERMISSION_DENIED',
+    'UNAUTHENTICATED',
+    'RESOURCE_EXHAUSTED',
+    'FAILED_PRECONDITION',
+    'ABORTED',
+    'OUT_OF_RANGE',
+    'UNIMPLEMENTED',
+    'INTERNAL',
+    'UNAVAILABLE',
+    'DATA_LOSS',
+  };
+
+  /// The Google API canonical status in [body], or `null` when there is none.
+  static String? apiStatusOf(String body) {
+    Object? decoded;
+    try {
+      decoded = jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final error = decoded['error'];
+    if (error is! Map) return null;
+    final status = error['status'];
+    if (status is! String) return null;
+    return _loggableApiStatuses.contains(status) ? status : null;
+  }
+
+  /// The single label to log for a rejected request: whichever of the two error
+  /// shapes [body] turned out to be.
+  ///
+  /// Tries the OAuth code first, then the Google API status, so the log line
+  /// says why rather than just that.
+  static String? rejectionReasonOf(String body) =>
+      oauthErrorCodeOf(body) ?? apiStatusOf(body);
+
+  /// One log line per protocol stage.
+  ///
+  /// Never receives a token, an authorization code, a verifier or a redirect URI:
+  /// the call sites pass only a stage name, a status, and [oauthErrorCodeOf]'s
+  /// output. Debug-only, so a release build prints nothing at all — stdout from a
+  /// desktop app ends up in whatever the user pastes into a bug report.
+  static void _logStage(String stage, {int? status, String? reason}) {
+    if (!kDebugMode) return;
+    debugPrint(
+      <String>[
+        'Antigravity: $stage',
+        if (status != null) 'HTTP $status',
+        if (reason != null) '($reason)',
+      ].join(' '),
+    );
+  }
+
   /// The body of an authorization-code exchange.
   ///
   /// Built in one place so the exchange and the refresh cannot drift apart on
@@ -290,6 +478,12 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         'prompt': prompt,
       },
     );
+    // Logged before the browser opens, and deliberately without the URL: it
+    // carries the client id, the state and the code challenge. What matters for
+    // diagnosis is *which* stage the flow reached, and a silent login that
+    // produced no log line at all was indistinguishable from a login that was
+    // never started.
+    _logStage('sign-in started, waiting for the browser round trip');
     final delivered = session.waitForCode(state);
     var cancelRequested = false;
     final cancellationSignal = cancellation?.then<bool>((_) async {
@@ -309,6 +503,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
             cancellationSignal,
           ]);
           final result = outcome as OAuthLoopbackResult;
+          _logStage('authorization code received from the loopback listener');
           return await login(
             connection,
             code: result.code,
@@ -316,12 +511,16 @@ class AntigravityOAuthProvider implements ProviderAdapter {
             redirectUri: session.redirectUri.toString(),
           );
         } catch (_) {
-          if (cancelRequested) throw const AntigravityLoginCancelled();
+          if (cancelRequested) {
+            _logStage('sign-in cancelled by the user');
+            throw const AntigravityLoginCancelled();
+          }
           rethrow;
         }
       }
       await launchExternalBrowser(url);
       final result = await delivered;
+      _logStage('authorization code received from the loopback listener');
       return await login(
         connection,
         code: result.code,
@@ -346,11 +545,25 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         codeVerifier: codeVerifier,
         redirectUri: redirectUri,
       ),
+      stage: 'token exchange',
     );
     final access = (token['access_token'] ?? '').toString().trim();
-    if (access.isEmpty) throw StateError('OAuth access token missing');
+    if (access.isEmpty) {
+      _logStage('token exchange returned no access token', status: 200);
+      throw StateError('OAuth access token missing');
+    }
     final refresh = (token['refresh_token'] ?? '').toString().trim();
-    if (refresh.isEmpty) throw StateError('OAuth refresh token missing');
+    if (refresh.isEmpty) {
+      // Named separately because it is the `prompt=consent` failure: Google
+      // reused a grant and issued no refresh token, so the *next* login breaks
+      // here while pointing at the token exchange rather than at the
+      // authorization request that caused it.
+      _logStage(
+        'token exchange returned no refresh token (consent?)',
+        status: 200,
+      );
+      throw StateError('OAuth refresh token missing');
+    }
     final identity =
         AntigravitySelectedAccountGuard.identityOf(token) ??
         connection.identityKey;
@@ -371,6 +584,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       project = _project(provisioning);
     }
     if (project == null || project.isEmpty) {
+      _logStage('Antigravity has not onboarded this account yet');
       throw const AntigravityOnboardingRequired();
     }
     final identityKey =
@@ -385,6 +599,10 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       'tier': _tier(provisioning),
     });
     await _secretStore?.write(connection.credentialRef, secret);
+    // The one line that proves a login worked, which nothing did before. The
+    // project id and tier are not credentials; the tokens that were just written
+    // are, and neither appears here.
+    _logStage('sign-in complete (tier ${_tier(provisioning) ?? 'unknown'})');
     return AntigravityOAuthLoginResult(
       secret: secret,
       identityKey: identityKey,
@@ -402,10 +620,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     for (final host in const [prodHost, dailyHost]) {
       try {
         final payload = <String, dynamic>{
-          'metadata': {
-            'pluginType': 'ANTIGRAVITY',
-            'ideType': 'IDE_UNSPECIFIED',
-          },
+          'metadata': Map<String, String>.of(clientMetadata),
           if (projectId case final project? when project.isNotEmpty)
             'cloudaicompanionProject': project,
         };
@@ -414,6 +629,8 @@ class AntigravityOAuthProvider implements ProviderAdapter {
           Uri.parse('$host/v1internal:loadCodeAssist'),
           payload,
           bearer: access,
+          stage: 'loadCodeAssist',
+          clientMetadata: true,
         );
         if (result['response'] is Map) return result;
         throw const AntigravitySchemaChanged();
@@ -431,7 +648,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     String? projectId,
   }) async {
     final payload = <String, dynamic>{
-      'metadata': {'pluginType': 'ANTIGRAVITY', 'ideType': 'IDE_UNSPECIFIED'},
+      'metadata': Map<String, String>.of(clientMetadata),
       if (projectId case final project? when project.isNotEmpty)
         'cloudaicompanionProject': project,
     };
@@ -440,6 +657,8 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       Uri.parse('$prodHost/v1internal:onboardUser'),
       payload,
       bearer: access,
+      stage: 'onboardUser',
+      clientMetadata: true,
     );
     if (result['response'] is! Map) throw const AntigravitySchemaChanged();
     return result;
@@ -610,8 +829,13 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         try {
           final payload = await _postJson(
             Uri.parse('$host/v1internal:retrieveUserQuotaSummary'),
-            {'project': project, 'userIdentifier': expected},
+            {
+              'project': project,
+              'userIdentifier': expected,
+              'metadata': Map<String, String>.of(clientMetadata),
+            },
             bearer: credential['accessToken']?.toString(),
+            stage: 'retrieveUserQuotaSummary',
           );
           if (!const AntigravitySelectedAccountGuard().accepts(
             expected: expected,
@@ -703,13 +927,23 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   ) async {
     final modelsEnvelope = await _postJson(
       Uri.parse('$prodHost/v1internal:fetchAvailableModels'),
-      {'project': project, 'userIdentifier': expected},
+      {
+        'project': project,
+        'userIdentifier': expected,
+        'metadata': Map<String, String>.of(clientMetadata),
+      },
       bearer: credential['accessToken']?.toString(),
+      stage: 'fetchAvailableModels',
     );
     final quotaEnvelope = await _postJson(
       Uri.parse('$prodHost/v1internal:retrieveUserQuota'),
-      {'project': project, 'userIdentifier': expected},
+      {
+        'project': project,
+        'userIdentifier': expected,
+        'metadata': Map<String, String>.of(clientMetadata),
+      },
       bearer: credential['accessToken']?.toString(),
+      stage: 'retrieveUserQuota',
     );
     final models = _unwrapEnvelope(modelsEnvelope);
     final quota = _unwrapEnvelope(quotaEnvelope);
@@ -844,6 +1078,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         // fails on the first expiry, long after the login that would have
         // revealed the problem.
         refreshRequestFields(refreshToken),
+        stage: 'token refresh',
       );
       if (response['access_token'] == null) throw StateError('invalid_grant');
       final replacement = response['refresh_token']?.toString();
@@ -901,10 +1136,12 @@ class AntigravityOAuthProvider implements ProviderAdapter {
 
   Future<Map<String, dynamic>> _postForm(
     Uri uri,
-    Map<String, dynamic> body,
-  ) async {
+    Map<String, dynamic> body, {
+    String stage = 'request',
+  }) async {
     return _post(
       uri,
+      stage: stage,
       headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
       body: Uri(
         queryParameters: body.map((key, value) => MapEntry(key, '$value')),
@@ -916,13 +1153,22 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     Uri uri,
     Map<String, dynamic> body, {
     String? bearer,
+    String stage = 'request',
+    bool clientMetadata = false,
   }) {
     return _post(
       uri,
+      stage: stage,
       headers: {
         if (bearer != null && bearer.isNotEmpty)
           'Authorization': 'Bearer $bearer',
         'Content-Type': 'application/json',
+        // Both reference implementations send these on every Cloud Code call,
+        // not only on loadCodeAssist. They identify the client surface; without
+        // them the endpoint is free to answer INVALID_ARGUMENT.
+        'User-Agent': userAgent,
+        apiClientHeader: apiClientValue,
+        if (clientMetadata) 'Client-Metadata': clientMetadataHeader,
       },
       body: jsonEncode(body),
     );
@@ -932,12 +1178,14 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     Uri uri, {
     required Map<String, String> headers,
     required String body,
+    String stage = 'request',
   }) async {
     for (var attempt = 0; attempt < _maximumTransientAttempts; attempt++) {
       AntigravityOAuthHttpResponse response;
       try {
         response = await _http.post(uri, headers: headers, body: body);
       } catch (error) {
+        _logStage('$stage transport failure on attempt ${attempt + 1}');
         throw AntigravityTransportFailure(error);
       }
       if (response.statusCode == 429 || response.statusCode >= 500) {
@@ -952,6 +1200,12 @@ class AntigravityOAuthProvider implements ProviderAdapter {
           await _sleep(retryDelay(floor, attempt, random: _random));
           continue;
         }
+        // Logged only on the last attempt, so the line reports what actually
+        // happened rather than implying the request was rejected once.
+        _logStage(
+          '$stage gave up after ${attempt + 1} attempts',
+          status: response.statusCode,
+        );
         throw AntigravityTransientFailure(
           response.statusCode,
           cooldownUntil: retryAt ?? now.add(const Duration(minutes: 1)),
@@ -962,8 +1216,22 @@ class AntigravityOAuthProvider implements ProviderAdapter {
             response.body.contains('invalid_grant')) {
           // The token endpoint reports this in the body; it has no status of
           // its own that distinguishes it from a transient rejection.
+          _logStage(
+            '$stage rejected',
+            status: response.statusCode,
+            reason: rejectionReasonOf(response.body),
+          );
           throw StateError('invalid_grant');
         }
+        // The one line that makes a login failure diagnosable. `reason` is a
+        // single allow-listed enum from one of two known error shapes, so this
+        // says *why* the endpoint said no without ever putting the request or
+        // the response in the log.
+        _logStage(
+          '$stage rejected',
+          status: response.statusCode,
+          reason: rejectionReasonOf(response.body),
+        );
         // Carries the status so failure classification never has to parse
         // message text (audit C-11).
         throw AntigravityHttpStatus(response.statusCode);
@@ -971,6 +1239,10 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       try {
         return _map(jsonDecode(response.body));
       } catch (_) {
+        _logStage(
+          '$stage returned a body that is not the expected shape',
+          status: response.statusCode,
+        );
         throw const AntigravitySchemaChanged();
       }
     }
