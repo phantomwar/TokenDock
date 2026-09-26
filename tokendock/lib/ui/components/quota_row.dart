@@ -52,7 +52,7 @@ class QuotaRow extends StatelessWidget {
             ),
             Text(
               valueTextOf(quota),
-              style: TokenDockTypography.quotaStyle(color: colors.mutedInk),
+              style: TokenDockTypography.quotaStyle(color: colors.ink),
             ),
           ],
         ),

@@ -14,11 +14,17 @@ import '../../app/theme.dart';
 /// Automatically updates via a local periodic timer without network calls.
 /// An optional [now] clock override keeps widget tests deterministic.
 class CountdownText extends StatefulWidget {
+  /// Re-evaluates every thirty seconds.
+  ///
+  /// The label only has hour and minute granularity, so a one-second tick spent
+  /// a rebuild per countdown for no visible change, multiplied by the account
+  /// count, on a widget whose stated goal is near-zero idle CPU (audit C-21).
+  static const Duration defaultTickInterval = Duration(seconds: 30);
   const CountdownText({
     super.key,
     required this.resetAt,
     this.now,
-    this.tickInterval = const Duration(seconds: 1),
+    this.tickInterval = defaultTickInterval,
   });
 
   final DateTime? resetAt;

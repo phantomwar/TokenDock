@@ -226,7 +226,7 @@ class TokenDockWidget extends StatelessWidget {
                     Text(
                       QuotaRow.valueTextOf(accounts[i].snapshot.quotas.first),
                       style: TokenDockTypography.quotaStyle(
-                        color: colors.mutedInk,
+                        color: colors.ink,
                       ),
                     ),
                   ],

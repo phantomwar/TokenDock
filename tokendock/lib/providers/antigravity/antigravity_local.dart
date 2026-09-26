@@ -174,8 +174,12 @@ List<AntigravityLocalSession> parseAntigravityDiscoveryOutput(
   String output, {
   int maxBytes = maxDiscoveryOutputBytes,
 }) {
-  if (output.trim().isEmpty) return const [];
-  if (output.length > maxBytes) return const [];
+  if (output.trim().isEmpty) {
+    return const [];
+  }
+  if (output.length > maxBytes) {
+    return const [];
+  }
   final Object? decoded;
   try {
     decoded = jsonDecode(output);
@@ -626,12 +630,13 @@ class AntigravityLocalReader {
         timeout: const Duration(seconds: 90),
         maxOutputBytes: 1024 * 1024,
       );
-      if (usage.exitCode != 0)
+      if (usage.exitCode != 0) {
         return _error(
           connection.id,
           DateTime.now().toUtc(),
           'agy usage unavailable',
         );
+      }
       return parseAgyPrint(
         usage.stdout,
         connectionId: connection.id,
@@ -758,9 +763,12 @@ class AntigravityLocalReader {
   }
 
   static String? _pool(String id) {
-    if (id.contains('gemini') || id.contains('pro') || id.contains('flash'))
+    if (id.contains('gemini') || id.contains('pro') || id.contains('flash')) {
       return 'gemini';
-    if (id.contains('claude') || id.contains('gpt')) return 'claude-gpt';
+    }
+    if (id.contains('claude') || id.contains('gpt')) {
+      return 'claude-gpt';
+    }
     return null;
   }
 
@@ -803,8 +811,9 @@ class AntigravityLocalReader {
   }
 
   static bool _looksAvailabilityOnly(Map<String, dynamic> root) {
-    if (root.containsKey('groups') || root.containsKey('quotaInfo'))
+    if (root.containsKey('groups') || root.containsKey('quotaInfo')) {
       return false;
+    }
     final availability = root['availability'];
     if (availability is! Map || availability.isEmpty) return false;
     return availability.values.every((value) => _number(value) == 1.0);
