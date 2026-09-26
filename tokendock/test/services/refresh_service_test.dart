@@ -30,9 +30,8 @@ class _FakeConnectionRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() async => List.unmodifiable(_connections);
 
   @override
-  Future<List<StoredConnection>> getAllWithHealth() async => _connections
-      .map((row) => StoredConnection(connection: row))
-      .toList();
+  Future<List<StoredConnection>> getAllWithHealth() async =>
+      _connections.map((row) => StoredConnection(connection: row)).toList();
 
   @override
   Future<Connection?> getById(String id) async {
@@ -65,9 +64,9 @@ class _FakeQuotaCacheRepository implements QuotaCacheRepository {
   Future<Map<String, List<Quota>>> getAllForAll(
     List<String> connectionIds,
   ) async => {
-        for (final id in connectionIds)
-          id: List.unmodifiable(_cache[id] ?? const <Quota>[]),
-      };
+    for (final id in connectionIds)
+      id: List.unmodifiable(_cache[id] ?? const <Quota>[]),
+  };
 
   @override
   Future<void> saveAll(String connectionId, List<Quota> quotas) async {
@@ -87,12 +86,41 @@ class _FailingQuotaCacheRepository implements QuotaCacheRepository {
   @override
   Future<Map<String, List<Quota>>> getAllForAll(
     List<String> connectionIds,
-  ) async =>
-      const {};
+  ) async => const {};
 
   @override
   Future<void> saveAll(String connectionId, List<Quota> quotas) async {
     throw StateError('cache unavailable');
+  }
+
+  @override
+  Future<void> deleteForConnection(String connectionId) async {}
+}
+
+/// Rejects a write the way SQLite's foreign key does, because the connection
+/// row it referenced is gone.
+///
+/// The delete lands *inside* `saveAll`, which is the window that matters: the
+/// fetch has already succeeded and the write is the next thing to touch the
+/// database. `PRAGMA foreign_keys` is on (C-23), so the real SQLite raises
+/// error 787 for exactly this.
+class _VanishedConnectionCacheRepository implements QuotaCacheRepository {
+  _VanishedConnectionCacheRepository(this.connections);
+
+  final ConnectionRepository connections;
+
+  @override
+  Future<List<Quota>> getAll(String connectionId) async => const [];
+
+  @override
+  Future<Map<String, List<Quota>>> getAllForAll(
+    List<String> connectionIds,
+  ) async => const {};
+
+  @override
+  Future<void> saveAll(String connectionId, List<Quota> quotas) async {
+    await connections.delete(connectionId);
+    throw StateError('FOREIGN KEY constraint failed');
   }
 
   @override
@@ -881,6 +909,76 @@ void main() {
         service.dispose();
       },
     );
+
+    test(
+      'a cache write rejected because the connection is gone is not reported '
+      'as a storage failure',
+      () async {
+        // `PRAGMA foreign_keys` is on (C-23), so caching a quota for a
+        // connection deleted while the refresh was in flight raises error 787.
+        // Storage is healthy; "Local storage unavailable" would send the user
+        // to investigate the wrong thing, for a connection that no longer
+        // exists.
+        const connectionId = 'conn-vanished';
+        final provider = ControlledProvider(
+          id: 'openrouter',
+          name: 'OpenRouter',
+        );
+        final connections = _FakeConnectionRepository([
+          createConnection(id: connectionId),
+        ]);
+        final snapshots = <ProviderSnapshot>[];
+        final service = RefreshService.forTest(
+          provider: provider,
+          connectionRepository: connections,
+          quotaCacheRepository: _VanishedConnectionCacheRepository(connections),
+          secretStore: MemorySecretStore({
+            'cred-$connectionId': 'sk-valid-key',
+          }),
+          onSnapshotUpdated: snapshots.add,
+        );
+
+        await service.refreshOne(connectionId);
+
+        final reported = snapshots
+            .map((snapshot) => snapshot.error)
+            .whereType<String>()
+            .join(' | ');
+        expect(
+          reported,
+          isNot(contains('Local storage unavailable')),
+          reason: 'a vanished connection is not a storage failure',
+        );
+        service.dispose();
+      },
+    );
+
+    test('a genuine cache failure still reports a storage failure', () async {
+      // The guard against over-correcting: if the connection is still there,
+      // a write that fails really is a storage problem and the user must be
+      // told about it.
+      const connectionId = 'conn-still-here';
+      final provider = ControlledProvider(id: 'openrouter', name: 'OpenRouter');
+      final connections = _FakeConnectionRepository([
+        createConnection(id: connectionId),
+      ]);
+      final snapshots = <ProviderSnapshot>[];
+      final service = RefreshService.forTest(
+        provider: provider,
+        connectionRepository: connections,
+        quotaCacheRepository: _FailingQuotaCacheRepository(),
+        secretStore: MemorySecretStore({'cred-$connectionId': 'sk-valid-key'}),
+        onSnapshotUpdated: snapshots.add,
+      );
+
+      await service.refreshOne(connectionId);
+
+      expect(
+        snapshots.map((snapshot) => snapshot.error),
+        contains('Local storage unavailable'),
+      );
+      service.dispose();
+    });
 
     test(
       'health failure after rotation publishes the rotated connection',

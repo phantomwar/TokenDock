@@ -17,6 +17,12 @@ import 'ui/settings/connections_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Before anything can read a secret, and before the window exists, so a
+  // failure is a log line rather than a user staring at an empty credential
+  // field wondering why their keys went missing.
+  relocateLegacySecretStore();
+
   await windowManager.ensureInitialized();
 
   const windowOptions = WindowOptions(

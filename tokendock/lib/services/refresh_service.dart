@@ -542,6 +542,19 @@ class RefreshService {
       try {
         await _quotaCacheRepository.saveAll(connectionId, snapshot.quotas);
       } catch (_) {
+        // Distinguish the two reasons a write can fail, because they need
+        // opposite responses.
+        //
+        // With `PRAGMA foreign_keys` on (C-23), caching a quota for a
+        // connection deleted while this refresh was in flight is rejected by
+        // the database. Storage is healthy, and the connection the user would be
+        // trying to fix no longer exists, so reporting "Local storage
+        // unavailable" sends them after the wrong problem. The write has
+        // nothing to attach to, so it is dropped and the refresh ends quietly.
+        if (!await _connectionStillExists(connectionId)) {
+          return;
+        }
+
         await _persistHealthAndPublish(
           ProviderSnapshot(
             connectionId: connectionId,
@@ -557,6 +570,19 @@ class RefreshService {
       }
     }
     await _persistHealthAndPublish(snapshot.copyWith(connection: connection));
+  }
+
+  /// Whether the connection this refresh was for is still stored.
+  ///
+  /// Read only on the failure path. A failure to answer is treated as "still
+  /// there", because guessing "gone" would silently swallow a genuine storage
+  /// fault and leave the user with a stale number and no explanation.
+  Future<bool> _connectionStillExists(String connectionId) async {
+    try {
+      return await _connectionRepository.getById(connectionId) != null;
+    } catch (_) {
+      return true;
+    }
   }
 
   bool _isAntigravitySchemaQuarantined(Connection connection) {
@@ -830,9 +856,8 @@ class _InMemoryConnectionRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() async => List.unmodifiable(_connections);
 
   @override
-  Future<List<StoredConnection>> getAllWithHealth() async => _connections
-      .map((row) => StoredConnection(connection: row))
-      .toList();
+  Future<List<StoredConnection>> getAllWithHealth() async =>
+      _connections.map((row) => StoredConnection(connection: row)).toList();
 
   @override
   Future<Connection?> getById(String id) async {
@@ -865,9 +890,9 @@ class _InMemoryQuotaCacheRepository implements QuotaCacheRepository {
   Future<Map<String, List<Quota>>> getAllForAll(
     List<String> connectionIds,
   ) async => {
-        for (final id in connectionIds)
-          id: List.unmodifiable(_cache[id] ?? const <Quota>[]),
-      };
+    for (final id in connectionIds)
+      id: List.unmodifiable(_cache[id] ?? const <Quota>[]),
+  };
 
   @override
   Future<void> saveAll(String connectionId, List<Quota> quotas) async {
