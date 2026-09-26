@@ -5,6 +5,8 @@ focada no que é adaptável ao TokenDock na hora de autenticar (API keys hoje,
 OAuth amanhã: MiniMax, Antigravity multi-account).
 
 > **Status (2026-09-23):** pesquisa de referência mantida como snapshot histórico. A implementação posterior está registrada em `docs/auth-quota-hardening-plan.md`, `docs/superpowers/specs/2026-09-23-tokendock-login-adaptation-design.md` e no checkpoint `docs/checkpoints/2026-09-23-login-adaptation-checkpoint.md`.
+>
+> **Actualizado 2026-09-26 (MiniMax e OpenCode).** Esta pesquisa recomendou `minimax=api-key` no registro. Verificado contra a documentação dos fornecedores: **MiniMax tem probe de credencial real** (`GET https://api.minimax.io/v1/models` → 401 com chave inválida) e está implementado. Mas **não publica nenhuma API de uso, saldo ou quota** — o Token Plan é "shown as a usage bar in the console" — logo o provider mostra só saúde da ligação, com a lista de quotas vazia em vez de um número inventado. **OpenCode Zen e Go não foram adicionados**: ambos publicam `GET /zen*/v1/models` que devolve **200 mesmo com bearer inválido** (medido), portanto não sustentam o gate test-before-save; e nenhum dos dois publica uso por API. O raciocínio completo e as medições estão em `OpenCodeSupport` em `lib/providers/provider_registry.dart`, fixados por `test/providers/provider_registry_test.dart`.
 
 - `can1357/oh-my-pi` — harness Oh My Pi (TS+Bun+Rust). Auth centralizada em
   `AuthStorage` (`packages/ai/src/auth-storage.ts`, ~8k linhas) sobre

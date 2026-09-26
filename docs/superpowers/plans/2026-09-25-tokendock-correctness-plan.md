@@ -312,7 +312,11 @@ Uma fase só fecha quando, **tudo** isto é verdade:
 
 **Estado em `431e2ca`:** **os 36 achados da auditoria estão fechados**, e os dois portões que faltavam verificação foram finalmente corridos pela primeira vez — `flutter build windows --release` bem-sucedido (158s) e `integration_test/multi_account_flow_test.dart` 3/3 no device `windows-x64`. Os cinco critérios acima estão todos satisfeitos. O que permanece por verificar não é código: integração real com Google/OpenRouter, browser externo e processo Antigravity, porque todos os testes usam fixtures sanitizadas.
 
-**Não faz parte deste plano** (já estava deferred e continua): installer, release 0.1, notificações, grupos, drag-and-drop, auto-start, histórico/gráficos, MiniMax (bloqueado por schema oficial), OpenCode Go (sem API pública), scaling do servidor. Este plano **não adiciona nenhuma dependência**.
+**Não faz parte deste plano** (já estava deferred e continua): installer, release 0.1, notificações, grupos, drag-and-drop, auto-start, histórico/gráficos, **OpenCode Go e Zen** (ver nota abaixo), scaling do servidor. Este plano **não adiciona nenhuma dependência**.
+
+> **MiniMax e OpenCode — resolvido em `9511321` (2026-09-26).** O plano adiava MiniMax como "bloqueado por schema oficial" e OpenCode Go como "sem API pública". Verificado contra a documentação dos fornecedores:
+> - **MiniMax implementado.** Tem probe de credencial real (`GET https://api.minimax.io/v1/models` → 401 com chave inválida, medido). Não publica nenhuma API de uso/saldo/quota — o Token Plan só existe como barra no console — logo mostra **saúde da ligação apenas**, com quotas vazias. Um teste fixo que a lista se mantém vazia, para que nunca se torne um número inventado.
+> - **OpenCode Zen e Go continuam deferred, agora por um motivo medido e não por falta de investigação.** Ambos publicam `GET /zen*/v1/models` que devolve **200 com bearer inválido**. Um gate que aceita qualquer chave não é um gate; offering o provider daria um test-before-save que passa sempre, e o utilizador gravaria uma chave quebrada achando que foi verificada. Nenhum dos dois publica uso por API. Detalhes e medições em `OpenCodeSupport` (`lib/providers/provider_registry.dart`). Rever quando documentarem um endpoint de uso ou um probe que exija a chave sem consumir quota.
 
 ---
 
