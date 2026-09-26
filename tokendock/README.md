@@ -16,6 +16,8 @@ And one rule that spans all of them: a fetch that fails or comes back incomplete
 
 The rule most likely to be got wrong, and the one that is tested hardest: **only a credential rejection revokes a credential.** A rate limit, a spent window, a spent balance and a busy provider are statements about the account at this moment, not about the key. `ProviderThrottle` is the single taxonomy; **an unrecognised code or status is transient and never revokes**, because a permissive default costs a cooldown the user did not need while an aggressive one costs them their configuration.
 
+And the one that is easy to miss entirely: a **Reconnect** prompt comes back down when the credential next works. It used to be cleared only by editing or reconnecting by hand, so a single transient 401 nagged about a key the app was simultaneously refreshing successfully.
+
 Reliability properties now enforced by tests rather than by convention: a refresh cycle reads the connections table once instead of once per connection; credential exchange is single-flight per connection in both the service and the provider; the OAuth loopback port is bound exclusively on IPv4 and IPv6; the OAuth transport and the local session discovery are both time-bounded; a stored credential that cannot be parsed is reported rather than sent; migrations are resumable; a corrupt cache row degrades instead of failing every connection; and user-facing error copy never interpolates an exception, so SQL, table names and credential-shaped text cannot reach the UI.
 
 ## Run
@@ -29,7 +31,7 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-- `flutter test --no-pub`: **576/576 passed**. The 366-test gate was met on three consecutive runs at `9ae626f`; 379, 386, 389, 399, 409, 410, 417, 430, 465, 507 and 542 were each re-confirmed before the next change. Baseline before the 2026-09-26 session was 235.
+- `flutter test --no-pub`: **586/586 passed**. The 366-test gate was met on three consecutive runs at `9ae626f`; 379, 386, 389, 399, 409, 410, 417, 430, 465, 507, 542 and 576 were each re-confirmed before the next change. Baseline before the 2026-09-26 session was 235.
 - **Providers:** OpenRouter, Antigravity, MiniMax, OpenCode Go, z.ai — all with a real credential gate and real quota. Each of the four ported response shapes was taken from a working implementation in `can1357/oh-my-pi` rather than inferred. OpenCode Zen stays absent: its pay-as-you-go balance has no documented endpoint, and the reference implementation registers a Go usage provider and no Zen one.
 - `flutter analyze --no-pub`: **no issues found**. This was 31 informational diagnostics before the lint sweep; it is now zero across errors, warnings and informational. The sweep was lint-specific and scoped per file, so no pre-existing unformatted file was reformatted as a side effect.
 - `flutter build windows --release --no-pub`: **succeeds** (first run in this project, 2026-09-26), `tokendock.exe` produced in 158s. 8 C4267/C4996 warnings, all inside the third-party `cnativeapi` plugin (the `strcpy` and `size_t` conversions); **zero warnings in this repository's code**. The build requires Windows Developer Mode or an elevated shell, because Flutter creates the plugin symlinks under `windows/flutter/ephemeral/.plugin_symlinks`.

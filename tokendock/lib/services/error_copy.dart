@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../providers/antigravity/antigravity_oauth.dart';
+import 'credential_events.dart';
 
 /// User-safe description of a failure.
 ///
@@ -46,4 +47,24 @@ String userSafeErrorMessage(Object error, {required String fallback}) {
     return 'That operation is not supported on this platform.';
   }
   return fallback;
+}
+
+/// Deliberate, user-facing copy for a credential rejection.
+///
+/// This exists because the classification tokens are not copy. `bare_401` and
+/// `invalid_grant` are for internal routing -- deciding whether to escalate and
+/// whether a secret must be deleted -- and `token_dock_widget` renders
+/// `snapshot.error` **verbatim**, which meant a connection rejected with a bare
+/// 401 put the literal text `bare_401` on screen.
+///
+/// An unrecognised token falls back to the generic rejection copy rather than
+/// being echoed: a token this version does not know about should still produce
+/// something a user can read, and an unknown token is not a safe thing to
+/// render precisely because it was not anticipated.
+String credentialRejectionMessage(String? cause) {
+  if (cause == null || cause.isEmpty) return 'Invalid API key';
+  if (cause == CredentialEventCause.invalidGrant) {
+    return 'Session expired. Reconnect to continue.';
+  }
+  return 'Invalid API key';
 }

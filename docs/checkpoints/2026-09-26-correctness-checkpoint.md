@@ -432,6 +432,57 @@ None of these is stubbed or faked. The rule is unchanged: a provider enters only
 with a real credential gate — a `GET /models`-like route that requires the key
 and does not spend quota.
 
+### Third pass: the Reconnect prompt outliving its own failure
+
+Reading further into oh-my-pi — `CredentialBlocks.reconcile` — turned up a second
+defect in code this project already had.
+
+`AppState` shows a Reconnect action when `RefreshService` raises
+`CredentialDisabledEvent`. That flag was cleared in exactly four places, all of
+them explicit user actions: edit, reconnect, delete, and a rollback. **No
+successful refresh ever cleared it.** So one transient 401 — a proxy blip, a
+provider hiccup, clock skew — left a working key showing a Reconnect prompt for
+the rest of the session, while the app refreshed that same key successfully
+behind the prompt. The numbers were right and the card was still asking for a
+fix that was not needed.
+
+Fixed by raising `CredentialEventCause.recovered` when an escalated credential
+next fetches successfully, and having `AppState` remove the prompt on it. Three
+details that are easy to get wrong and are each pinned by a test:
+
+- **Reported at most once per escalation.** Otherwise every healthy connection
+  emits an event on every refresh cycle and the UI churns forever.
+- **A throttled response is not recovery.** It shows the account is rate-limited,
+  not that the credential works, so the prompt has to stay up.
+- **The escalation set is in memory only.** It is a UI prompt, not a verdict; the
+  durable unhealthy signal is the persisted health row, and a prompt that
+  outlived a restart would nag about a credential nothing had re-tested.
+
+#### The version of this that was built and thrown away
+
+The first implementation made escalation **two-stage**, copied from oh-my-pi's
+suspect/confirmed split: a first 401 would report the error but not raise the
+prompt, and only a second consecutive one would.
+
+It broke a real flow. `connections_screen_test.dart` has a test asserting the
+Reconnect action appears after a single Antigravity rejection, and it is right
+to: **for an OAuth connection there is no "edit the key"** — re-authenticating
+in a browser is the only remedy, so the affordance has to appear on the first
+failure or the user has nothing to click.
+
+The two things are worth separating, because only one of them was a proven
+defect:
+
+- **Missing recovery** — a bug, reproduced, and the fix is right.
+- **Too-eager escalation** — a plausible improvement inferred from a system
+  built for a different job. oh-my-pi's suspect state exists to decide whether
+  to *burn a sibling credential*, not what to show a human.
+
+The second was reverted. Escalation still happens on the first rejection. The
+lesson generalises past this function: a failing test is not automatically a
+stale test, and "this matches the reference implementation" is not by itself a
+reason to change behaviour the reference was never solving.
+
 ### Second review of oh-my-pi's auth, and the bug it found in my own code
 
 Re-reading `can1357/oh-my-pi` after the providers landed found a defect **this

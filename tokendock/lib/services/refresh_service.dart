@@ -15,6 +15,7 @@ import '../storage/quota_cache_repository.dart';
 import '../storage/secret_store.dart';
 import '../storage/settings_repository.dart';
 import 'credential_events.dart';
+import 'error_copy.dart';
 import 'log_redaction.dart';
 
 /// Service orchestrating quota refreshing with request coalescing,
@@ -152,6 +153,33 @@ class RefreshService {
       listener(event);
     }
   }
+
+  /// Tells listeners a credential previously escalated as needing a reconnect
+  /// has just worked, so any prompt raised for it can be taken down.
+  ///
+  /// A separate event rather than a flag on the disabled one because the two
+  /// mean opposite things, and folding them into one nullable field is how a
+  /// "reconnect" prompt ends up outliving the problem that raised it.
+  void _publishCredentialRecovered(Connection connection) {
+    if (_isDisposed) return;
+    final event = CredentialDisabledEvent(
+      connectionId: connection.id,
+      cause: CredentialEventCause.recovered,
+      identityKey: connection.identityKey,
+    );
+    for (final listener in List.of(_disabledListeners)) {
+      listener(event);
+    }
+  }
+
+  /// Connections this session has escalated to "needs reconnect", so a later
+  /// success knows to take the prompt back down.
+  ///
+  /// Deliberately in memory only. It is a UI prompt, not a verdict, and a
+  /// prompt that outlived a restart would nag about a credential nothing has
+  /// since re-tested. The durable signal that a credential is unhealthy is the
+  /// persisted health row, which survives restarts on its own.
+  final Set<String> _escalatedCredentials = <String>{};
 
   void _publishSnapshot(ProviderSnapshot snapshot) {
     if (_isDisposed) return;
@@ -466,14 +494,17 @@ class RefreshService {
           quotas: cachedQuotas,
           balance: null,
           fetchedAt: DateTime.now().toUtc(),
-          error:
-              definitiveCause ??
-              redactSecret(error.toString(), activeSecrets.toList()),
-          failureCause: definitiveCause == 'bare_401'
+          // The classification token routes internally; the user sees copy. They
+          // are kept apart because this `error` is persisted as health and
+          // rendered verbatim by the widget.
+          error: definitiveCause != null
+              ? credentialRejectionMessage(definitiveCause)
+              : redactSecret(error.toString(), activeSecrets.toList()),
+          failureCause: definitiveCause == CredentialEventCause.bareUnauthorized
               ? ProviderFailureCause.invalidCredential
               : null,
         );
-        if (definitiveCause == 'invalid_grant') {
+        if (definitiveCause == CredentialEventCause.invalidGrant) {
           await _deleteCredentialBestEffort(connection);
         }
       }
@@ -481,28 +512,28 @@ class RefreshService {
     if (definitiveCause == null &&
         providerSnapshot.failureCause ==
             ProviderFailureCause.invalidCredential) {
-      definitiveCause = 'bare_401';
+      definitiveCause = CredentialEventCause.bareUnauthorized;
       providerSnapshot = ProviderSnapshot(
         connectionId: providerSnapshot.connectionId,
         status: ConnectionStatus.authError,
         quotas: providerSnapshot.quotas,
         balance: providerSnapshot.balance,
         fetchedAt: providerSnapshot.fetchedAt,
-        error: definitiveCause,
+        error: credentialRejectionMessage(definitiveCause),
         cooldownUntil: providerSnapshot.cooldownUntil,
         failureCause: ProviderFailureCause.invalidCredential,
       );
     } else if (definitiveCause == null &&
         providerSnapshot.status == ConnectionStatus.authError &&
         providerSnapshot.failureCause == null) {
-      definitiveCause = 'bare_401';
+      definitiveCause = CredentialEventCause.bareUnauthorized;
       providerSnapshot = ProviderSnapshot(
         connectionId: providerSnapshot.connectionId,
         status: ConnectionStatus.authError,
         quotas: providerSnapshot.quotas,
         balance: providerSnapshot.balance,
         fetchedAt: providerSnapshot.fetchedAt,
-        error: definitiveCause,
+        error: credentialRejectionMessage(definitiveCause),
         cooldownUntil: providerSnapshot.cooldownUntil,
         failureCause: ProviderFailureCause.invalidCredential,
       );
@@ -514,7 +545,25 @@ class RefreshService {
       connection = await _quarantineAntigravitySchema(connection);
     }
     if (definitiveCause != null) {
+      _escalatedCredentials.add(connectionId);
       _publishCredentialDisabled(connection, definitiveCause);
+    } else if (providerSnapshot.status == ConnectionStatus.ok &&
+        _escalatedCredentials.remove(connectionId)) {
+      // The self-heal, and the whole of what this change fixes.
+      //
+      // A credential that demonstrably works is not broken, so a Reconnect
+      // prompt raised for it earlier in the session has to come back down.
+      // Before this, the escalation was cleared only by an explicit user action
+      // -- edit, reconnect, delete -- and **never by a successful refresh**. One
+      // transient 401 therefore left a working key nagging for the rest of the
+      // session while the app refreshed it successfully behind the prompt.
+      //
+      // oh-my-pi does the same thing explicitly, in
+      // `CredentialBlocks.reconcile`: "when a fresh live usage report says a
+      // scope is below every limit gating it, drop its persisted and in-memory
+      // blocks so credential selection re-includes the recovered account before
+      // the block expires by clock."
+      _publishCredentialRecovered(connection);
     }
 
     final snapshot = providerSnapshot.status == ConnectionStatus.ok

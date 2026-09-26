@@ -135,11 +135,16 @@ void main() {
     expect(cache.quotas, [cachedQuota]);
     expect(events, hasLength(1));
     expect(events.single.connectionId, connectionId);
-    expect(events.single.cause, 'invalid_grant');
+    // The event carries the internal classification token...
+    expect(events.single.cause, CredentialEventCause.invalidGrant);
     expect(events.single.identityKey, identityKey);
     expect(events.single.toString(), isNot(contains(secret)));
     expect(health.health?.status, ConnectionStatus.authError);
-    expect(health.health?.error, 'invalid_grant');
+    // ...while the persisted error, which the widget renders verbatim, is
+    // deliberate copy. They were the same string until this was split, so
+    // `invalid_grant` appeared on screen.
+    expect(health.health?.error, isNot(CredentialEventCause.invalidGrant));
+    expect(health.health?.error, 'Session expired. Reconnect to continue.');
     expect(health.health?.error, isNot(contains(secret)));
     expect(connections.connection.enabled, isTrue);
 
@@ -197,11 +202,13 @@ void main() {
 
     expect(cache.quotas, [cachedQuota]);
     expect(events, hasLength(1));
-    expect(events.single.cause, 'bare_401');
+    expect(events.single.cause, CredentialEventCause.bareUnauthorized);
     expect(events.single.identityKey, identityKey);
     expect(events.single.toString(), isNot(contains(secret)));
     expect(health.health?.status, ConnectionStatus.authError);
-    expect(health.health?.error, 'bare_401');
+    // Copy, not the token -- see the sibling test.
+    expect(health.health?.error, isNot(CredentialEventCause.bareUnauthorized));
+    expect(health.health?.error, 'Invalid API key');
     expect(health.health?.error, isNot(contains(secret)));
 
     service.dispose();

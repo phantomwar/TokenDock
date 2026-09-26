@@ -233,7 +233,15 @@ class AppState extends ChangeNotifier {
   }
 
   void _handleCredentialDisabled(CredentialDisabledEvent event) {
-    _reconnectConnectionIds?.add(event.connectionId);
+    // One event, two opposite meanings, and conflating them is how a reconnection
+    // prompt ends up outliving the problem that raised it: the escalation used to
+    // survive a successful refresh, so one transient 401 nagged for the rest of
+    // the session.
+    if (event.cause == CredentialEventCause.recovered) {
+      _reconnectConnectionIds?.remove(event.connectionId);
+    } else {
+      _reconnectConnectionIds?.add(event.connectionId);
+    }
     notifyListeners();
   }
 
