@@ -101,7 +101,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     Future<void> Function(Uri url)? launchExternalBrowser,
     Future<void> Function(Duration delay)? sleep,
     Random? random,
-  }) : _http = http ?? _HttpClientRunner(),
+  }) : _http = http ?? AntigravityHttpClientRunner(),
        launchExternalBrowser = launchExternalBrowser ?? launchWindowsBrowser,
        _sleep = sleep ?? Future<void>.delayed,
        _random = random ?? Random.secure();
@@ -867,26 +867,68 @@ class AntigravityRefreshableCredential implements RefreshableCredential {
   }
 }
 
-class _HttpClientRunner implements AntigravityOAuthHttpRunner {
+/// Production HTTP transport for the Antigravity OAuth surface.
+///
+/// Every await is bounded and the response body is capped. Without this a hung
+/// socket left the connection's in-flight future pending forever, and
+/// `RefreshService` chains every later refresh and probe behind that future
+/// (audit C-01). Bounds match the sibling OpenRouter transport: 10s to connect,
+/// 15s for the response.
+class AntigravityHttpClientRunner implements AntigravityOAuthHttpRunner {
+  AntigravityHttpClientRunner({
+    this.connectionTimeout = defaultConnectionTimeout,
+    this.responseTimeout = defaultResponseTimeout,
+    this.maxResponseBytes = defaultMaxResponseBytes,
+  });
+
+  static const Duration defaultConnectionTimeout = Duration(seconds: 10);
+  static const Duration defaultResponseTimeout = Duration(seconds: 15);
+
+  /// Token, provisioning and quota envelopes are small JSON documents. A cap
+  /// turns an unexpectedly large body into a failure instead of an
+  /// out-of-memory condition on an always-resident desktop widget.
+  static const int defaultMaxResponseBytes = 256 * 1024;
+
+  final Duration connectionTimeout;
+  final Duration responseTimeout;
+  final int maxResponseBytes;
+
   @override
   Future<AntigravityOAuthHttpResponse> post(
     Uri uri, {
     required Map<String, String> headers,
     required String body,
   }) async {
-    final client = HttpClient();
+    final client = HttpClient()..connectionTimeout = connectionTimeout;
     try {
-      final request = await client.postUrl(uri);
+      final request = await client.postUrl(uri).timeout(connectionTimeout);
       headers.forEach(request.headers.set);
       request.write(body);
-      final response = await request.close();
+      final response = await request.close().timeout(responseTimeout);
       return AntigravityOAuthHttpResponse(
         statusCode: response.statusCode,
-        body: await response.transform(const Utf8Decoder()).join(),
+        body: await _readBounded(response),
         retryAfter: response.headers.value(HttpHeaders.retryAfterHeader),
       );
     } finally {
       client.close(force: true);
     }
+  }
+
+  /// Reads at most [maxResponseBytes], failing loudly past the cap rather than
+  /// buffering an unbounded body.
+  Future<String> _readBounded(HttpClientResponse response) async {
+    final chunks = <int>[];
+    var total = 0;
+    await for (final chunk in response.timeout(responseTimeout)) {
+      total += chunk.length;
+      if (total > maxResponseBytes) {
+        throw const AntigravityTransportFailure(
+          'Antigravity response too large',
+        );
+      }
+      chunks.addAll(chunk);
+    }
+    return utf8.decode(chunks);
   }
 }
