@@ -332,8 +332,11 @@ Cada item foi feito em RED→GREEN, com o teste visto falhar antes do fix.
 | C-25 | P1 | `f477ac9` | ledger limitado a 32 entradas |
 | C-06 | P1 | `91b8840` | ramp dark com accents próprios |
 | C-07 | P1 | `91b8840` | sem `Colors.*`, mais guard de código-fonte |
+| C-05 | P0 | `c95b584` | compensação não mascara mais o cancelamento |
+| C-14 | P1 | `daf4af0` | loopback IPv6 exclusivo |
+| C-08 | P1 | `b1ba687` | idade do cache passa a contar |
 
-**Baseline:** 235/235 → **306/306**. `flutter analyze` 0 erros / 0 warnings / 33 infos (inalterado).
+**Baseline:** 235/235 → **324/324**. `flutter analyze` 0 erros / 0 warnings / 33 infos (inalterado).
 
 ### O que a execução revelou e a auditoria tinha omitido
 
@@ -395,16 +398,16 @@ imediatamente após um `await` real, que é onde a ordem é garantida.
 | C-02 | P0 | DDL e `user_version` não atômicos → app não abre | `migration_00{1,2,3}.dart` | ✅ `1e144e1` |
 | C-03 | P0 | `DateTime.parse` sem `tryParse` → 1 linha ruins todas | `quota_cache_repository.dart:25` | ✅ `1e144e1` |
 | C-04 | P0 | Revogação incondicional → race destrói credencial | `antigravity_oauth.dart:667-670` | ✅ `f477ac9` |
-| C-05 | P0 | Cancelamento por loteria de microtask | `app_state.dart:546-593` | ✅ compensação não mascara mais o cancelamento |
+| C-05 | P0 | Cancelamento: checks duplicados + compensação mascarando | `app_state.dart:546-593` | ✅ `c95b584` |
 | C-06 | P1 | Status colors dark = light → 3,1:1 (AA falha) | `theme.dart:78-93` | ✅ `91b8840` |
 | C-07 | P1 | `Colors.green`/`red` hardcoded → 2,78:1 | `connections_screen.dart:886-946` | ✅ `91b8840` |
-| C-08 | P1 | "Last updated" nunca atualiza | `token_dock_widget.dart:56-69` |
+| C-08 | P1 | "Last updated" nunca atualiza | `token_dock_widget.dart:56-69` | ✅ `b1ba687` |
 | C-09 | P1 | `runTokenOperation` morto → sem single-flight | `refresh_service.dart:225-236` | ✅ `a4f902c` |
 | C-10 | P1 | `_credential` mascar credencial corrompida | `antigravity_oauth.dart:808-814` |
 | C-11 | P1 | Regex de mensagem — proibido pela spec | `credential_events.dart:26-32` |
 | C-12 | P1 | `$e` cru na UI, sem redaction | `connections_screen.dart:589,742,155` |
 | C-13 | P1 | Sanitizador cego a token | `connection_repository.dart:106-112` | ✅ `1e144e1` |
-| C-14 | P1 | `shared: true` no loopback IPv6 | `oauth_loopback.dart:36-40` |
+| C-14 | P1 | `shared: true` no loopback IPv6 | `oauth_loopback.dart:36-40` | ✅ `daf4af0` |
 | C-15 | P1 | Exceções SQLite vazam SQL | `connections_screen.dart:742` |
 | C-16 | P2 | N+1: `getAll()` no loop de refresh | `refresh_service.dart:308` |
 | C-17 | P2 | Health re-buscada though same row | `app_state.dart:291` |
