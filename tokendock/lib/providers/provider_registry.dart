@@ -1,6 +1,7 @@
 import 'antigravity/antigravity_local.dart';
 import 'antigravity/antigravity_provider.dart';
 import 'minimax/minimax_provider.dart';
+import 'opencode/opencode_go_provider.dart';
 import 'openrouter/openrouter_provider.dart';
 import 'provider_adapter.dart';
 import '../storage/secret_store.dart';
@@ -17,6 +18,7 @@ class ProviderRegistry {
       // remains available through AntigravityLocalReader.
       register(OpenRouterProvider());
       register(MiniMaxProvider());
+      register(OpenCodeGoProvider());
       register(
         AntigravityProvider(
           secretStore: secretStore,
@@ -43,52 +45,67 @@ class ProviderRegistry {
   List<ProviderAdapter> getAll() => List.unmodifiable(_adapters.values);
 }
 
-/// Why OpenCode Zen and OpenCode Go are **not** registered.
+/// Why OpenCode **Zen** is not registered, and why **Go** is.
 ///
-/// Both were evaluated on 2026-09-26 and both fail the same way, which is worth
-/// writing down because it is not obvious from the docs and is expensive to
-/// re-derive.
+/// This file previously claimed both were impossible. That was wrong, and the
+/// error is instructive enough to keep written down.
 ///
-/// The obvious probe is the model listing both vendors publish. Measured against
-/// both, with a deliberately invalid bearer token:
+/// The claim rested on measuring the model listings with a deliberately invalid
+/// bearer token:
 ///
 /// ```text
 /// opencode.ai/zen/go/v1/models : 200   (the key is ignored)
 /// opencode.ai/zen/v1/models    : 200   (the key is ignored)
 /// ```
 ///
-/// A credential gate that returns 200 for a garbage key is not a gate. Adding
-/// either as a connection would mean shipping test-before-save that always
-/// passes, which is worse than not offering the provider: the user would save a
-/// broken key believing it had been verified.
+/// Both listings really do ignore the key. But that is a fact about the *wrong
+/// endpoint*. A listing is a static catalogue -- there is no reason for it to
+/// vary by account, so ignoring the key is correct behaviour, not a defect. From
+/// "the listing cannot gate" it does not follow that "nothing can gate". The
+/// conclusion generalised from one probe instead of looking for the endpoint that
+/// actually meters the account, and the reference implementation
+/// (`can1357/oh-my-pi`) has it:
 ///
-/// The alternative probe is an inference call, which does enforce auth but
-/// spends the user's quota. The reference research is explicit about why that
-/// is the wrong trade for a probe -- "cuidado para não queimar quota, preferir
-/// `GET /models`-like ao invés de chamada com custo".
+/// ```text
+/// opencode.ai/zen/go/v1/usage  : 401 invalid key, 403 valid key with no Go plan
+/// ```
 ///
-/// There is a third option that was deliberately not taken. The web console at
-/// `opencode.ai/auth` displays balance, auto-reload state and monthly usage, so
-/// it must call some API. That API is not in the documentation, and inferring a
-/// private endpoint is exactly what this project's non-goals forbid.
+/// So Go is registered, and gates honestly.
 ///
-/// Both vendors also publish no usage figure over any documented API: Zen says
-/// "You can track your current usage in the console", and Go publishes per-model
-/// monthly *limits* but no consumption. So even with a working gate there would
-/// be no honest number to display, which is the same wall MiniMax hits and the
-/// reason `MiniMaxProvider` returns an empty quota list rather than a guess.
+/// ## Zen is still out, for a different reason
 ///
-/// Re-evaluate when OpenCode documents either a usage endpoint or a
-/// key-enforced, non-billable probe.
+/// The reference implementation registers a Go usage provider and **no Zen one**,
+/// which is the useful signal: the absence is on their side too, not a limitation
+/// of this port.
+///
+/// The underlying reason is that Go and Zen meter different things. Go is a
+/// subscription with three named windows, and there is a per-window figure to
+/// fetch. Zen is pay-as-you-go against a console balance -- its own documentation
+/// says usage is tracked "in the console", and there is no documented endpoint
+/// returning that balance. So a Zen provider here would offer a credential the
+/// app cannot verify and a number it cannot obtain.
+///
+/// ## The cost of registering Go
+///
+/// `GET /zen/go/v1/usage` is first-party but **undocumented**, and the reference
+/// implementation records that its shape "changed once on merge day". That is the
+/// price of a working gate and real quota, and it is paid in three places:
+/// decoding is all-or-nothing, the parse is pinned by tests against a recorded
+/// fixture, and a reshape degrades to "keeps the last known values" rather than
+/// to a wrong figure.
+///
+/// Re-evaluate if OpenCode documents these routes, or if Zen gains a
+/// key-enforced, non-billable balance endpoint.
 abstract final class OpenCodeSupport {
   const OpenCodeSupport._();
 
   /// The model listings, which do **not** enforce auth. Recorded so nobody
-  /// "verifies" a key by fetching one of these and concluding it is good.
+  /// "verifies" a key by fetching one of these and concluding it is good --
+  /// a listing is a static catalogue, so an account-independent answer is correct.
   static final Uri zenModels = Uri.parse('https://opencode.ai/zen/v1/models');
   static final Uri goModels = Uri.parse('https://opencode.ai/zen/go/v1/models');
 
-  /// The vendors' own words on where usage lives.
+  /// The vendors' own words on where Zen usage lives.
   static const String usageIsConsoleOnly =
       'You can track your current usage '
       'in the console';

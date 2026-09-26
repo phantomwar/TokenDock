@@ -3,82 +3,46 @@ import 'dart:convert';
 import '../../models/provider_snapshot.dart';
 import '../provider_status.dart';
 
-/// Parses MiniMax's OpenAI-compatible `GET /v1/models` response.
+/// The MiniMax credential gate: `GET /v1/models`, plus the error mapping.
 ///
-/// The schema is the vendor's own OpenAPI document, not a guess:
-/// `{"object":"list","data":[{"id":...,"object":"model","created":...,
-/// "owned_by":...}]}`.
+/// The schema of a successful body is the vendor's own OpenAPI document, not a
+/// guess: `{"object":"list","data":[{"id":...,"object":"model",
+/// "created":...,"owned_by":...}]}`. Nothing here decodes it, and that is
+/// deliberate.
+///
+/// This class once parsed the catalog to decide whether a credential was good,
+/// and had a note explaining why it emitted no quota: the catalog carries no
+/// usage, so a number built from it would be invented. Both parts of that are
+/// now superseded. The quota is real and comes from
+/// `minimax_usage_response.dart`; and the gate no longer needs a second opinion
+/// on validity, because the Token Plan body carries MiniMax's own success signal
+/// in `base_resp.status_code`, which is strictly more authoritative than
+/// "the list looked the way I expected". One authority beats two, and the
+/// weaker one is the one that would have to be kept in step.
+///
+/// What remains is the transport concern: which endpoint, and how a failure is
+/// classified.
 class MiniMaxResponse {
   const MiniMaxResponse._();
 
-  /// The credential is valid when the body is the documented list shape.
-  ///
-  /// There are deliberately no quotas. MiniMax publishes no balance, usage or
-  /// quota endpoint anywhere in its documented API surface: the Token Plan quota
-  /// "is shown as a usage bar in the console", and pay-as-you-go draws down a
-  /// console balance. A quota emitted here would be a number this app invented
-  /// and showed to the user as if the provider had reported it.
-  static ProviderSnapshot parseModels({
-    required String connectionId,
-    required String body,
-    required DateTime fetchedAt,
-  }) {
-    try {
-      final dynamic decoded = jsonDecode(body);
-      if (decoded is! Map<String, dynamic>) {
-        return ProviderStatus.malformed(
-          connectionId: connectionId,
-          fetchedAt: fetchedAt,
-        );
-      }
-
-      final data = decoded['data'];
-      if (data is! List) {
-        return ProviderStatus.malformed(
-          connectionId: connectionId,
-          fetchedAt: fetchedAt,
-        );
-      }
-
-      // Every entry must carry a non-empty id. A list of objects that do not is
-      // not the documented shape, and treating it as success would let a
-      // future error envelope pass the credential gate.
-      for (final entry in data) {
-        if (entry is! Map) {
-          return ProviderStatus.malformed(
-            connectionId: connectionId,
-            fetchedAt: fetchedAt,
-          );
-        }
-        final id = entry['id'];
-        if (id is! String || id.isEmpty) {
-          return ProviderStatus.malformed(
-            connectionId: connectionId,
-            fetchedAt: fetchedAt,
-          );
-        }
-      }
-
-      // An empty list is a valid, authenticated key with no models enabled.
-      return ProviderStatus.ok(
-        connectionId: connectionId,
-        fetchedAt: fetchedAt,
-      );
-    } catch (_) {
-      return ProviderStatus.malformed(
-        connectionId: connectionId,
-        fetchedAt: fetchedAt,
-      );
-    }
-  }
+  /// The vendor's own OpenAPI document names `https://api.minimax.io` as the
+  /// server for `GET /v1/models`. This is the credential gate: it answers 401
+  /// for a bad key, which the Token Plan endpoint does not -- that one answers
+  /// 200 regardless and signals rejection in the body.
+  static final Uri defaultModelsEndpoint = Uri.parse(
+    'https://api.minimax.io/v1/models',
+  );
 
   /// Maps a non-2xx response onto the shared status rules.
   ///
-  /// MiniMax's error envelope puts the status in `error.http_code` as a
-  /// **string**, confirmed against the live endpoint:
+  /// The status-code mapping itself lives in `ProviderStatus` and is not
+  /// duplicated here. What MiniMax contributes is the fallback: its error
+  /// envelope carries the status inside the body, as a **string**, confirmed
+  /// against the live endpoint:
   /// `{"type":"error","error":{"type":"authorized_error","message":"...",
-  /// "http_code":"401"},"request_id":"..."}`. Both forms are accepted so the
-  /// classification does not depend on the transport reporting a usable code.
+  /// "http_code":"401"},"request_id":"..."}`. Reading it means a rejected
+  /// credential is still classified as rejected if the transport does not
+  /// surface a usable code.
   static ProviderSnapshot mapError({
     required String connectionId,
     required DateTime fetchedAt,

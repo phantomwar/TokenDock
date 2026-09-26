@@ -816,12 +816,12 @@ void main() {
         await tester.tap(find.byKey(const Key('testConnectionButton')));
         await tester.pumpAndSettle();
 
-        // Connected and quota preview displayed
+        // Connected and quota preview displayed.
+        // The preview delegates to the same renderer as the account card, so the
+        // number shown before saving is the number shown afterwards -- with no
+        // "50.0 / 100.0" variant that only ever appeared in this one dialog.
         expect(find.text('Connected'), findsOneWidget);
-        expect(
-          find.textContaining('Credits: 50.0 / 100.0 USD'),
-          findsOneWidget,
-        );
+        expect(find.textContaining('Credits: 50/100 USD'), findsOneWidget);
 
         // Save button is now enabled
         final saveBtnEnabled = tester.widget<ElevatedButton>(

@@ -323,3 +323,68 @@ each and both are asserted.
 the existing invariant that nothing on the write path depends on enforcement
 being on — `saveAll` is called from the refresh path and would now raise
 instead of silently orphaning a row if the parent connection were gone.
+
+---
+
+## Addendum: MiniMax quota and OpenCode Go — the previous session's conclusion was wrong
+
+The session above closed the audit. A later session added providers, and **first
+got MiniMax and OpenCode wrong in a way worth carrying forward.**
+
+### What was claimed, and why it was wrong
+
+The earlier note concluded: MiniMax "publishes no balance, usage or quota
+endpoint", and OpenCode Zen and Go were both unregistrable because
+`GET /zen*/v1/models` returns **200 for a garbage key** (which was measured, and
+is true).
+
+Both conclusions were false, and they failed the same way — **a conclusion was
+drawn from one measurement without asking whether the measurement was the right
+one.**
+
+- The model listing ignoring the key is *correct behaviour*, not a defect. A
+  catalog is static by definition, so an account-independent answer is exactly
+  what it should be. From "the listing cannot gate a credential" it does not
+  follow that "nothing can".
+- The endpoints that actually matter were never probed. MiniMax has
+  `GET /v1/token_plan/remains`; OpenCode Go has `GET /zen/go/v1/usage`, which
+  returns **401** for a bad key and **403** for a valid key with no Go plan.
+- **`docs/auth-quota-hardening-plan.md` line 79 already listed
+  `GET /v1/token_plan/remains` as MiniMax's official Token Plan endpoint.** The
+  answer was in this repository. The conclusion was written anyway without
+  reading it.
+
+### The rule this session should have applied
+
+Before declaring a provider unsupported, check **in this order**:
+
+1. This repository's own planning docs, not just the vendor's OpenAPI.
+2. A working third-party implementation, if one exists. `can1357/oh-my-pi` had
+   `packages/ai/src/usage/minimax-code.ts` and `opencode-go.ts` on the shelf the
+   whole time.
+3. Only then the vendor's live endpoints.
+
+Absence from a published API document is not absence from the API. A working
+implementation is the strongest available evidence, and it was free.
+
+### Carry-over risks from the new providers
+
+- **OpenCode Go's usage route is first-party but undocumented**, and oh-my-pi
+  records that its shape "changed once on merge day". It is decoded
+  all-or-nothing, pinned against recorded fixtures. If the numbers ever look
+  wrong, check the vendor **before** trusting the parser.
+- **`GET /v1/token_plan/remains` returns HTTP 200 for a rejected credential.**
+  The success signal is `base_resp.status_code === 0`. Any future code that
+  trusts the HTTP status there will report a pristine quota for a dead key.
+- **An `ok` snapshot with an empty quota list wipes the user's cached card.**
+  `RefreshService` calls `saveAll(connectionId, snapshot.quotas)`, which
+  *replaces* the row set. So "healthy, no usage data" is not a safe fallback for
+  a failed or reshaped endpoint — it has to be a non-`ok` snapshot, which takes
+  the error path and keeps the last known values. Both new parsers encode this,
+  and tests pin it.
+- **A model outside the Token Plan is reported by MiniMax as both windows
+  "unlimited", zero totals and 100% remaining** — the same shape as a perfect
+  quota. It is dropped rather than rendered; see `MiniMax-AI/cli#173`.
+- **Both providers are unverified against a live key.** Every test uses recorded
+  fixtures. The shapes were ported from a working implementation, which is
+  strong evidence but is not the same as a live response.

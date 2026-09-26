@@ -24,23 +24,33 @@ void main() {
     expect(ids.every((id) => id.trim().isNotEmpty), isTrue);
   });
 
-  test('OpenCode Zen and Go are deliberately not offered', () {
-    // Both `/zen/v1/models` and `/zen/go/v1/models` return 200 for a
-    // deliberately invalid bearer token, so a connection built on them would
-    // ship a test-before-save gate that always passes. The user would save a
-    // broken key believing it had been verified, which is worse than the
-    // provider being absent. See the note in `provider_registry.dart`.
+  test('OpenCode Go is offered, because its usage endpoint really does gate', () {
+    // This test previously asserted Go was absent. That was wrong: it generalised
+    // from the model listing, which ignores the key because a listing is a
+    // static catalogue. `GET /zen/go/v1/usage` returns 401 for a bad key and 403
+    // for a valid key with no Go plan, so it is an honest gate, and it carries
+    // the three windowed quotas.
+    expect(registry.get('opencode-go'), isNotNull);
+    expect(registry.get('opencode-go')!.name, 'OpenCode Go');
+  });
+
+  test('OpenCode Zen is deliberately not offered', () {
+    // Zen is pay-as-you-go against a console balance with no documented balance
+    // endpoint, so a Zen connection here would offer a credential the app cannot
+    // verify and a number it cannot obtain. The reference implementation
+    // registers a Go usage provider and no Zen one, so the gap is on their side
+    // too rather than being a limitation of this port.
     expect(
       registry.getAll().map((adapter) => adapter.id),
-      isNot(contains(anyOf('opencode', 'opencode-go', 'opencode-zen', 'zen'))),
+      isNot(contains(anyOf('opencode', 'opencode-zen', 'zen'))),
     );
   });
 
   test(
     'the OpenCode endpoints that looked like probes are recorded as unsafe',
     () {
-      // Present so nobody re-derives this by fetching them and concluding the
-      // key is valid.
+      // Present so nobody re-derives this by fetching a listing and concluding
+      // the key is valid. The listings are listed, not used.
       expect(OpenCodeSupport.zenModels.host, 'opencode.ai');
       expect(OpenCodeSupport.goModels.host, 'opencode.ai');
       expect(OpenCodeSupport.usageIsConsoleOnly, contains('console'));

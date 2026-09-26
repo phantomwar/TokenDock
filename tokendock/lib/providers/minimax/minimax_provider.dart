@@ -2,39 +2,40 @@ import '../../models/connection.dart';
 import '../../models/connection_status.dart';
 import '../../models/provider_snapshot.dart';
 import '../../models/test_result.dart';
+import '../../services/refreshable_credential.dart';
 import '../provider_adapter.dart';
 import '../provider_http.dart';
-import '../../services/refreshable_credential.dart';
 import 'minimax_response.dart';
+import 'minimax_usage_response.dart';
 
 /// MiniMax, via its OpenAI-compatible API.
 ///
-/// ## What this adapter can and cannot tell you
+/// ## Two endpoints, because MiniMax splits them
 ///
-/// It **can** verify a credential. `GET /v1/models` returns 401 for a bad key,
-/// which was confirmed against the live endpoint, so the test-before-save gate
-/// is a real gate here. That is why this provider exists and why
-/// `OpenCodeZen`/`OpenCodeGo` do not -- see the note in `provider_registry.dart`.
+/// - `GET /v1/models` returns 401 for a bad key, so it is the honest
+///   test-before-save probe, and it is what the gate uses.
+/// - `GET /v1/token_plan/remains` carries the Token Plan windows, and **answers
+///   HTTP 200 even for a rejected credential**. The real success signal is
+///   `base_resp.status_code === 0`. Trusting the HTTP status there would report a
+///   pristine quota for a key that does not work, which is worse than reporting
+///   nothing.
 ///
-/// It **cannot** report usage. MiniMax publishes no balance, usage or quota
-/// endpoint anywhere in its documented API surface. The Token Plan quota "is
-/// shown as a usage bar in the console" and pay-as-you-go draws down a console
-/// balance. So the snapshot carries connection health and an empty quota list,
-/// and the widget shows a healthy account with no usage row. Emitting a number
-/// here would mean inventing it and showing it to the user as fact.
+/// The two answers are used for different purposes, so a key that authenticates
+/// but whose plan endpoint is unreachable still shows as a healthy connection.
+///
+/// ## Provenance
+///
+/// The usage response shape was ported from a working implementation rather than
+/// guessed: `packages/ai/src/usage/minimax-code.ts` in `can1357/oh-my-pi`. It is
+/// not in MiniMax's published OpenAPI, so it is parsed defensively and a shape
+/// change degrades to "no quota shown" rather than to a wrong number.
 class MiniMaxProvider implements ProviderAdapter {
-  MiniMaxProvider({ProviderHttpProbe? probe, Uri? endpoint})
+  MiniMaxProvider({ProviderHttpProbe? probe, Uri? modelsEndpoint})
     : _probe = probe ?? ProviderHttpProbe(),
-      _endpoint = endpoint ?? defaultEndpoint;
+      _modelsEndpoint = modelsEndpoint ?? MiniMaxResponse.defaultModelsEndpoint;
 
   final ProviderHttpProbe _probe;
-  final Uri _endpoint;
-
-  /// The vendor's own OpenAPI document names `https://api.minimax.io` as the
-  /// server for `GET /v1/models`.
-  static final Uri defaultEndpoint = Uri.parse(
-    'https://api.minimax.io/v1/models',
-  );
+  final Uri _modelsEndpoint;
 
   @override
   String get id => 'minimax';
@@ -55,23 +56,47 @@ class MiniMaxProvider implements ProviderAdapter {
 
   @override
   Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
-    final result = await _probe.getJson(_endpoint, secret: secret);
     final fetchedAt = DateTime.now().toUtc();
 
-    if (result.isSuccess) {
-      return MiniMaxResponse.parseModels(
+    // The gate runs first, and its failure ends the fetch. A rejected key must
+    // not then be followed by a usage call, and a transport failure should not
+    // be spent twice waiting out a second timeout to find out.
+    final gate = await _probe.getJson(_modelsEndpoint, secret: secret);
+    if (!gate.isSuccess) {
+      return MiniMaxResponse.mapError(
         connectionId: connection.id,
-        body: result.body ?? '',
+        fetchedAt: fetchedAt,
+        statusCode: gate.statusCode,
+        body: gate.body,
+        isTimeout: gate.isTimeout,
+      );
+    }
+
+    // Usage is best effort, with one hard exception. A malformed or unreachable
+    // plan body must NOT be reported as a healthy empty result: `RefreshService`
+    // replaces the cached quota with whatever comes back, so "ok, no quotas"
+    // would blank the user's card because the plan endpoint hiccuped. Returning
+    // the malformed snapshot takes the error path, which keeps the last known
+    // values and shows the age they were fetched.
+    final usage = await _probe.getJson(
+      MiniMaxUsageResponse.remainsEndpoint,
+      secret: secret,
+    );
+    if (usage.isSuccess) {
+      // This single return covers both interesting cases. A definitive rejection
+      // is evidence and outranks the 200 the gate just saw, because this
+      // endpoint answers 200 for rejected credentials by design. A reshape is
+      // absence of evidence, and is reported as such.
+      return MiniMaxUsageResponse.parse(
+        connectionId: connection.id,
+        body: usage.body ?? '',
         fetchedAt: fetchedAt,
       );
     }
 
-    return MiniMaxResponse.mapError(
+    return MiniMaxUsageResponse.unreadable(
       connectionId: connection.id,
       fetchedAt: fetchedAt,
-      statusCode: result.statusCode,
-      body: result.body,
-      isTimeout: result.isTimeout,
     );
   }
 

@@ -57,10 +57,17 @@ class ProbeResult {
 
 /// A bounded, authenticated GET against a provider API.
 ///
-/// `OpenRouterProvider` and `MiniMaxProvider` need the same thing, and were
-/// about to become two copies of it: an `HttpClient` with a connection timeout,
-/// a bearer header, a response timeout, a body read with a cap, and the
-/// distinction between "the request did not finish" and "the request failed".
+/// `OpenRouterProvider`, `MiniMaxProvider` and `OpenCodeGoProvider` all need the
+/// same thing, and were about to become three copies of it: an `HttpClient` with
+/// a connection timeout, a bearer header, a response timeout, a body read with a
+/// cap, and the distinction between "the request did not finish" and "the
+/// request failed".
+///
+/// OpenCode Go is also why [getJson] takes [extraHeaders]: it treats traffic
+/// without a stable `x-opencode-session` or a real user agent as unrecognised, so
+/// a bearer token alone is not enough to get a response. That requirement is
+/// per-provider, so the parameter is a plain map rather than a per-vendor
+/// subclass -- a subclass would multiply for a difference that is two headers.
 ///
 /// The bounds are the reason this exists. Audit C-01 established that a hung
 /// socket leaves a connection's in-flight future pending forever, and
@@ -84,14 +91,24 @@ class ProviderHttpProbe {
 
   /// GETs [uri] with `Authorization: Bearer <secret>`.
   ///
+  /// [extraHeaders] carries provider-specific requirements. OpenCode Go, for
+  /// instance, treats traffic as unrecognised without a stable
+  /// `x-opencode-session` and a real user agent, and says so in its own
+  /// documentation.
+  ///
   /// Never throws. Every failure becomes a [ProbeResult], because this runs on
   /// the refresh path where an escaping exception would take down every
   /// connection's cached quota rather than just this one.
-  Future<ProbeResult> getJson(Uri uri, {required String secret}) async {
+  Future<ProbeResult> getJson(
+    Uri uri, {
+    required String secret,
+    Map<String, String> extraHeaders = const <String, String>{},
+  }) async {
     try {
       final request = await _client.getUrl(uri).timeout(connectionTimeout);
       request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $secret');
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      extraHeaders.forEach(request.headers.set);
 
       final response = await request.close().timeout(responseTimeout);
       final bytes = await _readBounded(response);

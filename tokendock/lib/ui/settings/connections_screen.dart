@@ -15,6 +15,7 @@ import '../../storage/connection_repository.dart';
 import '../../storage/quota_cache_repository.dart';
 import '../../storage/secret_store.dart';
 import '../../services/error_copy.dart';
+import '../components/quota_row.dart';
 import '../components/status_indicator.dart';
 import '../../app/theme.dart';
 
@@ -928,26 +929,23 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            ..._testResult!.quotas.map((quota) {
-                              final remainingStr = quota.remaining != null
-                                  ? quota.remaining!.toStringAsFixed(1)
-                                  : '-';
-                              final limitStr = quota.limit != null
-                                  ? quota.limit!.toStringAsFixed(1)
-                                  : '-';
-                              final unitStr = quota.unit != null
-                                  ? ' ${quota.unit}'
-                                  : '';
-                              return Padding(
+                            ..._testResult!.quotas.map(
+                              (quota) => Padding(
                                 padding: const EdgeInsets.only(bottom: 2.0),
                                 child: Text(
-                                  '${quota.label}: $remainingStr / $limitStr$unitStr',
+                                  // The same authoritative renderer the account
+                                  // list uses, so the preview a user sees before
+                                  // saving cannot disagree with the card that
+                                  // appears afterwards -- and so a key with no
+                                  // cap says so here too, instead of the
+                                  // "5.0 / 0.0 USD" this used to hand-roll.
+                                  '${quota.label}: ${QuotaRow.valueTextOf(quota)}',
                                   style: TokenDockTypography.bodyStyle(
                                     color: colors.ink,
                                   ),
                                 ),
-                              );
-                            }),
+                              ),
+                            ),
                           ],
                         ],
                       ),
