@@ -28,24 +28,24 @@ void main() {
   );
 
   AccountItem account(Quota q) => AccountItem(
-        connection: const Connection(
-          id: 'c1',
-          provider: 'openrouter',
-          displayName: 'Main Key',
-          group: null,
-          plan: 'Pro',
-          credentialRef: 'ref',
-          enabled: true,
-        ),
-        snapshot: ProviderSnapshot(
-          connectionId: 'c1',
-          status: ConnectionStatus.ok,
-          quotas: [q],
-          balance: null,
-          fetchedAt: DateTime.now().toUtc(),
-          error: null,
-        ),
-      );
+    connection: const Connection(
+      id: 'c1',
+      provider: 'openrouter',
+      displayName: 'Main Key',
+      group: null,
+      plan: 'Pro',
+      credentialRef: 'ref',
+      enabled: true,
+    ),
+    snapshot: ProviderSnapshot(
+      connectionId: 'c1',
+      status: ConnectionStatus.ok,
+      quotas: [q],
+      balance: null,
+      fetchedAt: DateTime.now().toUtc(),
+      error: null,
+    ),
+  );
 
   group('the primary quota leads the row (C-20)', () {
     testWidgets('the quota value uses ink, not mutedInk', (tester) async {
@@ -60,7 +60,8 @@ void main() {
       expect(
         value.style?.color,
         colors.ink,
-        reason: 'the number that decides where the user can work next must '
+        reason:
+            'the number that decides where the user can work next must '
             'not be de-emphasised',
       );
     });
@@ -84,12 +85,12 @@ void main() {
       expect(value.style?.color, colors.ink);
     });
 
-    test('quota figures outrank caption metadata in size (C-19)', () {
+    test('quota figures outrank metadata in size (C-19)', () {
       final quotaSize = TokenDockTypography.quotaStyle().fontSize ?? 0;
-      final captionSize = TokenDockTypography.captionStyle().fontSize ?? 0;
+      final metadataSize = TokenDockTypography.metadataStyle().fontSize ?? 0;
       expect(
         quotaSize,
-        greaterThan(captionSize),
+        greaterThan(metadataSize),
         reason: 'the primary figure must outrank the metadata beside it',
       );
     });
@@ -116,9 +117,7 @@ void main() {
     });
 
     test('the relative age label ticks on a coarse interval too', () {
-      final subject = RelativeAgeText(
-        since: DateTime.utc(2026, 1, 1),
-      );
+      final subject = RelativeAgeText(since: DateTime.utc(2026, 1, 1));
       expect(
         subject.tickInterval,
         greaterThanOrEqualTo(const Duration(seconds: 15)),

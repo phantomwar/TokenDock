@@ -241,7 +241,7 @@ class TokenDockWidget extends StatelessWidget {
                     const SizedBox(height: TokenDockSpacing.s4),
                     Text(
                       accounts[i].snapshot.error!,
-                      style: TokenDockTypography.captionStyle(
+                      style: TokenDockTypography.metadataStyle(
                         color: colors.statusLimited,
                       ),
                     ),

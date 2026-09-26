@@ -118,14 +118,14 @@ class _CountdownTextState extends State<CountdownText> {
     if (remaining <= Duration.zero) {
       return Text(
         'Resetting…',
-        style: TokenDockTypography.quotaStyle(
+        style: TokenDockTypography.countdownStyle(
           color: TokenDockTheme.colorsOf(context).mutedInk,
         ),
       );
     }
     return Text(
       CountdownText.formatRemaining(remaining),
-      style: TokenDockTypography.quotaStyle(
+      style: TokenDockTypography.countdownStyle(
         color: TokenDockTheme.colorsOf(context).mutedInk,
       ),
     );

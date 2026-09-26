@@ -50,13 +50,9 @@ class WidgetShell extends StatelessWidget {
                       Expanded(
                         child: Text(
                           'TokenDock',
-                          style:
-                              TokenDockTypography.titleStyle(color: colors.ink)
-                                  .copyWith(
-                                    fontSize: 18,
-                                    height: 22 / 18,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                          style: TokenDockTypography.widgetHeadingStyle(
+                            color: colors.ink,
+                          ),
                         ),
                       ),
                       actions ?? const SizedBox.shrink(),

@@ -152,7 +152,7 @@ abstract final class TokenDockTheme {
       textTheme: TextTheme(
         titleMedium: TokenDockTypography.titleStyle(color: colors.ink),
         bodyMedium: TokenDockTypography.bodyStyle(color: colors.ink),
-        labelSmall: TokenDockTypography.captionStyle(color: colors.mutedInk),
+        labelSmall: TokenDockTypography.metadataStyle(color: colors.mutedInk),
       ),
     );
   }
@@ -173,36 +173,90 @@ abstract final class TokenDockRadii {
   static const double pill = 999;
 }
 
+/// The type ramp, fixed by the first-goal design spec.
+///
+/// Spec: "11px metadata, 13px body, 15px account/provider label, 18px section
+/// heading, and 22px widget heading; quota percentages use 20px semibold
+/// tabular figures so values do not reflow."
+///
+/// Every step is a named token rather than a `copyWith` at the call site. Two
+/// of these roles had no token at all and were expressed as inline overrides,
+/// which is how the ramp drifted out of sync with the spec in the first place
+/// (audit C-19).
 abstract final class TokenDockTypography {
   static const String fontFamily = 'Segoe UI Variable';
 
-  /// Numeric quota figures with tabular lining so values do not jitter.
-  static TextStyle quotaStyle({Color? color}) => TextStyle(
+  /// The ramp, in one place, so a change is one edit rather than a sweep.
+  static const double metadataSize = 11;
+  static const double bodySize = 13;
+  static const double titleSize = 15;
+  static const double sectionHeadingSize = 18;
+  static const double widgetHeadingSize = 22;
+  static const double quotaFigureSize = 20;
+
+  static const List<FontFeature> _tabular = <FontFeature>[
+    FontFeature.tabularFigures(),
+  ];
+
+  /// Secondary information: cache age, status labels, hints. 11px.
+  static TextStyle metadataStyle({Color? color}) => TextStyle(
     fontFamily: fontFamily,
-    fontSize: 13,
-    fontWeight: FontWeight.w500,
+    fontSize: metadataSize,
+    fontWeight: FontWeight.w400,
     color: color,
-    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
   );
 
+  /// Running text. 13px.
+  static TextStyle bodyStyle({Color? color}) => TextStyle(
+    fontFamily: fontFamily,
+    fontSize: bodySize,
+    fontWeight: FontWeight.w400,
+    color: color,
+  );
+
+  /// Account and provider labels. 15px.
   static TextStyle titleStyle({Color? color}) => TextStyle(
     fontFamily: fontFamily,
-    fontSize: 13,
+    fontSize: titleSize,
     fontWeight: FontWeight.w600,
     color: color,
   );
 
-  static TextStyle bodyStyle({Color? color}) => TextStyle(
+  /// Section headings within a surface. 18px.
+  static TextStyle sectionHeadingStyle({Color? color}) => TextStyle(
     fontFamily: fontFamily,
-    fontSize: 14,
-    fontWeight: FontWeight.w400,
+    fontSize: sectionHeadingSize,
+    fontWeight: FontWeight.w600,
     color: color,
   );
 
-  static TextStyle captionStyle({Color? color}) => TextStyle(
+  /// The widget's own title. 22px.
+  static TextStyle widgetHeadingStyle({Color? color}) => TextStyle(
     fontFamily: fontFamily,
-    fontSize: 12,
+    fontSize: widgetHeadingSize,
+    fontWeight: FontWeight.w600,
+    color: color,
+  );
+
+  /// The number the product exists to answer. 20px semibold, tabular.
+  static TextStyle quotaStyle({Color? color}) => TextStyle(
+    fontFamily: fontFamily,
+    fontSize: quotaFigureSize,
+    fontWeight: FontWeight.w600,
+    color: color,
+    fontFeatures: _tabular,
+  );
+
+  /// Time remaining until a quota resets.
+  ///
+  /// Its own step rather than [quotaStyle]. The countdown is metadata *about* a
+  /// figure, and at 20px semibold it competed with the number it annotates
+  /// instead of supporting it. Tabular because the value changes in place.
+  static TextStyle countdownStyle({Color? color}) => TextStyle(
+    fontFamily: fontFamily,
+    fontSize: bodySize,
     fontWeight: FontWeight.w400,
     color: color,
+    fontFeatures: _tabular,
   );
 }

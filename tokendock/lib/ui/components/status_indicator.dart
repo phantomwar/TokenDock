@@ -62,7 +62,7 @@ class StatusIndicator extends StatelessWidget {
           const SizedBox(width: TokenDockSpacing.s4),
           Text(
             label,
-            style: TokenDockTypography.captionStyle(color: color),
+            style: TokenDockTypography.metadataStyle(color: color),
           ),
         ],
       ),

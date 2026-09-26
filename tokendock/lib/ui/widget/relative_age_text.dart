@@ -90,7 +90,7 @@ class _RelativeAgeTextState extends State<RelativeAgeText> {
     final now = widget.now != null ? widget.now!() : DateTime.now();
     return Text(
       'Last updated ${RelativeAgeText.format(widget.since, now: now)}',
-      style: TokenDockTypography.captionStyle(
+      style: TokenDockTypography.metadataStyle(
         color: TokenDockTheme.colorsOf(context).mutedInk,
       ),
     );

@@ -203,8 +203,9 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
               const SizedBox(height: 16),
               Text(
                 'No connections yet',
-                style: TokenDockTypography.bodyStyle(color: colors.mutedInk)
-                    .copyWith(fontSize: 16, fontWeight: FontWeight.w500),
+                style: TokenDockTypography.sectionHeadingStyle(
+                  color: colors.mutedInk,
+                ),
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
@@ -242,7 +243,7 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
                   conn.group != null && conn.group!.isNotEmpty
                       ? '${conn.provider} • ${conn.group}'
                       : conn.provider,
-                  style: TokenDockTypography.captionStyle(
+                  style: TokenDockTypography.metadataStyle(
                     color: colors.mutedInk,
                   ),
                 ),
@@ -920,11 +921,10 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                           if (_testResult != null &&
                               _testResult!.quotas.isNotEmpty) ...[
                             const SizedBox(height: 8),
-                            const Text(
+                            Text(
                               'Quota preview:',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
+                              style: TokenDockTypography.titleStyle(
+                                color: colors.ink,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -942,7 +942,9 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                                 padding: const EdgeInsets.only(bottom: 2.0),
                                 child: Text(
                                   '${quota.label}: $remainingStr / $limitStr$unitStr',
-                                  style: const TextStyle(fontSize: 12),
+                                  style: TokenDockTypography.bodyStyle(
+                                    color: colors.ink,
+                                  ),
                                 ),
                               );
                             }),

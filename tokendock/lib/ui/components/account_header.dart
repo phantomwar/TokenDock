@@ -41,7 +41,7 @@ class AccountHeader extends StatelessWidget {
                 Text(
                   plan,
                   style:
-                      TokenDockTypography.captionStyle(color: colors.mutedInk),
+                      TokenDockTypography.metadataStyle(color: colors.mutedInk),
                 ),
             ],
           ),
