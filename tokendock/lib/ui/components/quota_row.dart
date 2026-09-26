@@ -7,7 +7,7 @@ import 'quota_bar.dart';
 /// One labelled quota with authoritative textual values and a flat meter.
 ///
 /// The text line (`remaining/limit unit`) is the source of truth: when
-/// [quota] has no numbers it reads `Unavailable`, and the sibling [QuotaBar]
+/// [quota] has no cap it reads `No key cap`, and the sibling [QuotaBar]
 /// deliberately shows zero fill with no percentage. Figures use tabular
 /// numerals.
 class QuotaRow extends StatelessWidget {
@@ -16,9 +16,13 @@ class QuotaRow extends StatelessWidget {
   final Quota quota;
 
   /// Authoritative textual rendering of the remaining/limit pair.
+  ///
+  /// A quota the provider reports without a cap renders `No key cap`, not
+  /// `Unavailable`: the latter is the wording used for a real failure, so an
+  /// OpenRouter key with no limit would read as broken (audit C-31).
   static String valueTextOf(Quota quota) {
     if (quota.remaining == null || quota.limit == null) {
-      return 'Unavailable';
+      return 'No key cap';
     }
     final unit =
         quota.unit == null || quota.unit!.isEmpty ? '' : ' ${quota.unit}';
