@@ -626,12 +626,13 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
     });
     final provider = _registry.get('antigravity');
     if (provider is! AntigravityOAuthProvider) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _isSigningIn = false;
           _loginCancellation = null;
           _errorMessage = 'Google sign-in is unavailable.';
         });
+      }
       return;
     }
     try {
@@ -657,8 +658,9 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       }
       if (!mounted ||
           generation != _loginRequestGeneration ||
-          cancellation.isCompleted)
+          cancellation.isCompleted) {
         return;
+      }
       Navigator.of(context).pop(true);
     } on AntigravityLoginCancelled {
       if (mounted && generation == _loginRequestGeneration) {

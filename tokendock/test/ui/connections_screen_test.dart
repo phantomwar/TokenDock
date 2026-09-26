@@ -76,19 +76,23 @@ class _GatedControlledProvider extends ControlledProvider {
     required super.id,
     required super.name,
     required this.started,
-    required this.gate,
+    // Named `testGate`, not `gate`. `ControlledProvider` already has a nullable
+    // mutable `gate` that pauses `fetch`; shadowing it with a non-nullable one
+    // made the inherited field invisible on this subclass and hid the fact that
+    // the two gate different methods.
+    required this.testGate,
     required this.result,
   });
 
   final Completer<void> started;
-  final Completer<void> gate;
+  final Completer<void> testGate;
   final TestResult result;
 
   @override
   Future<TestResult> test(Connection connection, String secret) async {
     testCalls++;
     if (!started.isCompleted) started.complete();
-    await gate.future;
+    await testGate.future;
     return result;
   }
 }
@@ -653,7 +657,7 @@ void main() {
           id: 'openrouter',
           name: 'OpenRouter',
           started: started,
-          gate: gate,
+          testGate: gate,
           result: TestResult.success(quotas: const []),
         );
         final antigravity = ControlledProvider(
@@ -716,7 +720,7 @@ void main() {
           id: 'openrouter',
           name: 'OpenRouter',
           started: started,
-          gate: gate,
+          testGate: gate,
           result: TestResult.success(quotas: const []),
         );
         final registry = ProviderRegistry(registerDefaults: false)

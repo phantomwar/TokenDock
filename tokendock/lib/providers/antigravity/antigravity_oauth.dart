@@ -268,8 +268,9 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       _requireProvisioningIdentity(provisioning, identity);
       project = _project(provisioning);
     }
-    if (project == null || project.isEmpty)
+    if (project == null || project.isEmpty) {
       throw const AntigravityOnboardingRequired();
+    }
     final identityKey =
         identity ?? AntigravitySelectedAccountGuard.identityOf(provisioning);
     if (identityKey == null) throw StateError('OAuth account identity missing');
@@ -347,8 +348,9 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     String? expected,
   ) {
     if (expected == null || expected.isEmpty) return;
-    if (AntigravitySelectedAccountGuard.identityOf(payload) != expected)
+    if (AntigravitySelectedAccountGuard.identityOf(payload) != expected) {
       throw StateError('Account mismatch');
+    }
   }
 
   static void _requireQuotaSchema(
@@ -360,22 +362,25 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         : payload;
     if (root.containsKey('groups')) {
       final groups = root['groups'];
-      if (groups is! List || groups.isEmpty)
+      if (groups is! List || groups.isEmpty) {
         throw const AntigravitySchemaChanged();
+      }
       for (final raw in groups) {
         if (raw is! Map) throw const AntigravitySchemaChanged();
         final group = Map<String, dynamic>.from(raw);
         final groupId = (group['groupId'] ?? group['id'])?.toString() ?? '';
         final buckets = group['buckets'];
-        if (groupId.isEmpty || buckets is! List || buckets.isEmpty)
+        if (groupId.isEmpty || buckets is! List || buckets.isEmpty) {
           throw const AntigravitySchemaChanged();
+        }
         for (final rawBucket in buckets) {
           if (rawBucket is! Map) throw const AntigravitySchemaChanged();
           final bucket = Map<String, dynamic>.from(rawBucket);
           final bucketId =
               (bucket['bucketId'] ?? bucket['id'])?.toString() ?? '';
-          if (bucket.containsKey('remaining') && bucket['remaining'] is! Map)
+          if (bucket.containsKey('remaining') && bucket['remaining'] is! Map) {
             throw const AntigravitySchemaChanged();
+          }
           final remaining = bucket['remaining'] is Map
               ? Map<String, dynamic>.from(bucket['remaining'] as Map)
               : bucket;
@@ -388,38 +393,45 @@ class AntigravityOAuthProvider implements ProviderAdapter {
           if (bucketId.isEmpty ||
               (fraction != null && !_validFraction(fraction)) ||
               (reset != null && !_validReset(reset)) ||
-              (fraction == null && reset == null))
+              (fraction == null && reset == null)) {
             throw const AntigravitySchemaChanged();
+          }
         }
       }
       return;
     }
     if (root.containsKey('quotaInfo')) {
       final quota = root['quotaInfo'];
-      if (quota is! Map || quota.isEmpty)
+      if (quota is! Map || quota.isEmpty) {
         throw const AntigravitySchemaChanged();
+      }
       for (final raw in quota.values) {
         if (raw is! Map) throw const AntigravitySchemaChanged();
         final value = Map<String, dynamic>.from(raw);
         final fraction = value['remainingFraction'];
         final reset = value['resetTime'] ?? value['resetAt'];
-        if (fraction != null && !_validFraction(fraction))
+        if (fraction != null && !_validFraction(fraction)) {
           throw const AntigravitySchemaChanged();
-        if (reset != null && !_validReset(reset))
+        }
+        if (reset != null && !_validReset(reset)) {
           throw const AntigravitySchemaChanged();
-        if (fraction == null && reset == null)
+        }
+        if (fraction == null && reset == null) {
           throw const AntigravitySchemaChanged();
+        }
       }
       return;
     }
     if (root.containsKey('availability')) {
       final availability = root['availability'];
-      if (availability is! Map || availability.isEmpty)
+      if (availability is! Map || availability.isEmpty) {
         throw const AntigravitySchemaChanged();
+      }
       if (availability.values.any(
         (value) => value is! num && double.tryParse('$value') == null,
-      ))
+      )) {
         throw const AntigravitySchemaChanged();
+      }
       return;
     }
     throw const AntigravitySchemaChanged();
@@ -482,12 +494,13 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     final project =
         _providerData(connection)['projectId']?.toString() ??
         credential['projectId']?.toString();
-    if (project == null || project.isEmpty)
+    if (project == null || project.isEmpty) {
       return _error(
         connection.id,
         'onboarding_required',
         ProviderFailureCause.onboardingRequired,
       );
+    }
     final expected =
         credential['identityKey']?.toString() ?? connection.identityKey;
     try {
@@ -501,12 +514,13 @@ class AntigravityOAuthProvider implements ProviderAdapter {
           if (!const AntigravitySelectedAccountGuard().accepts(
             expected: expected,
             payload: payload,
-          ))
+          )) {
             return _error(
               connection.id,
               'account_mismatch',
               ProviderFailureCause.accountMismatch,
             );
+          }
           _requireQuotaSchema(payload);
           return AntigravityLocalReader.parseQuotaSummary(
             body: jsonEncode(payload),
@@ -600,12 +614,13 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     if (!const AntigravitySelectedAccountGuard().accepts(
       expected: expected,
       payload: quota,
-    ))
+    )) {
       return _error(
         connection.id,
         'account_mismatch',
         ProviderFailureCause.accountMismatch,
       );
+    }
     final quotaInfo = _mergeLegacyModels(quota, models);
     _requireQuotaSchema({'quotaInfo': quotaInfo}, legacy: true);
     return AntigravityLocalReader.parseQuotaSummary(

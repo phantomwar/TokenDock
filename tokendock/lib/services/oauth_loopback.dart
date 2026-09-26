@@ -49,7 +49,7 @@ abstract final class OAuthLoopback {
       ipv6Server = null;
     }
     final session = OAuthLoopbackSession._(
-      servers: [server, if (ipv6Server != null) ipv6Server],
+      servers: [server, ?ipv6Server],
       callbackPath: callbackPath,
       timeout: timeout,
     );

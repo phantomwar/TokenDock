@@ -605,7 +605,11 @@ class AppState extends ChangeNotifier {
     final service = _refreshService;
     var queuedCancellation = false;
     cancellation?.then((_) => queuedCancellation = true);
-    final operation = () {
+
+    // A local function, not a closure bound to a `final`. The behaviour is
+    // identical; the declaration says what this is instead of making the
+    // reader infer it from the initializer.
+    Future<Connection> operation() {
       if (queuedCancellation) {
         return Future<Connection>.error(const AntigravityLoginCancelled());
       }
@@ -616,7 +620,7 @@ class AppState extends ChangeNotifier {
         provider: provider,
         cancellation: cancellation,
       );
-    };
+    }
     if (service != null) {
       return service.runConnectionOperation(
         connectionId: existing.id,
@@ -654,8 +658,9 @@ class AppState extends ChangeNotifier {
     try {
       cancelWatch.throwIfCancelled();
       final current = await repo.getById(existing.id);
-      if (current == null)
+      if (current == null) {
         throw StateError('Antigravity connection no longer exists');
+      }
       final registered = providerRegistry?.get('antigravity');
       final selectedProvider =
           provider ??

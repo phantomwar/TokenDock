@@ -21,27 +21,21 @@ import 'log_redaction.dart';
 /// bounded concurrency, and cache-first resilience.
 class RefreshService {
   RefreshService({
-    required ConnectionRepository connectionRepository,
-    required QuotaCacheRepository quotaCacheRepository,
-    required SecretStore secretStore,
-    required ProviderRegistry providerRegistry,
+    required this._connectionRepository,
+    required this._quotaCacheRepository,
+    required this._secretStore,
+    required this._providerRegistry,
     ConnectionHealthRepository? connectionHealthRepository,
     SettingsRepository? settingsRepository,
     void Function(ProviderSnapshot snapshot)? onSnapshotUpdated,
-    int maximumConcurrent = 4,
+    this._maximumConcurrent = 4,
     int defaultIntervalMinutes = 3,
     bool autoStartTimer = true,
     Duration? timerInterval,
-    Duration secretCleanupInterval = const Duration(minutes: 1),
-  }) : _connectionRepository = connectionRepository,
-       _connectionHealthRepository =
-           connectionHealthRepository ?? _InMemoryConnectionHealthRepository(),
-       _quotaCacheRepository = quotaCacheRepository,
-       _secretStore = secretStore,
-       _providerRegistry = providerRegistry,
-       _settingsRepository = settingsRepository,
-       _maximumConcurrent = maximumConcurrent,
-       _secretCleanupInterval = secretCleanupInterval {
+    this._secretCleanupInterval = const Duration(minutes: 1),
+  })  : _connectionHealthRepository =
+            connectionHealthRepository ?? _InMemoryConnectionHealthRepository(),
+        _settingsRepository = settingsRepository {
     if (onSnapshotUpdated != null) {
       _snapshotListeners.add(onSnapshotUpdated);
     }
@@ -699,8 +693,9 @@ class RefreshService {
           _pendingSecretCleanup.remove(ref);
         } catch (_) {}
       }
-      if (!_isDisposed && _pendingSecretCleanup.isNotEmpty)
+      if (!_isDisposed && _pendingSecretCleanup.isNotEmpty) {
         _scheduleSecretCleanup();
+      }
     });
   }
 

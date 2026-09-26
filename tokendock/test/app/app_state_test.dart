@@ -186,8 +186,9 @@ class _RestoreFailingRepository implements ConnectionRepository {
     if (connection.credentialRef == 'old-restore-secret' && replacementSaved) {
       throw StateError('restore failed');
     }
-    if (connection.credentialRef != 'old-restore-secret')
+    if (connection.credentialRef != 'old-restore-secret') {
       replacementSaved = true;
+    }
     await delegate.save(connection);
   }
 
@@ -1399,7 +1400,9 @@ void main() {
     final operation = state.addAntigravityConnection(
       displayName: 'Provisional', provider: provider, cancellation: cancellation.future,
     );
-    while (store.entries.isEmpty) await Future<void>.value();
+    while (store.entries.isEmpty) {
+      await Future<void>.value();
+    }
     cancellation.complete();
     gate.complete();
     await expectLater(operation, throwsA(isA<AntigravityLoginCancelled>()));
