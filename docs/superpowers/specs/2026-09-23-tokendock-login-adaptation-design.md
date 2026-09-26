@@ -6,7 +6,9 @@
 
 ## Goal
 
-Let TokenDock authenticate connections beyond static API keys — OAuth with refreshable tokens — while keeping every current guarantee: one local process, one SQLite database, secrets only as `secret_ref` in SQLite with values in DPAPI, cache-first refresh, per-connection health/cooldown, no server or cloud dependency.
+Let TokenDock authenticate connections beyond static API keys - OAuth with refreshable tokens - while keeping every current guarantee: one local process, one SQLite database, secrets only as `secret_ref` in SQLite with values encrypted at rest by `flutter_secure_storage`, cache-first refresh, per-connection health/cooldown, no server or cloud dependency.
+
+**Corrected (2026-09-26).** This document said "DPAPI" for the secret store throughout. Nothing in the shipped path calls DPAPI: `flutter_secure_storage` 11.2 delegates to `flutter_secure_storage_windows`, which applies its own cipher and writes `%APPDATA%\<CompanyName>\<ProductName>\flutter_secure_storage.dat`. Every guarantee below still holds — the values are off the SQLite file and unreadable in the clear — but the mechanism is an application-level cipher rather than an OS-bound one, and the docs should not imply otherwise. `integration_test/secret_store_windows_test.dart` asserts the property for real.
 
 ```text
 Connection dialog

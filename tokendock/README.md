@@ -41,7 +41,7 @@ Carry-over risks worth knowing before touching tests: `redactSecret` does not ca
 
 ## Security model
 
-- SQLite holds only opaque credential references (`secret_ref`); secret values live only in DPAPI-backed `flutter_secure_storage` v11 (user-scope: same Windows user + machine; file backend, not Credential Locker). Dev secrets stored under v9 may not migrate — delete `%LOCALAPPDATA%\TokenDock\tokendock.db` or re-register keys if `read` returns null.
+- SQLite holds only opaque credential references (`secret_ref`); secret values live only in `flutter_secure_storage` v11, which encrypts them at rest into `%APPDATA%\<CompanyName>\<ProductName>\flutter_secure_storage.dat` (user-scope: same Windows user + machine; file backend, not Credential Locker). **Not DPAPI**, despite what earlier revisions of this file said — the plugin applies its own cipher instead of `CryptProtectData`. `integration_test/secret_store_windows_test.dart` asserts against the real plugin that the plaintext never reaches disk. Note that `windows/runner/Runner.rc` still ships `CompanyName = com.example`, so that path is currently `%APPDATA%\com.example\tokendock\`. Dev secrets stored under v9 may not migrate - delete `%LOCALAPPDATA%\TokenDock\tokendock.db` or re-register keys if `read` returns null.
 - `Test Connection` validates through `GET https://openrouter.ai/api/v1/key`; no inference or usage is created. Timeouts: 10s connect, 15s response.
 - Saved credentials show a masked preview (leading characters plus last four), never the full secret. Short secrets render `****`.
 - Logs, errors, and UI text carry only user-safe status copy (`Invalid API key`, `Key limit exceeded`, `Rate limited`, `Timeout`, `Provider unavailable`, `Unknown response`).
