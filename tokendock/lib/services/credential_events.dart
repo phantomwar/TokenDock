@@ -15,10 +15,6 @@ class CredentialDisabledEvent {
   final String? identityKey;
 }
 
-/// Returns whether [error] definitively invalidates the current credential.
-bool isDefinitiveOAuthFailure(Object error) =>
-    _definitiveFailureCause(error) != null;
-
 /// Converts a recognized definitive failure to a stable, token-free cause.
 String? definitiveOAuthFailureCause(Object error) =>
     _definitiveFailureCause(error);

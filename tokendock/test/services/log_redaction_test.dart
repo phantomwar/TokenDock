@@ -26,41 +26,6 @@ void main() {
     );
   });
 
-  test('redacts sensitive header values and preserves safe headers', () {
-    expect(
-      redactHeaders({
-        'Authorization': 'Bearer x',
-        'X-Api-Key': 'key-value',
-        'Cookie': 'session=abc',
-        'X-Ok': '1',
-      }),
-      {
-        'Authorization': '[redacted]',
-        'X-Api-Key': '[redacted]',
-        'Cookie': '[redacted]',
-        'X-Ok': '1',
-      },
-    );
-  });
-
-  test('removes URL query strings', () {
-    expect(
-      redactUrl('https://example.test/path?token=abc&x=1'),
-      'https://example.test/path',
-    );
-  });
-
-  test('preserves URL fragments while removing preceding query strings', () {
-    expect(
-      redactUrl('https://example.test/path?token=abc#usage'),
-      'https://example.test/path#usage',
-    );
-    expect(
-      redactUrl('https://example.test/path#usage?literal=true'),
-      'https://example.test/path#usage?literal=true',
-    );
-  });
-
   test('redacts named credential fields in JSON and case variants', () {
     const input = '{"access_token":"a","refreshToken":"r","client_secret":"s",'
         '"id_token":"i","Authorization":"Bearer h","cookie":"c","api_key":"k"}';
@@ -74,16 +39,12 @@ void main() {
     expect(redacted, contains('refreshToken'));
   });
 
-  test('redacts named query-like credential fields without removing URL rules', () {
+  test('redacts named query-like credential fields', () {
     final redacted = redactSecret(
       'client-secret=credential ACCESS_TOKEN=value apiKey: value',
     );
     expect(redacted, isNot(contains('credential')));
     expect(redacted, isNot(contains('value')));
-    expect(
-      redactUrl('https://example.test/callback?state=abc#done'),
-      'https://example.test/callback#done',
-    );
   });
 
   test('redacts credential-named JSON fields by substring', () {

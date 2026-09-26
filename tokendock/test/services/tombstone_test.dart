@@ -210,21 +210,29 @@ void main() {
   test('bare 401 is definitive but unrelated failures are retryable', () {
     // Classification is by status, not by message text: an error whose text
     // merely mentions 401 must not tear down a working connection.
+    //
+    // This used to assert on `isDefinitiveOAuthFailure`, a boolean wrapper with
+    // no production callers (audit C-27). Asserting on the cause instead keeps
+    // the `AntigravityHttpStatus` branch and the 503 cases covered, which the
+    // wrapper's own tests were the only place exercising.
     expect(
-      isDefinitiveOAuthFailure(const AntigravityHttpStatus(401)),
-      isTrue,
+      definitiveOAuthFailureCause(const AntigravityHttpStatus(401)),
+      'bare_401',
     );
     expect(
-      isDefinitiveOAuthFailure(const AntigravityHttpStatus(503)),
-      isFalse,
+      definitiveOAuthFailureCause(const AntigravityHttpStatus(503)),
+      isNull,
     );
-    expect(isDefinitiveOAuthFailure(StateError('invalid_grant')), isTrue);
-    expect(isDefinitiveOAuthFailure(StateError('503 unavailable')), isFalse);
     expect(
-      isDefinitiveOAuthFailure(
+      definitiveOAuthFailureCause(StateError('invalid_grant')),
+      'invalid_grant',
+    );
+    expect(definitiveOAuthFailureCause(StateError('503 unavailable')), isNull);
+    expect(
+      definitiveOAuthFailureCause(
         StateError('provider returned row 401 of the usage report'),
       ),
-      isFalse,
+      isNull,
     );
   });
 }

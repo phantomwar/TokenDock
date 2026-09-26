@@ -916,16 +916,8 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   /// returned `{'accessToken': raw}`, which turned garbage into a bearer token
   /// and surfaced an opaque 401 instead of "this credential is unreadable"
   /// (audit C-10).
-  static Map<String, dynamic> _credential(String raw) {
-    if (raw.trim().isEmpty) {
-      throw StateError(credentialUnreadable);
-    }
-    try {
-      return _map(jsonDecode(raw));
-    } catch (_) {
-      throw StateError(credentialUnreadable);
-    }
-  }
+  static Map<String, dynamic> _credential(String raw) =>
+      parseStoredCredential(raw);
 
   ProviderSnapshot _error(
     String id,
@@ -972,12 +964,39 @@ class AntigravityRefreshableCredential implements RefreshableCredential {
     return secret;
   }
 
-  static Map<String, dynamic> _credential(String raw) {
-    try {
-      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
-    } catch (_) {
-      return <String, dynamic>{};
-    }
+  static Map<String, dynamic> _credential(String raw) =>
+      parseStoredCredentialOrEmpty(raw);
+}
+
+/// Parses a stored credential blob, or throws [StateError] carrying
+/// [AntigravityOAuthProvider.credentialUnreadable].
+///
+/// Audit C-10: the previous implementation caught the parse failure and
+/// returned `{'accessToken': raw}`, which turned garbage into a bearer token and
+/// surfaced an opaque 401 instead of "this credential is unreadable".
+Map<String, dynamic> parseStoredCredential(String raw) {
+  if (raw.trim().isEmpty) {
+    throw StateError(AntigravityOAuthProvider.credentialUnreadable);
+  }
+  try {
+    return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+  } catch (_) {
+    throw StateError(AntigravityOAuthProvider.credentialUnreadable);
+  }
+}
+
+/// The same parse, degrading to an empty map.
+///
+/// Used only by the refresh path, where an unreadable blob has nothing sensible
+/// to refresh and the caller already treats a missing expiry as "no expiry".
+/// The two behaviours used to live in two private copies of the same function,
+/// which is how the strict one could be tightened (C-10) while the lenient one
+/// silently kept swallowing (audit C-27).
+Map<String, dynamic> parseStoredCredentialOrEmpty(String raw) {
+  try {
+    return parseStoredCredential(raw);
+  } catch (_) {
+    return <String, dynamic>{};
   }
 }
 

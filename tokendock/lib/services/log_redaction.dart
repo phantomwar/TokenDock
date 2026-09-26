@@ -70,19 +70,3 @@ dynamic _redactJsonValue(dynamic value, {String? fieldName}) {
   }
   return value;
 }
-
-Map<String, String> redactHeaders(Map<String, String> headers) {
-  return headers.map(
-    (name, value) => MapEntry(name, _isSensitive(name) ? '[redacted]' : value),
-  );
-}
-
-String redactUrl(String url) {
-  final queryStart = url.indexOf('?');
-  final fragmentStart = url.indexOf('#');
-  if (queryStart == -1 || (fragmentStart != -1 && queryStart > fragmentStart)) {
-    return url;
-  }
-  final queryEnd = fragmentStart == -1 ? url.length : fragmentStart;
-  return url.replaceRange(queryStart, queryEnd, '');
-}
