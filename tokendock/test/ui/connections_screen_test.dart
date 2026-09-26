@@ -1377,8 +1377,11 @@ void main() {
         // Secret was rolled back and removed from secret store!
         expect(store.entries.isEmpty, isTrue);
 
-        // Safe error message is displayed
-        expect(find.textContaining('Database write failed'), findsOneWidget);
+        // The failure is reported with the caller's own copy. The exception
+        // text must not reach the UI: a real storage failure carries SQL,
+        // table names and driver codes (audit C-12, C-15).
+        expect(find.text('Could not save this connection.'), findsOneWidget);
+        expect(find.textContaining('Database write failed'), findsNothing);
       },
     );
 

@@ -14,6 +14,7 @@ import '../../providers/provider_registry.dart';
 import '../../storage/connection_repository.dart';
 import '../../storage/quota_cache_repository.dart';
 import '../../storage/secret_store.dart';
+import '../../services/error_copy.dart';
 import '../components/status_indicator.dart';
 import '../../app/theme.dart';
 
@@ -152,7 +153,14 @@ class _ConnectionsScreenState extends State<ConnectionsScreen> {
       }
     } catch (e) {
       messenger.showSnackBar(
-        SnackBar(content: Text('Failed to delete connection: $e')),
+        SnackBar(
+          content: Text(
+            userSafeErrorMessage(
+              e,
+              fallback: 'Could not remove this connection.',
+            ),
+          ),
+        ),
       );
     }
   }
@@ -586,7 +594,12 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
         _isTesting = false;
         _testSuccess = false;
         _testResult = null;
-        _errorMessage = 'Test failed: $e';
+        _errorMessage = userSafeErrorMessage(
+          e,
+          fallback:
+              'Could not reach the provider. Check the credential and '
+              'try again.',
+        );
       });
     }
   }
@@ -739,7 +752,10 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       if (mounted) {
         setState(() {
           _isSaving = false;
-          _errorMessage = 'Failed to save connection: $e';
+          _errorMessage = userSafeErrorMessage(
+            e,
+            fallback: 'Could not save this connection.',
+          );
         });
       }
     }
