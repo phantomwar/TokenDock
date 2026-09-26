@@ -278,21 +278,21 @@ Ordem **planejada** (válida para quem retomar) e o que de fato aconteceu:
 | A.2 single-flight | ✅ — continha um deadlock que a auditoria não previu | `a4f902c` |
 | A.3 reuse detection | ✅ | `f477ac9` |
 | A.4 commit único | ✅ — e a compensação não mascara mais o cancelamento | `c95b584` |
-| A.5 migrations | ⚠️ 3/5 — falta o boot resiliente (§ C.4) | `1e144e1` |
+| A.5 migrations | ✅ 5/5 — o boot resiliente tambem foi fechado (`431e2ca`) | `1e144e1`, `431e2ca` |
 | A.6 tryParse | ✅ | `1e144e1` |
 | B.1 dark ramp | ✅ | `91b8840` |
 | B.2 sem hardcode | ✅ | `91b8840` |
 | B.3 Last updated | ✅ | `b1ba687` |
-| B.4 credencial | ⚠️ 3/4 — falta deduplicar `_credential` (C-27) | `44bcf25` |
-| B.5 sem regex | ⚠️ 3/4 — `isDefinitiveOAuthFailure` continua morta | `44bcf25` |
+| B.4 credencial | ✅ 4/4 — `_credential` deduplicado em C-27 (`45aad6c`) | `44bcf25`, `45aad6c` |
+| B.5 sem regex | ✅ 4/4 — `isDefinitiveOAuthFailure` removida em C-27 (`45aad6c`) | `44bcf25`, `45aad6c` |
 | B.6 redação | ⚠️ 3/7 — `StorageFailure` descartado de propósito, DPAPI real em aberto | `ca749bf` |
 | B.7 loopback | ✅ | `daf4af0` |
 | C.1 N+1 | ✅ 5/5 — o índice em `connections(sort_order, created_at)` foi criado em C-23 | `ba67afd`, `d2b8467`, `6b93b7b` |
-| C.2 paridade | ✅ 4/4 | ``e353e9f``, ``ddd03f7`` |
-| C.3 tick e tipografia | ✅ 4/4 | ``e353e9f``, ``b853186`` |
-| C.4 schema | ⚠️ 4/7 — C-23 e C-18 fechados; falta C-28 e C-29/C-30 | `841eede`, `6b93b7b` |
+| C.2 paridade | ✅ 4/4 | `e353e9f`, `ddd03f7` |
+| C.3 tick e tipografia | ✅ 4/4 | `e353e9f`, `b853186` |
+| C.4 schema e custódia | ✅ 7/7 | `841eede`, `6b93b7b`, `f43e27b`, `14f6979` |
 | C.5 notifier | ✅ 3/3 | `3705170` |
-| D.1 documentação | ✅ 7/7 | ``4faea73``, ``35cddde``, ``1fd84aa``, ``75b7ef5`` |
+| D.1 documentação | ✅ 7/7 | `4faea73`, `35cddde`, `1fd84aa`, `75b7ef5` |
 
 **Sequenciamento interno:** B.1 e B.2 são ~30 minutos cada e transformam 2 reprovações medidas em verde — o melhor custo/benefício do plano. A.1 e A.4 são as únicas tarefas que **não** devem ser delegadas nem paralelizadas, porque tocam concorrência de socket e compensação de escrita.
 

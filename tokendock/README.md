@@ -19,7 +19,7 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-- `flutter test --no-pub`: **389/389 passed** (`3705170`), re-confirmed on three consecutive runs. The 366-test gate was met on three consecutive runs at `9ae626f`; 379/379 and 386/386 were each re-confirmed on three consecutive runs before the next change. Baseline before the 2026-09-26 session was 235.
+- `flutter test --no-pub`: **417/417 passed** (`431e2ca`). The 366-test gate was met on three consecutive runs at `9ae626f`; 379, 386, 389, 399, 409 and 410 were each re-confirmed on three consecutive runs before the next change. Baseline before the 2026-09-26 session was 235.
 - `flutter analyze --no-pub`: **0 errors, 0 warnings, 31 informational diagnostics**. Unchanged from before `6b93b7b`, with none in the files it touched. Baseline was 33.
 - `flutter test integration_test/multi_account_flow_test.dart --no-pub`: **not run in the 2026-09-26 session**; unchanged from the previous baseline of 3/3 and still unverified by this work.
 - `flutter build windows --release --no-pub`: **not run in the 2026-09-26 session**; previously succeeded, with plugin C/C++ conversion and `strcpy` warnings remaining.
