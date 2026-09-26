@@ -1,6 +1,9 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+
+import 'package:flutter/foundation.dart';
 
 import '../../models/connection.dart';
 import '../../models/connection_status.dart';
@@ -110,7 +113,14 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   final Future<void> Function(Uri url) launchExternalBrowser;
   final Future<void> Function(Duration delay) _sleep;
   final Random _random;
-  final Set<String> _rotatedRefreshTokens = {};
+
+  /// Refresh tokens rotated out by this process, oldest first, bounded by
+  /// [maxRememberedRotatedRefreshTokens].
+  final LinkedHashMap<String, bool> _rotatedRefreshTokens =
+      LinkedHashMap<String, bool>();
+
+  /// Coalesces concurrent exchanges presenting the same stored secret.
+  final Map<String, Future<String>> _exchangeInFlight = {};
   static const _maximumTransientAttempts = 3;
 
   static Future<void> launchWindowsBrowser(Uri url) async {
@@ -637,13 +647,37 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     return double.tryParse(raw?.toString() ?? '');
   }
 
-  Future<String> refresh(String currentSecret) async {
+  /// Exchanges [currentSecret] for a fresh access/refresh pair.
+  ///
+  /// A rotating refresh token is single-use, so concurrent callers presenting
+  /// the same token must not each hit `/token`: the loser receives
+  /// `invalid_grant`, and because Google's `/revoke` invalidates the whole
+  /// grant, revoking on that signal would destroy the token the winner just
+  /// obtained. Exchanges are therefore coalesced per presented token, and the
+  /// chain is revoked only when there is positive evidence the token was
+  /// already rotated out (audit C-04).
+  Future<String> refresh(String currentSecret) {
+    final inFlight = _exchangeInFlight[currentSecret];
+    if (inFlight != null) return inFlight;
+
+    final future = _exchange(currentSecret);
+    _exchangeInFlight[currentSecret] = future;
+    return future.whenComplete(() {
+      if (identical(_exchangeInFlight[currentSecret], future)) {
+        _exchangeInFlight.remove(currentSecret);
+      }
+    });
+  }
+
+  Future<String> _exchange(String currentSecret) async {
     final value = _credential(currentSecret);
     final refreshToken = value['refreshToken']?.toString();
     if (refreshToken == null || refreshToken.isEmpty) {
       throw StateError('refresh token missing');
     }
-    final reused = _rotatedRefreshTokens.contains(refreshToken);
+    // Sampled before the request: a token rotated out by a *concurrent* winner
+    // is not evidence that this caller is an attacker replaying a stolen one.
+    final reused = _rotatedRefreshTokens.containsKey(refreshToken);
     try {
       final response = await _postForm(Uri.parse(tokenEndpoint), {
         'client_id': clientId,
@@ -656,7 +690,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       if (replacement != null &&
           replacement.isNotEmpty &&
           replacement != refreshToken) {
-        _rotatedRefreshTokens.add(refreshToken);
+        _rememberRotated(refreshToken);
       }
       return jsonEncode({
         ...value,
@@ -666,13 +700,34 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       });
     } on StateError catch (error) {
       if (!error.toString().contains('invalid_grant')) rethrow;
-      await _revokeBestEffort(refreshToken);
+      if (reused) await _revokeBestEffort(refreshToken);
       rethrow;
     } on AntigravityTransportFailure {
       if (reused) await _revokeBestEffort(refreshToken);
       rethrow;
     }
   }
+
+  /// Records a rotated-out token, evicting the oldest once [cap] is reached.
+  ///
+  /// The ledger is a bounded window, not permanent storage: it holds recent
+  /// refresh tokens in plaintext for the life of the process, so an unbounded
+  /// set would grow for as long as the widget stays resident. A token evicted
+  /// past the window is treated as a first sighting, which fails open towards
+  /// keeping the user's account rather than towards revoking it.
+  void _rememberRotated(String refreshToken) {
+    _rotatedRefreshTokens[refreshToken] = true;
+    while (_rotatedRefreshTokens.length > maxRememberedRotatedRefreshTokens) {
+      _rotatedRefreshTokens.remove(_rotatedRefreshTokens.keys.first);
+    }
+  }
+
+  /// Upper bound on remembered rotated-out refresh tokens.
+  static const int maxRememberedRotatedRefreshTokens = 32;
+
+  /// Size of the rotated-token window. Exposed for the bound assertion.
+  @visibleForTesting
+  int get rememberedRotatedRefreshTokenCount => _rotatedRefreshTokens.length;
 
   Future<void> _revokeBestEffort(String refreshToken) async {
     try {
