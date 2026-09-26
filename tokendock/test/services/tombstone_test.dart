@@ -4,6 +4,7 @@ import 'package:tokendock/models/connection_health.dart';
 import 'package:tokendock/models/connection_status.dart';
 import 'package:tokendock/models/provider_snapshot.dart';
 import 'package:tokendock/models/quota.dart';
+import 'package:tokendock/providers/antigravity/antigravity_oauth.dart';
 import 'package:tokendock/services/credential_events.dart';
 import 'package:tokendock/services/refresh_service.dart';
 import 'package:tokendock/storage/connection_health_repository.dart';
@@ -193,8 +194,23 @@ void main() {
   });
 
   test('bare 401 is definitive but unrelated failures are retryable', () {
-    expect(isDefinitiveOAuthFailure(StateError('401')), isTrue);
+    // Classification is by status, not by message text: an error whose text
+    // merely mentions 401 must not tear down a working connection.
+    expect(
+      isDefinitiveOAuthFailure(const AntigravityHttpStatus(401)),
+      isTrue,
+    );
+    expect(
+      isDefinitiveOAuthFailure(const AntigravityHttpStatus(503)),
+      isFalse,
+    );
     expect(isDefinitiveOAuthFailure(StateError('invalid_grant')), isTrue);
     expect(isDefinitiveOAuthFailure(StateError('503 unavailable')), isFalse);
+    expect(
+      isDefinitiveOAuthFailure(
+        StateError('provider returned row 401 of the usage report'),
+      ),
+      isFalse,
+    );
   });
 }

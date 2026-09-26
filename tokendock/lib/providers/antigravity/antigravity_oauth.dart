@@ -65,6 +65,18 @@ class AntigravitySchemaChanged implements Exception {
   String toString() => 'quota_source_changed';
 }
 
+/// A non-success HTTP response, carrying the status for classification.
+///
+/// Failure handling classifies on [statusCode] rather than on message text, as
+/// the design spec requires ("status + header + provider code first, never
+/// fragile message regex").
+class AntigravityHttpStatus implements Exception {
+  const AntigravityHttpStatus(this.statusCode);
+  final int statusCode;
+  @override
+  String toString() => 'Antigravity HTTP $statusCode';
+}
+
 class AntigravityOAuthLoginResult {
   const AntigravityOAuthLoginResult({
     required this.secret,
@@ -453,7 +465,20 @@ class AntigravityOAuthProvider implements ProviderAdapter {
 
   @override
   Future<ProviderSnapshot> fetch(Connection connection, String secret) async {
-    final credential = _credential(secret);
+    // A stored credential that cannot be parsed is reported as a snapshot
+    // rather than thrown, so a corrupt secure-storage read surfaces as a
+    // readable connection error instead of an escaping exception and an opaque
+    // 401 (audit C-10).
+    final Map<String, dynamic> credential;
+    try {
+      credential = _credential(secret);
+    } on StateError {
+      return _error(
+        connection.id,
+        credentialUnreadable,
+        ProviderFailureCause.invalidCredential,
+      );
+    }
     final project =
         _providerData(connection)['projectId']?.toString() ??
         credential['projectId']?.toString();
@@ -487,8 +512,9 @@ class AntigravityOAuthProvider implements ProviderAdapter {
             body: jsonEncode(payload),
             connectionId: connection.id,
           );
-        } on StateError catch (error) {
-          if (!error.message.toString().contains('HTTP 404')) rethrow;
+        } on AntigravityHttpStatus catch (error) {
+          // A 404 on one host means the daily host may still serve it.
+          if (error.statusCode != 404) rethrow;
         }
       }
       return await _fetchLegacy(connection, credential, project, expected);
@@ -513,20 +539,36 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       );
     } on AntigravityTransportFailure {
       return _error(connection.id, 'transport', ProviderFailureCause.transport);
-    } on StateError catch (error) {
-      final normalized = error.toString().toLowerCase();
-      if (normalized.contains('http 403'))
+    } on AntigravityHttpStatus catch (error) {
+      // Classified by status, never by matching the message text.
+      if (error.statusCode == 403) {
         return _error(
           connection.id,
           'forbidden',
           ProviderFailureCause.forbidden,
         );
-      if (normalized.contains('401'))
+      }
+      if (error.statusCode == 401) {
         return _error(
           connection.id,
           'bare_401',
           ProviderFailureCause.invalidCredential,
         );
+      }
+      return _error(
+        connection.id,
+        AntigravityHttpStatus(error.statusCode).toString(),
+        null,
+      );
+    } on StateError catch (error) {
+      final normalized = error.toString().toLowerCase();
+      if (normalized.contains('invalid_grant')) {
+        return _error(
+          connection.id,
+          'invalid_grant',
+          ProviderFailureCause.invalidCredential,
+        );
+      }
       return _error(
         connection.id,
         normalized.replaceFirst('bad state: ', ''),
@@ -798,12 +840,15 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         );
       }
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        if (response.statusCode == 401) throw StateError('401');
         if (response.statusCode == 400 &&
             response.body.contains('invalid_grant')) {
+          // The token endpoint reports this in the body; it has no status of
+          // its own that distinguishes it from a transient rejection.
           throw StateError('invalid_grant');
         }
-        throw StateError('HTTP ${response.statusCode}');
+        // Carries the status so failure classification never has to parse
+        // message text (audit C-11).
+        throw AntigravityHttpStatus(response.statusCode);
       }
       try {
         return _map(jsonDecode(response.body));
@@ -860,11 +905,25 @@ class AntigravityOAuthProvider implements ProviderAdapter {
         : null;
   }
 
+  /// Marker for a stored credential that could not be parsed.
+  static const String credentialUnreadable = 'credential unreadable';
+
+  /// Parses a stored credential blob.
+  ///
+  /// Strict by design: a value that is not a JSON object is a corrupt,
+  /// truncated or foreign secure-storage read, and must be reported rather
+  /// than used. The previous implementation caught the parse failure and
+  /// returned `{'accessToken': raw}`, which turned garbage into a bearer token
+  /// and surfaced an opaque 401 instead of "this credential is unreadable"
+  /// (audit C-10).
   static Map<String, dynamic> _credential(String raw) {
+    if (raw.trim().isEmpty) {
+      throw StateError(credentialUnreadable);
+    }
     try {
       return _map(jsonDecode(raw));
     } catch (_) {
-      return {'accessToken': raw};
+      throw StateError(credentialUnreadable);
     }
   }
 
