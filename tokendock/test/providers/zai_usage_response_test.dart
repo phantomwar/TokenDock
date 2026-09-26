@@ -230,26 +230,44 @@ void main() {
     });
   });
 
-  group('a rejected credential', () {
-    test('success:false is an auth error even behind HTTP 200', () {
+  group('a refusal in the body', () {
+    // These two tests used to assert that `success: false` is always an auth
+    // error. That was a bug, not a contract: z.ai's codes were never observed,
+    // and the identical assumption in the MiniMax adapter turned out to revoke
+    // working credentials on ordinary rate limits. A refusal whose code we
+    // cannot name is reported as unclassified, which costs the user one
+    // confusing status instead of their saved credential.
+    test('is not assumed to be a bad key', () {
       final snapshot = ZaiUsageResponse.parse(
         connectionId: 'z1',
         body: '{"success":false,"code":1002,"msg":"unauthorized","data":null}',
         fetchedAt: fetchedAt,
       );
 
-      expect(snapshot.status, ConnectionStatus.authError);
+      expect(snapshot.status, isNot(ConnectionStatus.authError));
       expect(snapshot.quotas, isEmpty);
     });
 
-    test('it revokes the credential rather than retrying forever', () {
+    test('does not mark the credential as needing a re-login', () {
       final snapshot = ZaiUsageResponse.parse(
         connectionId: 'z1',
         body: '{"success":false,"code":1002,"msg":"unauthorized"}',
         fetchedAt: fetchedAt,
       );
 
-      expect(snapshot.failureCause, isNotNull);
+      expect(snapshot.failureCause, isNull);
+    });
+
+    test('is still never reported as healthy', () {
+      // The opposite mistake would be worse in a different way: a silent "ok"
+      // would show a pristine quota for a key that is not working.
+      final snapshot = ZaiUsageResponse.parse(
+        connectionId: 'z1',
+        body: '{"success":false,"code":1002,"msg":"unauthorized"}',
+        fetchedAt: fetchedAt,
+      );
+
+      expect(snapshot.status, isNot(ConnectionStatus.ok));
     });
   });
 

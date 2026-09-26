@@ -4,6 +4,7 @@ import '../../models/connection_status.dart';
 import '../../models/provider_snapshot.dart';
 import '../../models/quota.dart';
 import '../provider_status.dart';
+import '../provider_throttle.dart';
 
 /// Parses MiniMax Token Plan usage from `GET /v1/token_plan/remains`.
 ///
@@ -16,6 +17,15 @@ import '../provider_status.dart';
 /// signal is `base_resp.status_code === 0`. A parser that trusted the HTTP status
 /// would report a pristine quota for a key that does not work, which is worse
 /// than reporting nothing.
+///
+/// ## Why the failure path does not decide for itself
+///
+/// Reading the body is necessary but not sufficient: the body says *that* the
+/// call was refused, and never says *why*. An earlier version treated every
+/// non-zero code as a bad key, which meant a frequency cap revoked a working
+/// credential. The codes are classified by [ProviderThrottle], where a refusal
+/// only revokes when it is a credential rejection, and a code nobody recognises
+/// is unclassified rather than fatal.
 ///
 /// ## Windows
 ///
@@ -62,11 +72,19 @@ class MiniMaxUsageResponse {
         );
       }
       if (statusCode != 0) {
-        return ProviderStatus.failure(
+        // Route the vendor's own code through the shared classifier rather than
+        // assuming every failure is a bad key.
+        //
+        // This previously mapped *any* non-zero code to `authError` with
+        // `invalidCredential`. MiniMax publishes six documented codes and not
+        // one of them means the key is wrong: 1002 is a frequency cap, 1041 a
+        // concurrency cap, 1008 a spent balance. Revoking on those told the user
+        // to re-enter a key that was working fine, which is the same class of
+        // defect as audit C-34.
+        return ProviderThrottle.snapshot(
+          verdict: ProviderThrottle.classify(bodyCode: statusCode),
           connectionId: connectionId,
           fetchedAt: fetchedAt,
-          status: ConnectionStatus.authError,
-          error: 'Invalid API key',
         );
       }
 

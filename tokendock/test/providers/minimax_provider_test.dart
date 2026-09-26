@@ -124,23 +124,59 @@ void main() {
     );
   });
 
-  test('a rejection only in the plan body still fails the connection', () async {
-    // The plan endpoint returns 200 for a bad key, so its body is the only
-    // signal there. A definitive rejection is evidence and outranks the 200 the
-    // gate just saw -- it must not be swallowed as "no usage data".
+  test('a rate limit in the plan body does not fail the connection', () async {
+    // The gate already proved the key works, and a rate limit is a statement
+    // about the account at this moment rather than about the credential.
+    // Reporting it as an auth error told the user to re-enter a key that was
+    // fine, which is the same class of defect as audit C-34.
     final probe = _StubProbe([
       okModels(),
       const ProbeResult.response(
         statusCode: 200,
-        body: '{"base_resp":{"status_code":1004},"model_remains":[]}',
+        body: '{"base_resp":{"status_code":1002},"model_remains":[]}',
       ),
     ]);
 
     final snapshot = await MiniMaxProvider(probe: probe)
-        .fetch(connection, 'sk-bad');
+        .fetch(connection, 'sk-key');
 
-    expect(snapshot.status, ConnectionStatus.authError);
+    expect(snapshot.status, ConnectionStatus.warning);
+    expect(snapshot.failureCause, isNull);
     expect(snapshot.quotas, isEmpty);
+  });
+
+  test('a rate limit in the plan body sets a cooldown', () async {
+    // Without one, the next refresh runs straight back into the cap the
+    // cooldown exists to avoid.
+    final probe = _StubProbe([
+      okModels(),
+      const ProbeResult.response(
+        statusCode: 200,
+        body: '{"base_resp":{"status_code":1002},"model_remains":[]}',
+      ),
+    ]);
+
+    final snapshot = await MiniMaxProvider(probe: probe)
+        .fetch(connection, 'sk-key');
+
+    expect(snapshot.cooldownUntil, isNotNull);
+  });
+
+  test('an unclassifiable refusal in the plan body is not a bad key', () async {
+    // A vendor that adds a new code must not start deleting credentials.
+    final probe = _StubProbe([
+      okModels(),
+      const ProbeResult.response(
+        statusCode: 200,
+        body: '{"base_resp":{"status_code":4242},"model_remains":[]}',
+      ),
+    ]);
+
+    final snapshot = await MiniMaxProvider(probe: probe)
+        .fetch(connection, 'sk-key');
+
+    expect(snapshot.status, isNot(ConnectionStatus.authError));
+    expect(snapshot.failureCause, isNull);
   });
 
   test('an unreachable plan endpoint keeps the last known quota', () async {

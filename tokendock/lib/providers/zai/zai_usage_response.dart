@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-import '../../models/connection_status.dart';
 import '../../models/provider_snapshot.dart';
 import '../../models/quota.dart';
 import '../provider_status.dart';
+import '../provider_throttle.dart';
 
 /// Parses z.ai / GLM Coding Plan usage from
 /// `GET https://api.z.ai/api/monitor/usage/quota/limit`.
@@ -68,11 +68,18 @@ class ZaiUsageResponse {
         );
       }
       if (!success) {
-        return ProviderStatus.failure(
+        // z.ai's own code goes through the shared classifier.
+        //
+        // An earlier version assumed `success: false` always meant a bad key.
+        // That is unsafe for two reasons: the codes were never observed, and the
+        // same reasoning applied to MiniMax turned out to revoke working
+        // credentials on ordinary rate limits. An unrecognised code is now
+        // reported as an unclassified refusal, which costs a user one confusing
+        // status instead of their saved credential.
+        return ProviderThrottle.snapshot(
+          verdict: ProviderThrottle.classify(bodyCode: _int(decoded['code'])),
           connectionId: connectionId,
           fetchedAt: fetchedAt,
-          status: ConnectionStatus.authError,
-          error: 'Invalid API key',
         );
       }
 

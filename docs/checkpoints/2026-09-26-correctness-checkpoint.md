@@ -432,6 +432,53 @@ None of these is stubbed or faked. The rule is unchanged: a provider enters only
 with a real credential gate — a `GET /models`-like route that requires the key
 and does not spend quota.
 
+### Second review of oh-my-pi's auth, and the bug it found in my own code
+
+Re-reading `can1357/oh-my-pi` after the providers landed found a defect **this
+project had introduced**, which matters more than any endpoint added.
+
+`MiniMaxUsageResponse` and `ZaiUsageResponse` mapped *every* non-success body
+code to `authError` with `ProviderFailureCause.invalidCredential`. A MiniMax
+**frequency cap (code 1002) therefore revoked the user's credential** and
+prompted a re-login for a key that was working fine.
+
+This is the same class of defect as audit finding C-34 — a refusal that is not a
+credential rejection, reported as one — reached through a different door. The
+irony is not lost: the code table naming 1002/2045/1041/1039/1008/2056 was
+sitting in this repository's own `auth-quota-hardening-plan.md`, and had been
+read and then dismissed as irrelevant. It exists precisely to separate "the key
+is wrong" from "this account is capped right now", and **not one of the six
+codes means the key is wrong.**
+
+What oh-my-pi makes obvious once read, in `error/auth-classify.ts`:
+*"Transient 429s stay in the upstream-backoff lane."* A usage limit gets a
+temporary block; only an explicit credential rejection marks it suspect. In
+`rotation()` the ordering is structural — the usage-limit branch returns before
+the revocation branch is ever reached.
+
+The safety detail that decided the design, from `error/rate-limit.ts`:
+*"this keeps the exception scoped to text we actually classify, rather than to
+any [signal]."* **An unrecognised code or status is transient and never
+revokes.** A permissive default costs a cooldown the user did not need; an
+aggressive one costs them their configuration.
+
+Adapted as `lib/providers/provider_throttle.dart`: one `ThrottleReason`
+taxonomy with the backoff ladder from `rate-limit.ts` — concurrency 5s,
+frequency 30s, capacity 45s, 5xx 20s, spent window 30min, spent balance 30min,
+denied, invalid, unknown. `ProviderStatus.fromHttpStatus` now delegates to it,
+which **removes the duplicate status table** that let C-34 happen in the first
+place: one copy classified 403 as an auth error while the other treated it as a
+denial. `provider_throttle_test.dart` pins the invariant that makes routing
+providers through here safe — `authError` and `revokesCredential` are the same
+predicate, because `ProviderStatus.failure` derives `failureCause` from the
+*status* and the two outputs must therefore agree.
+
+`rotation`, `affinity`, `pool` and `rank` were **not** ported. They exist to
+rotate between sibling credentials without burning a good account on a transient
+error. TokenDock shows every account side by side and never makes an inference
+call, so there is no sibling to protect; copying the rotation machinery would be
+complexity without a problem.
+
 ### Two smaller open items
 
 - **Three generated files under `windows/flutter/` are versioned** and are

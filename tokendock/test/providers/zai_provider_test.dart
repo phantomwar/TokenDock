@@ -120,24 +120,25 @@ void main() {
     },
   );
 
-  test(
-    'a rejection in the body fails the connection even behind HTTP 200',
-    () async {
-      // The gate is `success` in the body, not the status line.
-      final probe = _StubProbe(
-        const ProbeResult.response(
-          statusCode: 200,
-          body: '{"success":false,"code":1002,"msg":"unauthorized"}',
-        ),
-      );
+  test('a refusal in the body is not assumed to be a bad key', () async {
+    // z.ai's codes were never observed, and the identical assumption in the
+    // MiniMax adapter turned out to revoke working credentials on ordinary rate
+    // limits. An unclassified refusal costs one confusing status; a wrong
+    // revocation costs the user their saved key.
+    final probe = _StubProbe(
+      const ProbeResult.response(
+        statusCode: 200,
+        body: '{"success":false,"code":1002,"msg":"unauthorized"}',
+      ),
+    );
 
-      final snapshot = await ZaiProvider(probe: probe)
-          .fetch(connection, 'bad-key');
+    final snapshot = await ZaiProvider(probe: probe)
+        .fetch(connection, 'raw-key');
 
-      expect(snapshot.status, ConnectionStatus.authError);
-      expect(snapshot.failureCause, isNotNull);
-    },
-  );
+    expect(snapshot.status, isNot(ConnectionStatus.authError));
+    expect(snapshot.failureCause, isNull);
+    expect(snapshot.status, isNot(ConnectionStatus.ok));
+  });
 
   group('a failed call never costs the cached values', () {
     // RefreshService replaces the cached quota with whatever a snapshot carries,

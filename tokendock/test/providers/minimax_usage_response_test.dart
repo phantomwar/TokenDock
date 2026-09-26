@@ -99,33 +99,77 @@ void main() {
     });
   });
 
-  group('a rejected credential', () {
-    test('is detected from the body even though the status was 200', () {
-      // This is the whole reason the parser exists. An HTTP-only check would
-      // report a pristine quota for a key that does not work.
+  group('a refusal signalled only in the body', () {
+    // This parser used to treat *any* non-zero `base_resp.status_code` as a
+    // rejected credential. MiniMax publishes six documented codes and not one
+    // of them means the key is wrong, so a frequency cap (1002) was revoking a
+    // working credential and prompting a pointless re-login. The same class of
+    // defect as audit C-34, reached through a different door.
+    test('a frequency cap is a warning, and the credential survives', () {
       final snapshot = MiniMaxUsageResponse.parse(
         connectionId: 'c1',
-        body: envelope([liveBucket()], statusCode: 1004),
+        body: envelope([liveBucket()], statusCode: 1002),
         fetchedAt: fetchedAt,
       );
 
-      expect(snapshot.status, ConnectionStatus.authError);
-      expect(snapshot.error, 'Invalid API key');
+      expect(snapshot.status, ConnectionStatus.warning);
+      expect(snapshot.failureCause, isNull);
       expect(snapshot.quotas, isEmpty);
     });
 
-    test(
-      'is marked as a definitive credential failure so the key is revoked',
-      () {
+    test('a concurrency cap is a warning with the shortest backoff', () {
+      final snapshot = MiniMaxUsageResponse.parse(
+        connectionId: 'c1',
+        body: envelope([], statusCode: 1041),
+        fetchedAt: fetchedAt,
+      );
+
+      expect(snapshot.status, ConnectionStatus.warning);
+      expect(snapshot.cooldownUntil, fetchedAt.add(const Duration(seconds: 5)));
+    });
+
+    test('a spent balance is limited, not broken', () {
+      final snapshot = MiniMaxUsageResponse.parse(
+        connectionId: 'c1',
+        body: envelope([], statusCode: 1008),
+        fetchedAt: fetchedAt,
+      );
+
+      expect(snapshot.status, ConnectionStatus.limited);
+      expect(snapshot.failureCause, isNull);
+      expect(
+        snapshot.cooldownUntil,
+        fetchedAt.add(const Duration(minutes: 30)),
+      );
+    });
+    test('an unrecognised code is unclassified rather than a bad key', () {
+      // The important one. A vendor that adds a new code must not start
+      // silently deleting users' credentials.
+      final snapshot = MiniMaxUsageResponse.parse(
+        connectionId: 'c1',
+        body: envelope([], statusCode: 4242),
+        fetchedAt: fetchedAt,
+      );
+
+      expect(snapshot.status, isNot(ConnectionStatus.authError));
+      expect(snapshot.failureCause, isNull);
+      expect(snapshot.status, isNot(ConnectionStatus.ok));
+    });
+
+    test('every documented MiniMax code leaves the credential alone', () {
+      for (final code in <int>[1002, 2045, 1041, 1039, 1008, 2056]) {
         final snapshot = MiniMaxUsageResponse.parse(
           connectionId: 'c1',
-          body: envelope([], statusCode: 1004),
+          body: envelope([], statusCode: code),
           fetchedAt: fetchedAt,
         );
-
-        expect(snapshot.failureCause, isNotNull);
-      },
-    );
+        expect(
+          snapshot.failureCause,
+          isNull,
+          reason: 'code $code must not revoke a credential',
+        );
+      }
+    });
   });
 
   group('window status', () {

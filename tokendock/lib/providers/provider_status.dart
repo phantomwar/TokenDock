@@ -2,6 +2,7 @@ import '../models/connection_status.dart';
 import '../models/provider_snapshot.dart';
 import '../models/quota.dart';
 import 'provider_http.dart';
+import 'provider_throttle.dart';
 
 /// The parts of a provider response every adapter needs.
 ///
@@ -16,28 +17,18 @@ abstract final class ProviderStatus {
 
   /// Maps an HTTP status to the user-facing state and copy.
   ///
-  /// The mapping is generic rather than per-vendor, and was verified against two
-  /// independent vendors: OpenRouter, and MiniMax, whose 401 body is
-  /// `{"type":"error","error":{"type":"authorized_error",...}}`.
+  /// Delegates to [ProviderThrottle] rather than keeping a second status table.
+  /// Two tables is how a mapping drifts: one copy classified 403 as an auth
+  /// error (audit C-34) while the other treated it as a denial, and the
+  /// difference is whether the user is told to re-enter a working key.
+  ///
+  /// The mapping was verified against three independent vendors: OpenRouter,
+  /// MiniMax, whose 401 body is
+  /// `{"type":"error","error":{"type":"authorized_error",...}}`, and OpenCode
+  /// Go, which uses 403 to mean "valid key, no Go subscription".
   static ({ConnectionStatus status, String error}) fromHttpStatus(int code) {
-    if (code == 401) {
-      return (status: ConnectionStatus.authError, error: 'Invalid API key');
-    }
-    if (code == 403) {
-      // Forbidden, not a rejected credential. A key that authenticated and was
-      // then refused must not be revoked (audit C-34).
-      return (status: ConnectionStatus.error, error: 'Forbidden');
-    }
-    if (code == 402) {
-      return (status: ConnectionStatus.limited, error: 'Insufficient credits');
-    }
-    if (code == 429) {
-      return (status: ConnectionStatus.warning, error: 'Rate limited');
-    }
-    if (code >= 500 && code <= 599) {
-      return (status: ConnectionStatus.error, error: 'Provider unavailable');
-    }
-    return (status: ConnectionStatus.error, error: 'Unknown response');
+    final verdict = ProviderThrottle.classify(statusCode: code);
+    return (status: verdict.status, error: verdict.error);
   }
 
   /// A snapshot describing a failure, with no cached values attached.
