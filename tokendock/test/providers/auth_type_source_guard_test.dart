@@ -28,9 +28,7 @@ void main() {
     final offenders = <String>[];
     // Matches `authType: '...'`, `authType != '...'` and the ternary form, and
     // deliberately does not match `AuthKind.oauth.name`, which is the point.
-    final pattern = RegExp(
-      r"authType\s*(==|!=)\s*'|\bauthType:\s*'",
-    );
+    final pattern = RegExp(r"authType\s*(==|!=)\s*'|\bauthType:\s*'");
 
     for (final file in libFiles) {
       final lines = file.readAsLinesSync();

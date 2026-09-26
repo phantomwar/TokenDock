@@ -5,13 +5,22 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tokendock/services/oauth_loopback.dart';
 
+/// Upper bound for real loopback socket work, so a slow machine fails loudly
+/// instead of hanging forever.
+///
+/// This is a liveness guard, not a performance budget. It was 250ms, which on
+/// a loaded CI agent is inside the noise floor for opening and tearing down a
+/// loopback socket, and it made three tests flaky for reasons that had nothing
+/// to do with the code under test (audit C-36). Nothing here asserts that the
+/// operation is *fast*, only that it completes, so widening the bound does not
+/// weaken the assertion.
+const Duration loopbackFlakeBudget = Duration(seconds: 2);
+
 void main() {
   group('OAuthLoopback', () {
     test('builds the RFC 7636 S256 challenge without padding', () {
       expect(
-        buildCodeChallenge(
-          'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk',
-        ),
+        buildCodeChallenge('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'),
         'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
       );
     });
@@ -131,7 +140,7 @@ void main() {
       final deliveredExpectation = expectLater(
         delivered,
         throwsA(isA<StateError>()),
-      ).timeout(const Duration(milliseconds: 250));
+      ).timeout(loopbackFlakeBudget);
 
       await session.close();
       await deliveredExpectation;
@@ -164,37 +173,39 @@ void main() {
         await session.close();
       });
 
-      await session.close().timeout(const Duration(milliseconds: 250));
-      await socketDone.future.timeout(const Duration(milliseconds: 250));
+      await session.close().timeout(loopbackFlakeBudget);
+      await socketDone.future.timeout(loopbackFlakeBudget);
     });
 
-    test('accepts an IPv6 loopback callback on the companion listener', () async {
-      final session = await OAuthLoopback.start(
-        timeout: const Duration(seconds: 5),
-      );
-      addTearDown(session.close);
-      final delivered = session.waitForCode('expected-state');
-      final client = HttpClient();
-      addTearDown(() => client.close(force: true));
+    test(
+      'accepts an IPv6 loopback callback on the companion listener',
+      () async {
+        final session = await OAuthLoopback.start(
+          timeout: const Duration(seconds: 5),
+        );
+        addTearDown(session.close);
+        final delivered = session.waitForCode('expected-state');
+        final client = HttpClient();
+        addTearDown(() => client.close(force: true));
 
-      final response = await (await client.getUrl(Uri(
-        scheme: 'http',
-        host: '::1',
-        port: session.redirectUri.port,
-        path: session.redirectUri.path,
-        queryParameters: {
-          'code': 'ipv6-code',
-          'state': 'expected-state',
-        },
-      ))).close();
+        final response = await (await client.getUrl(
+          Uri(
+            scheme: 'http',
+            host: '::1',
+            port: session.redirectUri.port,
+            path: session.redirectUri.path,
+            queryParameters: {'code': 'ipv6-code', 'state': 'expected-state'},
+          ),
+        )).close();
 
-      expect(response.statusCode, HttpStatus.ok);
-      await response.drain<void>();
-      expect((await delivered).code, 'ipv6-code');
-      await expectLater(
-        client.getUrl(session.redirectUri).then((request) => request.close()),
-        throwsA(anyOf(isA<SocketException>(), isA<HttpException>())),
-      );
-    });
+        expect(response.statusCode, HttpStatus.ok);
+        await response.drain<void>();
+        expect((await delivered).code, 'ipv6-code');
+        await expectLater(
+          client.getUrl(session.redirectUri).then((request) => request.close()),
+          throwsA(anyOf(isA<SocketException>(), isA<HttpException>())),
+        );
+      },
+    );
   });
 }

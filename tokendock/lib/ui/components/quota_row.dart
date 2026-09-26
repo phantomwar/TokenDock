@@ -21,7 +21,11 @@ class QuotaRow extends StatelessWidget {
   /// `Unavailable`: the latter is the wording used for a real failure, so an
   /// OpenRouter key with no limit would read as broken (audit C-31).
   static String valueTextOf(Quota quota) {
-    if (quota.remaining == null || quota.limit == null) {
+    // A limit of zero is how a provider reports "no quota configured", which is
+    // the same situation as an absent one. Rendering it numerically produced
+    // "5/0 USD", which no user can interpret. A zero *remaining* against a real
+    // limit is a meaningful exhausted state and stays numeric.
+    if (quota.remaining == null || quota.limit == null || quota.limit == 0) {
       return 'No key cap';
     }
     final unit =
