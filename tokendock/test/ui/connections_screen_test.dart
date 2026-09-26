@@ -1398,7 +1398,12 @@ void main() {
         await tester.tap(find.byKey(const Key('testConnectionButton')));
         await tester.pumpAndSettle();
 
-        expect(find.text('Connected'), findsNWidgets(2));
+        // The dialog's own success line. This used to expect two, counting the
+        // connection's status indicator as well -- and a healthy indicator no
+        // longer prints its word, since three accounts each rendering a green
+        // "Connected" is the same fact three times. The result being shown is
+        // what this test is about.
+        expect(find.text('Connected'), findsOneWidget);
         expect(adapter.testCalls, 1);
       },
     );

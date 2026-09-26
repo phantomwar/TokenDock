@@ -92,24 +92,22 @@ void main() {
       ),
     );
 
-    /// The 330/550 breakpoints are compared against the width *available to
-    /// the content*, not the width of the window. `WidgetShell` puts 16px of
-    /// padding and a 1px border on each side around its child, so testing an
-    /// outer width of 330 would probe 296, which is compact for reasons that
-    /// have nothing to do with the breakpoint.
-    double outerWidthFor(double contentWidth) =>
-        contentWidth + 2 * TokenDockSpacing.s16 + 2;
-
-    Future<void> pumpAtContentWidth(
-      WidgetTester tester,
-      double contentWidth,
-    ) async {
+    /// The 330/550 breakpoints are specified against the **window** width, so
+    /// the tests now set the window width directly.
+    ///
+    /// They previously compensated for `WidgetShell`'s padding with
+    /// `contentWidth + 34`, which meant the test tracked the implementation
+    /// rather than the spec — and so passed while the shipped 360px window
+    /// rendered the compact density, because 360 - 32 = 328 is under 330. The
+    /// density is now measured from `WidgetShellExtent`, which is captured
+    /// outside the padding, so a width means what the spec says it means.
+    Future<void> pumpAtWindowWidth(WidgetTester tester, double width) async {
       await tester.pumpWidget(
         MaterialApp(
           theme: TokenDockTheme.lightTheme(),
           home: Scaffold(
             body: SizedBox(
-              width: outerWidthFor(contentWidth),
+              width: width,
               height: 700,
               child: TokenDockWidget(
                 state: AppState(accounts: [accountWithTwoQuotas()]),
@@ -122,26 +120,39 @@ void main() {
     }
 
     testWidgets('329 is the last compact width', (tester) async {
-      await pumpAtContentWidth(tester, 329);
+      await pumpAtWindowWidth(tester, 329);
       expect(find.byType(CompactAccountRow), findsOneWidget);
       expect(find.byType(AccountHeader), findsNothing);
     });
 
     testWidgets('330 is the first normal width', (tester) async {
-      await pumpAtContentWidth(tester, 330);
+      await pumpAtWindowWidth(tester, 330);
       expect(find.byType(CompactAccountRow), findsNothing);
-      // Normal shows only the primary quota; expanded shows every one.
-      expect(find.byType(QuotaRow), findsOneWidget);
+      // Normal shows every window: the account has two, and the one that is
+      // nearly gone is the reason the user opened the app. Normal used to render
+      // only the first, which discarded it.
+      expect(find.byType(QuotaRow), findsNWidgets(2));
     });
 
     testWidgets('550 is still normal', (tester) async {
-      await pumpAtContentWidth(tester, 550);
+      await pumpAtWindowWidth(tester, 550);
       expect(find.byType(CompactAccountRow), findsNothing);
-      expect(find.byType(QuotaRow), findsOneWidget);
+      expect(find.byType(QuotaRow), findsNWidgets(2));
     });
 
     testWidgets('551 is the first expanded width', (tester) async {
-      await pumpAtContentWidth(tester, 551);
+      await pumpAtWindowWidth(tester, 551);
+      expect(find.byType(CompactAccountRow), findsNothing);
+      expect(find.byType(QuotaRow), findsNWidgets(2));
+    });
+
+    testWidgets('the shipped 360px window is normal, not compact', (
+      tester,
+    ) async {
+      // The regression that motivated all of this. 360 - 32 of padding is 328,
+      // under the 330 threshold, so the default window was showing the compact
+      // layout at every size the app is actually used.
+      await pumpAtWindowWidth(tester, 360);
       expect(find.byType(CompactAccountRow), findsNothing);
       expect(find.byType(QuotaRow), findsNWidgets(2));
     });

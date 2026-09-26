@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_state.dart';
 import '../../app/theme.dart';
+import '../../models/quota.dart';
 import '../components/account_header.dart';
 import '../components/compact_account_row.dart';
 import '../components/quota_row.dart';
@@ -129,8 +130,13 @@ class TokenDockWidget extends StatelessWidget {
       policy: ReadingOrderTraversalPolicy(),
       child: WidgetShell(
         actions: _buildHeaderActions(context),
-        child: LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) {
+        child: Builder(
+          // Built once, outside the shell's padding, so the density is chosen
+          // from the widget's own width rather than the padded content width.
+          // See [WidgetShellExtent] for why that distinction is the whole
+          // difference between the shipped 360px window showing quotas and
+          // showing one line per account.
+          builder: (BuildContext context) {
             if (state.isLoading) {
               return _buildLoading(context);
             }
@@ -138,7 +144,7 @@ class TokenDockWidget extends StatelessWidget {
               return _buildEmpty(context);
             }
             final Widget content;
-            final double width = constraints.maxWidth;
+            final double width = WidgetShellExtent.of(context);
             if (width < 330) {
               content = _buildCompact(context, state.accounts);
             } else if (width <= 550) {
@@ -235,7 +241,12 @@ class TokenDockWidget extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   body(accounts[i]),
-                  RelativeAgeText(since: accounts[i].snapshot.fetchedAt),
+                  // Every account is refreshed in the same cycle, so three
+                  // identical "just now" lines are one fact written three
+                  // times. Stated on the first account only; the value is the
+                  // same for all of them, and the age keeps ticking either way.
+                  if (i == 0)
+                    RelativeAgeText(since: accounts[i].snapshot.fetchedAt),
                   if (accounts[i].snapshot.error != null &&
                       accounts[i].snapshot.error!.isNotEmpty) ...<Widget>[
                     const SizedBox(height: TokenDockSpacing.s4),
@@ -279,9 +290,20 @@ class TokenDockWidget extends StatelessWidget {
     });
   }
 
-  /// Normal density: account header plus the primary quota row.
+  /// Normal density: account header plus every quota window.
+  ///
+  /// This renders **all** windows, not just the first. The window is 360px,
+  /// which is the normal density, so `quotas.first` was the whole quota
+  /// display: OpenCode Go's three windows, MiniMax's two and z.ai's three were
+  /// each reduced to one row, and the window that was actually running out was
+  /// usually not that one. The product question is "which of my subscriptions
+  /// still has limit?", and answering it needs the windows, not a sample.
+  ///
+  /// Ordered most-exhausted first, so the binding constraint is findable
+  /// without reading every row. See [orderedByUrgency].
   Widget _buildNormal(BuildContext context, List<AccountItem> accounts) {
     return _buildAccounts(context, accounts, (account) {
+      final quotas = orderedByUrgency(account.snapshot.quotas);
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -289,18 +311,33 @@ class TokenDockWidget extends StatelessWidget {
             connection: account.connection,
             status: account.snapshot.status,
           ),
-          if (account.snapshot.quotas.isNotEmpty) ...<Widget>[
+          for (final quota in quotas) ...<Widget>[
             const SizedBox(height: TokenDockSpacing.s8),
-            QuotaRow(quota: account.snapshot.quotas.first),
-            if (account.snapshot.quotas.first.resetAt != null) ...<Widget>[
+            QuotaRow(quota: quota),
+            if (quota.resetAt != null) ...<Widget>[
               const SizedBox(height: TokenDockSpacing.s4),
-              CountdownText(resetAt: account.snapshot.quotas.first.resetAt),
+              CountdownText(resetAt: quota.resetAt),
             ],
           ],
           const SizedBox(height: TokenDockSpacing.s4),
         ],
       );
     });
+  }
+
+  /// [quotas] with the most-exhausted window first.
+  ///
+  /// Stable for equal percentages, so a provider's own ordering is preserved
+  /// rather than reshuffled on every refresh — a list that reorders itself is
+  /// unreadable to someone tracking a specific window.
+  ///
+  /// A quota with no percentage sorts last: it is unknown, not healthy, and
+  /// putting it first would imply a worse state than the data supports.
+  static List<Quota> orderedByUrgency(List<Quota> quotas) {
+    final known = quotas.where((q) => q.percent != null).toList()
+      ..sort((a, b) => (b.percent ?? 0).compareTo(a.percent ?? 0));
+    final unknown = quotas.where((q) => q.percent == null);
+    return <Quota>[...known, ...unknown];
   }
 
   /// Expanded density: every quota, plan, refresh time, and error/stale text.
@@ -313,7 +350,9 @@ class TokenDockWidget extends StatelessWidget {
             connection: account.connection,
             status: account.snapshot.status,
           ),
-          for (final quota in account.snapshot.quotas) ...<Widget>[
+          for (final quota in orderedByUrgency(
+            account.snapshot.quotas,
+          )) ...<Widget>[
             const SizedBox(height: TokenDockSpacing.s8),
             QuotaRow(quota: quota),
             if (quota.resetAt != null) ...<Widget>[

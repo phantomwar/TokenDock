@@ -52,6 +52,16 @@ class StatusIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = labelOf(status);
     final color = colorOf(context, status);
+    // A healthy connection is the default and carries no information once there
+    // is more than one account, so its word is dropped. Three accounts each
+    // reading a green "Connected" is the same fact written three times, and it
+    // spends the scarcest real estate in the layout — colour *and* text — on it.
+    //
+    // The information is not lost. The semantic label still carries it, so a
+    // screen reader announces the state, and a connection that needs attention
+    // still says so in words. Colour is not the only signal either way, which is
+    // the accessibility rule this class exists to keep.
+    final healthy = status == ConnectionStatus.ok;
     return Semantics(
       excludeSemantics: true,
       label: label,
@@ -59,11 +69,10 @@ class StatusIndicator extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Icon(iconOf(status), size: 16, color: color),
-          const SizedBox(width: TokenDockSpacing.s4),
-          Text(
-            label,
-            style: TokenDockTypography.metadataStyle(color: color),
-          ),
+          if (!healthy) ...<Widget>[
+            const SizedBox(width: TokenDockSpacing.s4),
+            Text(label, style: TokenDockTypography.metadataStyle(color: color)),
+          ],
         ],
       ),
     );

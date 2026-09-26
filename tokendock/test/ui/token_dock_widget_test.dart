@@ -177,12 +177,22 @@ void main() {
     );
 
     expect(find.byType(AccountHeader), findsOneWidget);
-    expect(find.byType(QuotaRow), findsOneWidget);
     expect(find.byType(CompactAccountRow), findsNothing);
-    // Only the primary quota is shown in normal density.
+    // Normal shows **every** window, not just the first. This previously
+    // asserted the opposite — "Only the primary quota is shown in normal
+    // density" — which is what discarded the window that was actually running
+    // out. OpenCode Go reports three, MiniMax two, z.ai three.
+    expect(find.byType(QuotaRow), findsNWidgets(2));
     expect(find.text('Credits'), findsOneWidget);
-    expect(find.text('Requests'), findsNothing);
-    expect(find.textContaining('Resets in'), findsOneWidget);
+    expect(find.text('Requests'), findsOneWidget);
+    // Ordered most-exhausted first, so the binding window leads.
+    final creditsY = tester.getTopLeft(find.text('Credits')).dy;
+    final requestsY = tester.getTopLeft(find.text('Requests')).dy;
+    expect(
+      creditsY,
+      lessThan(requestsY),
+      reason: 'the more-exhausted window must not be below the other',
+    );
     expect(find.textContaining('Last updated'), findsOneWidget);
   });
 
