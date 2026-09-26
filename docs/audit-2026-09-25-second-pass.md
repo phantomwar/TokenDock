@@ -316,23 +316,69 @@ Não existe `DatabaseException` em `lib/` (grep: 0 hits), nenhum `try/catch` nos
 
 ---
 
-## 3. Índice de severidade
+## 3. Execução — o que foi corrigido e o que a execução revelou
+
+Plano: `docs/superpowers/plans/2026-09-25-tokendock-correctness-plan.md`.
+Cada item foi feito em RED→GREEN, com o teste visto falhar antes do fix.
+
+| ID | Sev | Commit | Estado |
+|---|---|---|---|
+| C-02 | P0 | `1e144e1` | migrations atômicas e resumíveis |
+| C-03 | P0 | `1e144e1` | `tryParse` no caminho de leitura |
+| C-13 | P1 | `1e144e1` | sanitização por `isSensitiveKeyName` |
+| C-01 | P0 | `4f79598` | timeouts + cap de resposta no transporte |
+| C-09 | P1 | `a4f902c` | single-flight real, ligado nos 2 pontos de refresh |
+| C-04 | P1 | `f477ac9` | revogação exige evidência positiva de reuse |
+| C-25 | P1 | `f477ac9` | ledger limitado a 32 entradas |
+| C-06 | P1 | `91b8840` | ramp dark com accents próprios |
+| C-07 | P1 | `91b8840` | sem `Colors.*`, mais guard de código-fonte |
+
+**Baseline:** 235/235 → **306/306**. `flutter analyze` 0 erros / 0 warnings / 33 infos (inalterado).
+
+### O que a execução revelou e a auditoria tinha omitido
+
+1. **C-06 era pior que o documentado.** `statusUpdating` no dark estava em
+   **3,14:1** e eu não o havia listado. O teste parametrizado o pegou. A tabela
+   da §2 P1 cita quatro pares de status; são cinco.
+
+2. **C-09 continha um deadlock que a auditoria não previu.** `runTokenOperation`
+   delegava a `runConnectionOperation`, que **encadeia** quando a conexão já tem
+   operação em voo. Como `_performRefreshOne` roda segurando esse slot, ligar o
+   método ingenuamente faria um refresh esperar por si mesmo, para sempre. Só
+   apareceu porque o teste de RED cede o event loop antes da troca de token; com
+   a ordem de escrita errada, o teste passava e não provava nada.
+
+3. **Falta de race no `test()` do provider.** `AntigravityOAuthProvider.test`
+   chama `credential.refresh()` **direto**, fora do lock do serviço. O
+   single-flight do serviço (A.2) não cobria esse terceiro momento de refresh
+   previsto na spec. Por isso A.3 precisou de um segundo single-flight, no
+   provider, com chave = segredo apresentado.
+
+4. **Uma asserção minha estava errada.** Exigi 3:1 do `hairline`, que é um
+   divisor decorativo de 1px a 1,2:1 no light. O WCAG 1.4.11 isenta decoração, e
+   a 3:1 num canvas quase branco leria como borda pesada. O requisito real é o
+   `quotaFill` e o anel de foco. O teste foi corrigido para high contrast, onde
+   o hairline é fronteira estrutural.
+
+---
+
+## 4. Índice de severidade
 
 | ID | Sev | Resumo | Arquivo principal |
 |---|---|---|---|
-| C-01 | P0 | Sem timeout HTTP no OAuth → trava conexão para sempre | `antigravity_oauth.dart:870-892` |
-| C-02 | P0 | DDL e `user_version` não atômicos → app não abre | `migration_00{1,2,3}.dart` |
-| C-03 | P0 | `DateTime.parse` sem `tryParse` → 1 linha ruins todas | `quota_cache_repository.dart:25` |
-| C-04 | P0 | Revogação incondicional → race destrói credencial | `antigravity_oauth.dart:667-670` |
+| C-01 | P0 | Sem timeout HTTP no OAuth → trava conexão para sempre | `antigravity_oauth.dart:870-892` | ✅ `4f79598` |
+| C-02 | P0 | DDL e `user_version` não atômicos → app não abre | `migration_00{1,2,3}.dart` | ✅ `1e144e1` |
+| C-03 | P0 | `DateTime.parse` sem `tryParse` → 1 linha ruins todas | `quota_cache_repository.dart:25` | ✅ `1e144e1` |
+| C-04 | P0 | Revogação incondicional → race destrói credencial | `antigravity_oauth.dart:667-670` | ✅ `f477ac9` |
 | C-05 | P0 | Cancelamento por loteria de microtask | `app_state.dart:546-593` |
-| C-06 | P1 | Status colors dark = light → 3,1:1 (AA falha) | `theme.dart:78-93` |
-| C-07 | P1 | `Colors.green`/`red` hardcoded → 2,78:1 | `connections_screen.dart:886-946` |
+| C-06 | P1 | Status colors dark = light → 3,1:1 (AA falha) | `theme.dart:78-93` | ✅ `91b8840` |
+| C-07 | P1 | `Colors.green`/`red` hardcoded → 2,78:1 | `connections_screen.dart:886-946` | ✅ `91b8840` |
 | C-08 | P1 | "Last updated" nunca atualiza | `token_dock_widget.dart:56-69` |
-| C-09 | P1 | `runTokenOperation` morto → sem single-flight | `refresh_service.dart:225-236` |
+| C-09 | P1 | `runTokenOperation` morto → sem single-flight | `refresh_service.dart:225-236` | ✅ `a4f902c` |
 | C-10 | P1 | `_credential` mascar credencial corrompida | `antigravity_oauth.dart:808-814` |
 | C-11 | P1 | Regex de mensagem — proibido pela spec | `credential_events.dart:26-32` |
 | C-12 | P1 | `$e` cru na UI, sem redaction | `connections_screen.dart:589,742,155` |
-| C-13 | P1 | Sanitizador cego a token | `connection_repository.dart:106-112` |
+| C-13 | P1 | Sanitizador cego a token | `connection_repository.dart:106-112` | ✅ `1e144e1` |
 | C-14 | P1 | `shared: true` no loopback IPv6 | `oauth_loopback.dart:36-40` |
 | C-15 | P1 | Exceções SQLite vazam SQL | `connections_screen.dart:742` |
 | C-16 | P2 | N+1: `getAll()` no loop de refresh | `refresh_service.dart:308` |
@@ -344,7 +390,7 @@ Não existe `DatabaseException` em `lib/` (grep: 0 hits), nenhum `try/catch` nos
 | C-22 | P2 | 3 builders duplicados + erro ausente em compact | `token_dock_widget.dart:211-367` |
 | C-23 | P2 | Sem FK; índice redundante; coluna morta | `migration_001.dart` |
 | C-24 | P2 | `Expando` estático + `const` → notifier compartilhado | `app_state.dart:176-185` |
-| C-25 | P1 | Set ilimitado de refresh tokens em claro | `antigravity_oauth.dart:113` |
+| C-25 | P1 | Set ilimitado de refresh tokens em claro | `antigravity_oauth.dart:113` | ✅ `f477ac9` |
 | C-26 | P2 | `redactHeaders`/`redactUrl` mortas | `log_redaction.dart:72,81` |
 | C-27 | P2 | `_credential` duplicado | `antigravity_oauth.dart:808,861` |
 | C-28 | P2 | `AuthKind` vs strings sem validação | `app_state.dart:432,810` |
