@@ -342,8 +342,26 @@ Cada item foi feito em RED→GREEN, com o teste visto falhar antes do fix.
 | C-16 | P2 | `ba67afd` | `getById` elimina o N+1 por refresh |
 | C-17 | P2 | `d2b8467` | conexão + health numa linha só; quotas em lote |
 | C-31 | P3 | `4faea73` | quota sem limite diz "No key cap" |
+| C-18 | P2 | `841eede` | discovery do PowerShell limitado no fetch |
+| C-20 | P2 | `e353e9f` | quota primária em `ink`, não `mutedInk` |
+| C-21 | P2 | `e353e9f` | countdown de 1s → 30s |
 
-**Baseline:** 235/235 → **353/353**. `flutter analyze` 0 erros / 0 warnings / **31 infos** (caiu de 33: os condicionais reescritos dispensam `if` de uma linha).
+**Baseline:** 235/235 → **366/366**. `flutter analyze` 0 erros / 0 warnings / **31 infos** (caiu de 33: os condicionais reescritos dispensam `if` de uma linha).
+
+### C-18: dois flakes meus, na mesma classe do bug
+
+O teste que escrevi para C-18 **falhava de forma intermitente** — passava isolado,
+falhava na suíte completa. Duas causas, ambas minhas:
+
+1. Corria um orçamento real de 5s contra um timeout de teste de 10s. Sob carga,
+   estourou. O orçamento passou a ser injetável e o teste usa 50ms.
+2. Pior: com discovery vazia, o reader fazia fallback para o CLI `agy` com o
+   **process runner real** — ou seja, um teste unitário estava **spawnando
+   processos** na máquina. Agora injeta-se um runner que recusa.
+
+Cinco execuções consecutivas passam, onde três anteriores falhavam 2–3 testes
+cada. A causa raiz do flake 2 é exatamente a forma do bug que eu estava
+corrigindo: um caminho de fetch sem limite.
 
 ### C-16/C-17: o custo medido, não estimado
 
