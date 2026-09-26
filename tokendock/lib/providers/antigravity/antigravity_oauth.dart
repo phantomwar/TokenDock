@@ -153,9 +153,108 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   static const dailyHost = 'https://daily-cloudcode-pa.googleapis.com';
   static const authorizationEndpoint =
       'https://accounts.google.com/o/oauth2/v2/auth';
-  static const clientId =
-      '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
   static const revokeEndpoint = 'https://oauth2.googleapis.com/revoke';
+
+  /// The Antigravity OAuth client.
+  ///
+  /// This was **wrong**, and login could not work. The previous value
+  /// (`GEMINI_CLI_CLIENT_ID.apps.googleusercontent.com`) is the *Gemini CLI* client, and an OAuth client is
+  /// only permitted the scopes registered to it. Asking the Gemini CLI client
+  /// for Antigravity's scopes produced Google's
+  /// `Error 400: invalid_scope ... [invalid=[cloud-platform, userinfo.email,
+  /// userinfo.profile]]`, which lists the scopes and so looks like a scope
+  /// problem rather than a client problem.
+  static const clientId =
+      'UNCONFIGURED.apps.googleusercontent.com';
+
+  /// The client secret for [clientId].
+  ///
+  /// Antigravity's client is a **confidential** client, so both the code
+  /// exchange and the refresh require the secret. Omitting it fails at the token
+  /// endpoint rather than at the consent screen, which is why it presents as a
+  /// different fault from the one it actually is.
+  ///
+  /// ## The cost of embedding this, stated plainly
+  ///
+  /// A desktop binary is readable, so anyone determined can extract this. It
+  /// does not by itself grant access to an account — the user still completes
+  /// consent interactively — but it does allow minting tokens for the
+  /// Antigravity client. The reference implementation this value came from
+  /// ships the same secret, base64-encoded, which is obfuscation and not
+  /// encryption.
+  ///
+  /// The alternative is to run the maintainer's own Google Cloud OAuth
+  /// credentials, so the exposed secret is theirs rather than Google's. That is
+  /// the supported route for a distributed desktop app, and it is a product
+  /// decision rather than a code one.
+  static const clientSecret = 'UNCONFIGURED_ANTIGRAVITY_CLIENT_SECRET';
+
+  /// The five scopes Antigravity registers.
+  ///
+  /// Full URLs, not the short forms. Google accepts both spellings, but only
+  /// the registered form matches the client's scope list, and the short forms
+  /// are what came back verbatim in the `invalid_scope` response.
+  ///
+  /// `cclog` and `experimentsandconfigs` were missing from the previous request
+  /// entirely.
+  static const List<String> scopes = <String>[
+    'https://www.googleapis.com/auth/cloud-platform',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/cclog',
+    'https://www.googleapis.com/auth/experimentsandconfigs',
+  ];
+
+  /// The scope list as it goes on the wire.
+  ///
+  /// Space separated, because that is what Google expects. A comma-separated
+  /// list is read as a single unknown scope name.
+  static String get scopeParameter => scopes.join(' ');
+
+  /// Forces the consent screen.
+  ///
+  /// Without it Google can reuse an existing grant and return **no** refresh
+  /// token. The failure then surfaces on the *next* login as "OAuth refresh
+  /// token missing", which points at the token exchange rather than at the
+  /// authorization request that caused it.
+  static const String prompt = 'consent';
+
+  static const String accessType = 'offline';
+
+  /// The body of an authorization-code exchange.
+  ///
+  /// Built in one place so the exchange and the refresh cannot drift apart on
+  /// whether the secret is included — the kind of omission that passes a login
+  /// test and then fails on the first expiry.
+  static Map<String, String> tokenRequestFields({
+    required String code,
+    required String codeVerifier,
+    required String redirectUri,
+  }) {
+    return <String, String>{
+      'client_id': clientId,
+      'client_secret': clientSecret,
+      'code': code,
+      'code_verifier': codeVerifier,
+      'redirect_uri': redirectUri,
+      'grant_type': 'authorization_code',
+    };
+  }
+
+  /// The body of a refresh exchange.
+  static Map<String, String> refreshRequestFields(String refreshToken) {
+    return <String, String>{
+      'client_id': clientId,
+      'client_secret': clientSecret,
+      'refresh_token': refreshToken,
+      'grant_type': 'refresh_token',
+      // Carried over from the previous hand-built request. Google ignores it on
+      // a refresh grant, and removing it would be a change with no reason behind
+      // it in a path that only runs on expiry.
+      'access_type': accessType,
+    };
+  }
+
   @override
   String get id => 'antigravity';
   @override
@@ -182,11 +281,13 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       parameters: {
         'client_id': clientId,
         'response_type': 'code',
-        'scope': 'cloud-platform userinfo.email userinfo.profile',
+        'scope': scopeParameter,
         'code_challenge': buildCodeChallenge(verifier),
         'code_challenge_method': 'S256',
         'state': state,
-        'access_type': 'offline',
+        'access_type': accessType,
+        // Forces the consent screen so Google actually issues a refresh token.
+        'prompt': prompt,
       },
     );
     final delivered = session.waitForCode(state);
@@ -238,13 +339,14 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     required String codeVerifier,
     required String redirectUri,
   }) async {
-    final token = await _postForm(Uri.parse(tokenEndpoint), {
-      'client_id': clientId,
-      'code': code,
-      'code_verifier': codeVerifier,
-      'redirect_uri': redirectUri,
-      'grant_type': 'authorization_code',
-    });
+    final token = await _postForm(
+      Uri.parse(tokenEndpoint),
+      tokenRequestFields(
+        code: code,
+        codeVerifier: codeVerifier,
+        redirectUri: redirectUri,
+      ),
+    );
     final access = (token['access_token'] ?? '').toString().trim();
     if (access.isEmpty) throw StateError('OAuth access token missing');
     final refresh = (token['refresh_token'] ?? '').toString().trim();
@@ -736,12 +838,13 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     // is not evidence that this caller is an attacker replaying a stolen one.
     final reused = _rotatedRefreshTokens.containsKey(refreshToken);
     try {
-      final response = await _postForm(Uri.parse(tokenEndpoint), {
-        'client_id': clientId,
-        'refresh_token': refreshToken,
-        'grant_type': 'refresh_token',
-        'access_type': 'offline',
-      });
+      final response = await _postForm(
+        Uri.parse(tokenEndpoint),
+        // Same client, same secret requirement. A refresh that omits the secret
+        // fails on the first expiry, long after the login that would have
+        // revealed the problem.
+        refreshRequestFields(refreshToken),
+      );
       if (response['access_token'] == null) throw StateError('invalid_grant');
       final replacement = response['refresh_token']?.toString();
       if (replacement != null &&

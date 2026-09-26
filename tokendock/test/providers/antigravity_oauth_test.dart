@@ -493,6 +493,7 @@ void main() {
     );
     expect(Uri.splitQueryString(http.requests.single.body), {
       'client_id': AntigravityOAuthProvider.clientId,
+      'client_secret': AntigravityOAuthProvider.clientSecret,
       'refresh_token': 'keep-me',
       'grant_type': 'refresh_token',
       'access_type': 'offline',
@@ -754,7 +755,21 @@ void main() {
         tokenBody['redirect_uri'],
         opened!.queryParameters['redirect_uri'],
       );
-      expect(tokenBody, isNot(contains('client_secret')));
+      // Antigravity's client is a *confidential* client, so the secret has to
+      // be in the exchange. This used to assert the opposite, which was correct
+      // for the public client id this code previously used and is why login
+      // failed at the token endpoint. The secret belongs here and nowhere else:
+      // the authorization URL, the userinfo request, and anything that reaches
+      // the log must not carry it.
+      expect(
+        tokenBody['client_secret'],
+        AntigravityOAuthProvider.clientSecret,
+      );
+      expect(
+        opened!.toString(),
+        isNot(contains(AntigravityOAuthProvider.clientSecret)),
+        reason: 'the secret must never travel in the browser URL',
+      );
       expect(
         http.requests.first.headers['Content-Type'],
         'application/x-www-form-urlencoded',
