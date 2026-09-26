@@ -232,10 +232,13 @@ A spec **proíbe** matching de mensagem. Tentar eliminar, não só reduzir.
 
 ### C.4 · Integridade de schema e custódia · **C-23, C-25, C-28, C-30**
 
-- [ ] Declarar `FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE` em `quota_cache`; `PRAGMA foreign_keys = ON` aplicado em `AppDatabase.open` **depois** das migrations (decidido — `onConfigure` foi descartado, ver checkpoint).
-  - `Migration004` reconstrói `quota_cache` (SQLite não adiciona FK a tabela existente) e **purga órfãos** no copy.
-  - Restringir-se a um teste que afirme `PRAGMA foreign_keys` = 1 após `AppDatabase.open`, e um que falhe se o rebuild quebrar com órfão presente.
-- [ ] `Migration004`: remover o índice redundante `idx_quota_cache_connection` (coberto pela PK composta), a coluna morta `quota_cache.status`, e criar `idx_connections_sort_order ON connections(sort_order, created_at)` (deixado por trás em C.1).
+- [x] Declarar `FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE` em `quota_cache`; `PRAGMA foreign_keys = ON` aplicado em `AppDatabase.open` **depois** das migrations (decidido — `onConfigure` foi descartado, ver checkpoint). `6b93b7b`
+  - [x] `Migration004` reconstrói `quota_cache` (SQLite não adiciona FK a tabela existente) e **purga órfãos** no copy com `WHERE EXISTS` — filtrar, e não limpar depois, porque uma linha que viola a constraint derruba a transação inteira e o delete nunca correria.
+  - [x] Rebuild gated em `PRAGMA foreign_key_list` não-vazio, para um run cujo DDL commitou sem o marcador de versão ser reconhecido como já feito.
+  - [x] Testes: pragma = 1 após `open` · `foreign_key_list` declara a cascata · órfão é descartado · `user_version` obsoleto sobre tabela já reconstruída retoma · órfão plantado não impede a abertura.
+  - [x] `TestDatabase.create` aplica a mesma ordem, para os repositórios serem testados sob o contrato de produção. **Isto expôs dois fixtures** (`repositories_test.dart`) que guardavam quota de conexões inexistentes; os pais em falta foram adicionados.
+- [x] `Migration004`: remover o índice redundante `idx_quota_cache_connection` (coberto pela PK composta), a coluna morta `quota_cache.status` (o `'status': null` no `saveAll` foi removido — a coluna deixou de existir), e criar `idx_connections_sort_order ON connections(sort_order, created_at)` (deixado por trás em C.1). `6b93b7b`
+  - A cascata manual em `ConnectionRepository.delete` foi **mantida de propósito**: a base é agora a autoridade, mas apagar as linhas primeiro mantém o comportamento idêntico numa base que falhou a migrar.
 - [ ] Migrar `auth_type` de string para derivado de `AuthKind` (ou validar na escrita que `adapter.authKind.name == authType`), eliminando a representação dupla (C-28).
 - [ ] Limpar `_loadedRawSecret` no `dispose()` do diálogo (C-30).
 - [ ] `deleteSync` do temp dir: tolerar `SHARING_VIOLATION` e não mascarar a exceção original (C-29).
@@ -279,10 +282,10 @@ Ordem **planejada** (válida para quem retomar) e o que de fato aconteceu:
 | B.5 sem regex | ⚠️ 3/4 — `isDefinitiveOAuthFailure` continua morta | `44bcf25` |
 | B.6 redação | ⚠️ 3/7 — `StorageFailure` descartado de propósito, DPAPI real em aberto | `ca749bf` |
 | B.7 loopback | ✅ | `daf4af0` |
-| C.1 N+1 | ⚠️ 4/5 — falta o índice em `connections(sort_order, created_at)` | `ba67afd`, `d2b8467` |
+| C.1 N+1 | ✅ 5/5 — o índice em `connections(sort_order, created_at)` foi criado em C-23 | `ba67afd`, `d2b8467`, `6b93b7b` |
 | C.2 paridade | ⚠️ 1/4 — só a quota primária | `e353e9f` |
 | C.3 tick | ⚠️ 1/4 — só o intervalo; tipografia em aberto (C-19) | `e353e9f` |
-| C.4 schema | ⚠️ 1/7 — só o discovery (C-18) | `841eede` |
+| C.4 schema | ⚠️ 4/7 — C-23 e C-18 fechados; falta C-28 e C-29/C-30 | `841eede`, `6b93b7b` |
 | C.5 notifier | ⬜ não iniciado (C-24) | — |
 | D.1 documentação | ⚠️ 2/7 | `4faea73` + este commit |
 

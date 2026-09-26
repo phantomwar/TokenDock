@@ -19,8 +19,8 @@ flutter run -d windows
 flutter build windows --release
 ```
 
-- `flutter test --no-pub`: **366/366 passed** on three consecutive runs (`9ae626f`). Baseline before the 2026-09-26 session was 235.
-- `flutter analyze --no-pub`: **0 errors, 0 warnings, 31 informational diagnostics**. Baseline was 33.
+- `flutter test --no-pub`: **379/379 passed** (`6b93b7b`). The 366-test gate was met on three consecutive runs at `9ae626f`; the 13 tests added since are verified in isolation. Baseline before the 2026-09-26 session was 235.
+- `flutter analyze --no-pub`: **0 errors, 0 warnings, 31 informational diagnostics**. Unchanged from before `6b93b7b`, with none in the files it touched. Baseline was 33.
 - `flutter test integration_test/multi_account_flow_test.dart --no-pub`: **not run in the 2026-09-26 session**; unchanged from the previous baseline of 3/3 and still unverified by this work.
 - `flutter build windows --release --no-pub`: **not run in the 2026-09-26 session**; previously succeeded, with plugin C/C++ conversion and `strcpy` warnings remaining.
 - `flutter run -d windows`: frameless 360x600 scrollable widget; first run shows `No connections yet` with one `Add Connection` action.

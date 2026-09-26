@@ -147,14 +147,13 @@ every test uses sanitized fake HTTP and process fixtures.
 
 Ordered by value. Each item names the audit ID it closes.
 
-1. **C-23, schema integrity.** No foreign key is declared anywhere and
-   `PRAGMA foreign_keys` is never enabled, so `quota_cache` is cleaned up
-   manually in two places. `idx_quota_cache_connection` duplicates the
-   `(connection_id, quota_key)` primary key. `quota_cache.status` is written
-   always as null and never read. `connections` has no index on the
-   `sort_order, created_at` it is ordered by. Adding the FK needs
-   `onConfigure` on `openDatabase`, which does not exist yet. *Caution: this
-   changes the schema and needs a migration.*
+1. ~~**C-23, schema integrity.**~~ **Closed at `6b93b7b`.** `Migration004`
+   rebuilds `quota_cache` with the cascade to `connections`, drops the dead
+   `status` column and the index the composite primary key already covered, and
+   adds `idx_connections_sort_order` — the index C.1 left behind. See
+   § Open question below for why the pragma is applied after the migrations
+   rather than through `onConfigure`, which is the part that is easy to get
+   wrong on a future schema change.
 2. **C-22, density parity.** `_buildCompact`, `_buildNormal` and
    `_buildExpanded` duplicate their preamble and footer. Compact does not render
    `snapshot.error` while the other two do, and no test asserts that asymmetry.
@@ -191,6 +190,20 @@ Ordered by value. Each item names the audit ID it closes.
 - **Test fakes keyed to a call ordinal go inert silently** when a repository
   method changes. This bit twice in this session. Prefer an explicit flag or a
   hook on the method actually called.
+- **`saveAll` can now raise where it used to succeed.** With
+  `PRAGMA foreign_keys` on, caching a quota for a connection that no longer
+  exists is rejected with SQLite error 787 instead of silently writing an
+  orphan. The refresh path already wraps the call (`refresh_service.dart`) and
+  degrades to `ConnectionStatus.error` with "Local storage unavailable", so a
+  delete landing mid-refresh surfaces as that message rather than a crash. This
+  is a product decision, not a schema one, and it is still open: the race is
+  narrow and the outcome is transient, but the wording is wrong for the cause.
+- **Any future table rebuild inherits the same trap.** `PRAGMA foreign_keys` is
+  a no-op inside a transaction, so a migration that must rebuild a table has to
+  run with enforcement off, which is why the pragma sits after the migration
+  list in `AppDatabase.open`. Moving it earlier, or into `onConfigure`, looks
+  like a harmless tidy-up and breaks the upgrade path for any database holding
+  a single violating row.
 - **Unit tests must not spawn processes.** A local-reader test that injects a
   discovery returning no sessions falls through to the real `agy` CLI unless a
   refusing `AntigravityProcessRunner` is injected.
