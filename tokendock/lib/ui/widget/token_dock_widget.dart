@@ -27,19 +27,21 @@ class TokenDockWidget extends StatelessWidget {
     this.onRefreshAll,
   });
 
-  const TokenDockWidget.loading({
+  // Not `const`: `state` is a real `ChangeNotifier` now, and a canonicalised
+  // AppState would be one shared object across every loading shell (C-24).
+  TokenDockWidget.loading({
     super.key,
     this.onAddConnection,
     this.onOpenConnections,
     this.onRefreshAll,
-  }) : state = const AppState.loading();
+  }) : state = AppState.loading();
 
-  const TokenDockWidget.empty({
+  TokenDockWidget.empty({
     super.key,
     this.onAddConnection,
     this.onOpenConnections,
     this.onRefreshAll,
-  }) : state = const AppState.empty();
+  }) : state = AppState.empty();
 
   TokenDockWidget.loaded({
     super.key,

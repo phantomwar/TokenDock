@@ -53,32 +53,25 @@ class AccountItem {
   final ProviderSnapshot snapshot;
 }
 
-class _StateNotifier extends ChangeNotifier {
-  _StateNotifier(
-    this.isLoading,
-    this.accounts, {
-    this.autoStartRefreshTimer = false,
-  }) : refreshIntervalMinutes = defaultRefreshIntervalMinutes;
-  bool isLoading;
-  List<AccountItem> accounts;
-
-  int refreshIntervalMinutes;
-  int refreshIntervalRevision = 0;
-  Future<void> refreshIntervalWriteQueue = Future<void>.value();
-  final bool autoStartRefreshTimer;
-
-  void notify() => notifyListeners();
-}
-
 /// Widget-surface state for [TokenDockWidget] and application-level connection
 /// management.
 ///
-/// Implements [ChangeNotifier] for reactive updates while retaining const
-/// constructors for testing and loading shells.
-class AppState implements ChangeNotifier {
+/// Extends [ChangeNotifier] so every instance owns its own listener list.
+///
+/// Audit C-24: this used to `implement ChangeNotifier` and forward each call to
+/// a private `_StateNotifier` reached through a `static final Expando`, while
+/// the loading and empty constructors were `const`. Dart canonicalises const
+/// instances, so every loading shell in the process was one and the same
+/// object, the Expando handed them all a single notifier, and disposing one
+/// tore down the rest — surfacing as "A ChangeNotifier was used after being
+/// disposed" from whichever surface built a loading shell second.
+///
+/// The constructors below are deliberately not `const`. A [ChangeNotifier]
+/// carries mutable state, and a canonicalised instance cannot own any.
+class AppState extends ChangeNotifier {
   AppState({
-    bool isLoading = false,
-    List<AccountItem> accounts = const [],
+    this.isLoading = false,
+    this.accounts = const [],
     this.connectionRepository,
     this.connectionHealthRepository,
     this.quotaCacheRepository,
@@ -86,16 +79,9 @@ class AppState implements ChangeNotifier {
     this.providerRegistry,
     this.settingsRepository,
     RefreshService? refreshService,
-    bool autoStartRefreshTimer = false,
+    this.autoStartRefreshTimer = false,
     this.antigravityLocalRuntime,
-  }) : _staticLoading = false,
-       _staticAccounts = const [],
-       _notifier = _StateNotifier(
-         isLoading,
-         accounts,
-         autoStartRefreshTimer: autoStartRefreshTimer,
-       ),
-       _reconnectConnectionIds = <String>{},
+  }) : _reconnectConnectionIds = <String>{},
        _antigravityLocks = <String, Future<void>>{},
        _refreshService =
            refreshService ??
@@ -117,10 +103,10 @@ class AppState implements ChangeNotifier {
     _refreshService?.addDisabledListener(_handleCredentialDisabled);
   }
 
-  const AppState.loading()
-    : _staticLoading = true,
-      _staticAccounts = const [],
-      _notifier = null,
+  AppState.loading()
+    : isLoading = true,
+      accounts = const [],
+      autoStartRefreshTimer = false,
       connectionRepository = null,
       connectionHealthRepository = null,
       quotaCacheRepository = null,
@@ -132,10 +118,10 @@ class AppState implements ChangeNotifier {
       _antigravityLocks = null,
       antigravityLocalRuntime = null;
 
-  const AppState.empty()
-    : _staticLoading = false,
-      _staticAccounts = const [],
-      _notifier = null,
+  AppState.empty()
+    : isLoading = false,
+      accounts = const [],
+      autoStartRefreshTimer = false,
       connectionRepository = null,
       connectionHealthRepository = null,
       quotaCacheRepository = null,
@@ -147,12 +133,11 @@ class AppState implements ChangeNotifier {
       _antigravityLocks = null,
       antigravityLocalRuntime = null;
 
-  const AppState.pure({
-    bool isLoading = false,
-    List<AccountItem> accounts = const [],
-  }) : _staticLoading = isLoading,
-       _staticAccounts = accounts,
-       _notifier = null,
+  AppState.pure({
+    this.isLoading = false,
+    this.accounts = const [],
+  }) :
+       autoStartRefreshTimer = false,
        connectionRepository = null,
        connectionHealthRepository = null,
        quotaCacheRepository = null,
@@ -191,20 +176,16 @@ class AppState implements ChangeNotifier {
       antigravityLocalRuntime: antigravityLocalRuntime,
     );
   }
-  final bool _staticLoading;
-  final List<AccountItem> _staticAccounts;
-  final _StateNotifier? _notifier;
+  /// True while initial loading or database operations are in flight.
+  bool isLoading;
 
-  static final Expando<_StateNotifier> _fallbackNotifiers =
-      Expando<_StateNotifier>();
+  /// Currently loaded accounts.
+  List<AccountItem> accounts;
 
-  _StateNotifier get _effectiveNotifier {
-    if (_notifier != null) return _notifier;
-    return _fallbackNotifiers[this] ??= _StateNotifier(
-      _staticLoading,
-      _staticAccounts,
-    );
-  }
+  int refreshIntervalMinutes = defaultRefreshIntervalMinutes;
+  int refreshIntervalRevision = 0;
+  Future<void> refreshIntervalWriteQueue = Future<void>.value();
+  final bool autoStartRefreshTimer;
 
   final ConnectionRepository? connectionRepository;
   final ConnectionHealthRepository? connectionHealthRepository;
@@ -222,46 +203,19 @@ class AppState implements ChangeNotifier {
 
   RefreshService? get refreshService => _refreshService;
 
-  int get refreshIntervalMinutes =>
-      _notifier?.refreshIntervalMinutes ?? defaultRefreshIntervalMinutes;
-
-  /// True while initial loading or database operations are in flight.
-  bool get isLoading => _effectiveNotifier.isLoading;
-
   /// Alias kept for call sites that read the open phase as [isOpening].
   bool get isOpening => isLoading;
-
-  /// Currently loaded accounts.
-  List<AccountItem> get accounts => _effectiveNotifier.accounts;
-
-  @override
-  void addListener(VoidCallback listener) {
-    _effectiveNotifier.addListener(listener);
-  }
-
-  @override
-  void removeListener(VoidCallback listener) {
-    _effectiveNotifier.removeListener(listener);
-  }
-
-  @override
-  void notifyListeners() {
-    _effectiveNotifier.notify();
-  }
-
-  @override
-  bool get hasListeners => _effectiveNotifier.hasListeners;
 
   @override
   void dispose() {
     _refreshService?.removeSnapshotListener(_handleSnapshotUpdate);
     _refreshService?.removeDisabledListener(_handleCredentialDisabled);
     _refreshService?.dispose();
-    _effectiveNotifier.dispose();
+    super.dispose();
   }
 
   void _handleSnapshotUpdate(ProviderSnapshot snapshot) {
-    final currentAccounts = _effectiveNotifier.accounts;
+    final currentAccounts = accounts;
     final index = currentAccounts.indexWhere(
       (a) => a.connection.id == snapshot.connectionId,
     );
@@ -273,14 +227,14 @@ class AppState implements ChangeNotifier {
       );
       final updatedList = List<AccountItem>.from(currentAccounts);
       updatedList[index] = updated;
-      _effectiveNotifier.accounts = updatedList;
-      _effectiveNotifier.notify();
+      accounts = updatedList;
+      notifyListeners();
     }
   }
 
   void _handleCredentialDisabled(CredentialDisabledEvent event) {
     _reconnectConnectionIds?.add(event.connectionId);
-    _effectiveNotifier.notify();
+    notifyListeners();
   }
 
   /// Refreshes quotas for a single connection.
@@ -295,13 +249,13 @@ class AppState implements ChangeNotifier {
 
   /// Loads all connections and their cached quotas and health.
   Future<void> load() async {
-    _effectiveNotifier.isLoading = true;
+    isLoading = true;
 
     try {
       await _loadRefreshInterval();
       final repo = connectionRepository;
       if (repo == null) {
-        _effectiveNotifier.accounts = const [];
+        accounts = const [];
         return;
       }
       // One read for connections (carrying the health already on their rows)
@@ -331,30 +285,30 @@ class AppState implements ChangeNotifier {
         );
         items.add(AccountItem(connection: conn, snapshot: snapshot));
       }
-      _effectiveNotifier.accounts = items;
+      accounts = items;
     } finally {
-      _effectiveNotifier.isLoading = false;
-      _effectiveNotifier.notify();
+      isLoading = false;
+      notifyListeners();
     }
   }
 
   Future<void> _loadRefreshInterval() async {
-    final notifier = _effectiveNotifier;
-    final revision = notifier.refreshIntervalRevision;
+    
+    final revision = refreshIntervalRevision;
     try {
       final minutes = normalizeRefreshIntervalMinutes(
         await settingsRepository?.getRefreshIntervalMinutes() ??
             defaultRefreshIntervalMinutes,
       );
-      if (notifier.refreshIntervalRevision != revision) return;
-      notifier.refreshIntervalMinutes = minutes;
-      if (notifier.autoStartRefreshTimer) {
+      if (refreshIntervalRevision != revision) return;
+      refreshIntervalMinutes = minutes;
+      if (autoStartRefreshTimer) {
         _refreshService?.updateIntervalMinutes(minutes == 0 ? null : minutes);
       }
     } catch (_) {
-      if (notifier.refreshIntervalRevision != revision) return;
-      notifier.refreshIntervalMinutes = defaultRefreshIntervalMinutes;
-      if (notifier.autoStartRefreshTimer) {
+      if (refreshIntervalRevision != revision) return;
+      refreshIntervalMinutes = defaultRefreshIntervalMinutes;
+      if (autoStartRefreshTimer) {
         _refreshService?.updateIntervalMinutes(defaultRefreshIntervalMinutes);
       }
     }
@@ -362,21 +316,21 @@ class AppState implements ChangeNotifier {
 
   Future<void> setRefreshIntervalMinutes(int minutes) async {
     validateRefreshIntervalMinutes(minutes);
-    final notifier = _effectiveNotifier;
-    final revision = ++notifier.refreshIntervalRevision;
-    final previousWrite = notifier.refreshIntervalWriteQueue;
+    
+    final revision = ++refreshIntervalRevision;
+    final previousWrite = refreshIntervalWriteQueue;
     final writeGate = Completer<void>();
-    notifier.refreshIntervalWriteQueue = writeGate.future;
+    refreshIntervalWriteQueue = writeGate.future;
     await previousWrite;
     try {
       await settingsRepository?.setRefreshIntervalMinutes(minutes);
     } finally {
       writeGate.complete();
     }
-    if (notifier.refreshIntervalRevision != revision) return;
+    if (refreshIntervalRevision != revision) return;
     _refreshService?.updateIntervalMinutes(minutes == 0 ? null : minutes);
-    notifier.refreshIntervalMinutes = minutes;
-    notifier.notify();
+    refreshIntervalMinutes = minutes;
+    notifyListeners();
   }
 
   /// Adds a new connection using the compensation transaction:
@@ -525,7 +479,7 @@ class AppState implements ChangeNotifier {
     }
     await load();
     _reconnectConnectionIds?.remove(updated.id);
-    _effectiveNotifier.notify();
+    notifyListeners();
     return updated;
   }
 
@@ -767,12 +721,12 @@ class AppState implements ChangeNotifier {
         }
         cancelWatch.throwIfCancelled();
         _reconnectConnectionIds?.remove(current.id);
-        _effectiveNotifier.notify();
+        notifyListeners();
         return replacement;
       } catch (error, stackTrace) {
         if (oldSecretDeleted) {
           _reconnectConnectionIds?.remove(current.id);
-          _effectiveNotifier.notify();
+          notifyListeners();
           Error.throwWithStackTrace(error, stackTrace);
         }
         if (cancelWatch.isRequested) {
@@ -882,7 +836,7 @@ class AppState implements ChangeNotifier {
 
     await load();
     _reconnectConnectionIds?.remove(existing.id);
-    _effectiveNotifier.notify();
+    notifyListeners();
     return updatedConnection;
   }
 

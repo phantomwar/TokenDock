@@ -50,22 +50,27 @@ class RefreshAction extends Action<RefreshIntent> {
 /// shortcuts (such as Ctrl+R for refresh), and wires first-run and header
 /// navigation to [ConnectionsScreen].
 class TokenDockApp extends StatelessWidget {
-  const TokenDockApp({
+  // Not `const`: the fallback state below is a real `ChangeNotifier` (C-24).
+  TokenDockApp({
     super.key,
     this.appState,
     this.windowController,
     this.navigatorKey,
     this.child,
-  });
+  })  : // Built once, in the constructor, rather than inside `build`. Creating
+        // a fresh AppState per build would look correct and silently drop the
+        // ListenableBuilder's subscription every time an ancestor rebuilt.
+        _fallbackState = appState ?? AppState.loading();
 
   final AppState? appState;
+  final AppState _fallbackState;
   final WindowController? windowController;
   final GlobalKey<NavigatorState>? navigatorKey;
   final Widget? child;
 
   @override
   Widget build(BuildContext context) {
-    final effectiveState = appState ?? const AppState.loading();
+    final effectiveState = appState ?? _fallbackState;
 
     return MaterialApp(
       navigatorKey: navigatorKey,

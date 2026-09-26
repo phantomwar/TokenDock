@@ -22,11 +22,7 @@ const _connection = Connection(
   enabled: true,
 );
 
-Quota _quota({
-  String id = 'q1',
-  String label = 'Credits',
-  DateTime? resetAt,
-}) {
+Quota _quota({String id = 'q1', String label = 'Credits', DateTime? resetAt}) {
   return Quota(
     id: id,
     label: label,
@@ -59,10 +55,11 @@ AccountItem _account({
 }
 
 void main() {
-  testWidgets('loading shows title, three skeletons, no compact rows',
-      (tester) async {
+  testWidgets('loading shows title, three skeletons, no compact rows', (
+    tester,
+  ) async {
     // Pumped standalone: WidgetShell must supply Directionality/Material.
-    await tester.pumpWidget(const TokenDockWidget.loading());
+    await tester.pumpWidget(TokenDockWidget.loading());
 
     expect(find.text('TokenDock'), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('skeleton-0')), findsOneWidget);
@@ -71,16 +68,15 @@ void main() {
     expect(find.byType(CompactAccountRow), findsNothing);
   });
 
-  testWidgets('empty shows first-run state and fires add callback',
-      (tester) async {
+  testWidgets('empty shows first-run state and fires add callback', (
+    tester,
+  ) async {
     var pressed = false;
     await tester.pumpWidget(
       MaterialApp(
         theme: TokenDockTheme.lightTheme(),
         home: Scaffold(
-          body: TokenDockWidget.empty(
-            onAddConnection: () => pressed = true,
-          ),
+          body: TokenDockWidget.empty(onAddConnection: () => pressed = true),
         ),
       ),
     );
@@ -111,7 +107,9 @@ void main() {
     expect(find.byType(AccountHeader), findsNothing);
   });
 
-  testWidgets('many accounts scroll within a constrained window', (tester) async {
+  testWidgets('many accounts scroll within a constrained window', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       SizedBox(
         width: 360,
@@ -148,7 +146,10 @@ void main() {
     await tester.drag(scrollKey, const Offset(0, -200));
     await tester.pump();
     expect(state.position.pixels, greaterThan(0));
-    expect(tester.getTopLeft(find.text('TokenDock')).dy, closeTo(headerTop, 0.01));
+    expect(
+      tester.getTopLeft(find.text('TokenDock')).dy,
+      closeTo(headerTop, 0.01),
+    );
   });
 
   testWidgets('normal width renders header and primary quota', (tester) async {
@@ -162,8 +163,9 @@ void main() {
               _account(
                 quotas: <Quota>[
                   _quota(
-                    resetAt:
-                        DateTime.now().add(const Duration(hours: 2, minutes: 15)),
+                    resetAt: DateTime.now().add(
+                      const Duration(hours: 2, minutes: 15),
+                    ),
                   ),
                   _quota(id: 'q2', label: 'Requests'),
                 ],
@@ -184,8 +186,9 @@ void main() {
     expect(find.textContaining('Last updated'), findsOneWidget);
   });
 
-  testWidgets('expanded width renders all quotas, plan, and error',
-      (tester) async {
+  testWidgets('expanded width renders all quotas, plan, and error', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       Center(
         child: SizedBox(
@@ -216,7 +219,9 @@ void main() {
     expect(find.textContaining('Last updated'), findsOneWidget);
   });
 
-  testWidgets('stale snapshot keeps quotas while showing error', (tester) async {
+  testWidgets('stale snapshot keeps quotas while showing error', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       Center(
         child: SizedBox(
