@@ -559,6 +559,47 @@ complexity without a problem.
 
 ---
 
+### What the third review found, after the providers were done
+
+Re-reading the reference implementation's quota shapes against the reference
+*screenshot* found the widget showing one number per account where the
+reference shows a quota picture. Four defects, all now fixed and pinned by
+`quota_presentation_test.dart` and `figure_scale_test.dart`:
+
+1. **The shipped 360px window had never rendered the normal density.**
+   `WidgetShell` applies 16px of padding per side and the density
+   `LayoutBuilder` sat inside it, so the window measured 328px — under the 330
+   compact threshold. The breakpoints are specified against the *window* width
+   and were being compared against the *content* width, so every size the app is
+   actually used at fell into the least informative layout.
+2. **Only `quotas.first` was rendered.** OpenCode Go's three windows, MiniMax's
+   two and z.ai's three were each reduced to one row, and the window that was
+   running out is frequently not the first. Normal density now renders every
+   window, most-exhausted first, with ties keeping the provider's own order.
+3. **A percentage rendered as `remaining/limit`.** A percent quota's limit is
+   always 100, so it read `88/100 %` — and a full quota read `100/100 %`, which
+   reads as "100% used" on a connection that has used nothing.
+4. **"No key cap" was the headline**, in the largest type on the card, promoting
+   an absence over every real figure.
+
+And fixing (1) exposed a **latent 140px overflow**: at 360px the normal density
+was never reached, so `QuotaRow` was unreachable at the size the app ships at,
+and its value `Text` was unconstrained. A legitimately wide absolute meter such
+as `12345.5/100000 requests` drew a stripe. The value now wraps rather than
+overflowing, because truncating it would regress C-20.
+
+Two existing tests encoded the old behaviour and were updated with the reason.
+`density_boundaries_test.dart` is the instructive one: it compensated for the
+shell padding with `contentWidth + 34`, so it tracked the implementation instead
+of asserting the spec — and passed while the default window rendered compact.
+**A test written to match the code is not a test of the code.**
+
+The quota figure went 20px → 15px and the provider monogram 32px → 24px. The
+20px was specification-mandated, so the spec is amended and records why, beside
+the existing DPAPI correction note. Neither change touches the contrast
+guarantees, and `figure_scale_test.dart` asserts both floors so a future size
+change cannot quietly break C-19 or C-20.
+
 ## Open items, consolidated
 
 Everything still outstanding as of `0977e39`, in one place. The earlier
@@ -578,18 +619,48 @@ from.
 
 ### Product decisions, deliberately unmade
 
-3. **Gemini CLI / Gemini API.** The most valuable item on the 0.3 roadmap, and
+3. **The embedded Antigravity OAuth credential — and it is blocking the push.**
+   The repo is **public** and GitHub push protection rejects the commit as a
+   detected secret, which is correct: a desktop binary is readable, the
+   credential is extractable, and it is *Google's* client rather than the
+   maintainer's. It does not grant account access without interactive consent,
+   but it does allow minting tokens for Antigravity's client, and publishing it to
+   a public repository makes that permanent — forks, archives and scanners
+   capture it forever, which is materially worse than "in a binary I distribute".
+   **This was not clicked through.** The unblock link is
+   `https://github.com/phantomwar/TokenDock/security/secret-scanning/unblock-secret/3JshGfZsw4d1UyvRh1zs7sqsPyQ`
+   and it is the maintainer's call, not this agent's.
+   Three ways forward, in the order I would rank them:
+   - **Own credentials, read at runtime.** The maintainer creates a Google Cloud
+     OAuth client with the five scopes and the app reads the id and secret from
+     a gitignored config or an environment variable. Nothing third-party is
+     published and this is the route Google supports for a desktop app. The cost
+     is that every user wanting Antigravity must supply their own credentials,
+     which makes the provider a power-user feature rather than a default one.
+   - **Allow the secret once.** Accepts permanent public disclosure of Google's
+     credential in exchange for login working for everyone out of the box.
+   - **Ship Antigravity local only.** The keyless `language-server` and `agy-cli`
+     modes need no OAuth at all, so the provider stays useful and the remote
+     path is simply absent.
+
+4. **The window restores off-screen.** PRD §60 requires moving a window to the
+   primary display when its monitor no longer exists, "to avoid opening
+   off-screen". There is no `Screen`/`bounds` handling anywhere in `lib/`, and
+   the app was observed restoring itself at x=5406 on a second display spanning
+   1920–5360 — entirely off-screen, unreachable until dragged back. Small,
+   well-specified, and observed rather than inferred.
+5. **Gemini CLI / Gemini API.** The most valuable item on the 0.3 roadmap, and
    blocked on a decision rather than on work. It reuses the `v1internal:*`
    surface Antigravity already consumes, so the quota side is close to free — but
-   it needs its own OAuth client, and it obtains higher rate limits by
-   presenting the official Gemini CLI `User-Agent`. That is a terms-of-service
-   call for the maintainer. **Not decided, therefore not built.**
-4. **The three versioned generated files under `windows/flutter/`.** `git rm
+   it needs its own OAuth client, and it obtains higher rate limits by presenting
+   the official Gemini CLI `User-Agent`. That is a terms-of-service call for the
+   maintainer. **Not decided, therefore not built.**
+6. **The three versioned generated files under `windows/flutter/`.** `git rm
    --cached` plus an ignore entry, offered twice and not taken.
-5. **Deferred scope, unchanged:** installer, release 0.1, notifications, groups,
+7. **Deferred scope, unchanged:** installer, release 0.1, notifications, groups,
    drag-and-drop, auto-start, history and charts. Also undecided: adaptive
    polling and cross-account fallback.
-6. **Reformatting the 36 pre-existing unformatted files.** A deliberate
+8. **Reformatting the 36 pre-existing unformatted files.** A deliberate
    non-goal, still observed. It would be a pure-whitespace commit and is better
    as its own change than as a side effect.
 
