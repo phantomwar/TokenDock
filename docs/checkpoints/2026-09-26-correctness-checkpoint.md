@@ -1,10 +1,19 @@
-# TokenDock checkpoint — correctness and claims integrity
+# TokenDock checkpoint - correctness and claims integrity
 
-**Date:** 2026-09-26
-**Branch:** `master` @ `9ae626f`
-**Checkpoint parent:** `0f5205e` (last pre-audit commit)
-**Commits in this session:** 21, all local, nothing pushed
-**Status:** all P0 and P1 findings closed. 366/366 tests, 0 errors, 0 warnings.
+**Date:** 2026-09-26 (audit execution) — **continues through 2026-09-26 provider work**
+**Branch:** `master`, **pushed**. This document is the resume point and it is
+maintained as work lands; the header below describes the *audit session* as it
+stood at `9ae626f`, and later work is recorded in the addenda at the end.
+**Current HEAD:** `0977e39`, pushed to `origin/master`.
+**Status:** all 36 audit findings closed, and `flutter analyze` is clean.
+
+> **Read this first if you are new.** The numbers in the header and in
+> § Verification below are the audit session's, and they are the numbers that
+> session measured — they are not the current ones. Current state is **586
+> tests, 0 analyzer diagnostics, 5 registered providers, working tree clean, all
+> pushed**. § Addenda at the end records everything that changed after the audit,
+> including two conclusions that were wrong and have since been corrected, so
+> nobody re-derives them from the vendor documentation again.
 
 **Companion documents**
 
@@ -118,7 +127,8 @@ corrections are recorded in the audit rather than quietly dropped.
 
 ## Verification
 
-Measured on `9ae626f`, not carried over from documentation.
+Measured on `9ae626f`, not carried over from documentation. **These are the
+audit session's figures.** See § Addenda for the current ones.
 
 - `flutter test --no-pub`: **366/366 passed**, on three consecutive runs after
   the flake fixes. Baseline before this session was 235.
@@ -263,13 +273,20 @@ cleared it.
 - Do not infer undocumented Antigravity quota fields or private endpoints.
 - Do not add device-code or embedded WebView login.
 - Do not store CSRF, access, refresh or ID tokens in SQLite.
-- Do not push or merge without an explicit integration request. The 21 commits
-  are local and `master` is 21 ahead of `origin/master`.
+- ~~Do not push or merge without an explicit integration request. The 21 commits
+  are local and `master` is 21 ahead of `origin/master`.~~ **Lapsed 2026-09-26:**
+  the maintainer granted push permission and everything is now on
+  `origin/master`. Treat the *intent* as still live — do not merge to another
+  branch, and ask before anything that rewrites history — but the "unpushed"
+  state this line described no longer exists.
 - Do not reformat the 36 pre-existing unformatted files as a side effect of
-  touching something else.
+  touching something else. **Still observed, and deliberately:** the lint sweep
+  that took `flutter analyze` from 31 diagnostics to zero was applied per file
+  and did not reformat any of them.
 - Do not add installer, notifications, groups, auto-start, history or charts;
   they remain deferred scope.
-- Do not add a new dependency; none was added in this session.
+- Do not add a new dependency; none was added in any of these sessions. The five
+  providers and the throttle classifier all ran on the existing dependency set.
 
 ---
 
@@ -539,3 +556,57 @@ complexity without a problem.
 - **36 pre-existing files remain unformatted** and were deliberately left alone.
   The lint sweep that took `flutter analyze` from 31 diagnostics to zero was
   lint-specific and applied per file, so it did not reformat any of them.
+
+---
+
+## Open items, consolidated
+
+Everything still outstanding as of `0977e39`, in one place. The earlier
+sections of this document record what each item is; this is the list to work
+from.
+
+### Requires credentials or hardware — not code
+
+1. **Real-account validation.** No live Google OAuth, external browser launch,
+   Antigravity process, or OpenRouter / MiniMax / OpenCode Go / z.ai call has
+   been exercised. Every test uses sanitized fixtures. The four ported response
+   shapes come from a working third-party implementation, which is strong
+   evidence but is not a live response from the user's own account.
+2. **`flutter build windows --release`** succeeds, but only with Developer Mode
+   enabled or an elevated shell. Not a code problem; recorded because it blocks
+   the build on a fresh machine.
+
+### Product decisions, deliberately unmade
+
+3. **Gemini CLI / Gemini API.** The most valuable item on the 0.3 roadmap, and
+   blocked on a decision rather than on work. It reuses the `v1internal:*`
+   surface Antigravity already consumes, so the quota side is close to free — but
+   it needs its own OAuth client, and it obtains higher rate limits by
+   presenting the official Gemini CLI `User-Agent`. That is a terms-of-service
+   call for the maintainer. **Not decided, therefore not built.**
+4. **The three versioned generated files under `windows/flutter/`.** `git rm
+   --cached` plus an ignore entry, offered twice and not taken.
+5. **Deferred scope, unchanged:** installer, release 0.1, notifications, groups,
+   drag-and-drop, auto-start, history and charts. Also undecided: adaptive
+   polling and cross-account fallback.
+6. **Reformatting the 36 pre-existing unformatted files.** A deliberate
+   non-goal, still observed. It would be a pure-whitespace commit and is better
+   as its own change than as a side effect.
+
+### Infrastructure note
+
+7. **`flutter test` can transiently fail to delete `build/native_assets/**/sqlite3.dll`**
+   when orphaned `flutter_tester` processes are still holding it — roughly thirty
+   were left behind by earlier runs over two days. It is a test-runner artefact,
+   not a code fault; kill the strays and re-run. Worth knowing before
+   investigating it as a real failure.
+
+### Explicitly closed, so nobody re-opens them
+
+- All 36 audit findings, each with the commit that closed it.
+- The 31 analyzer diagnostics.
+- The two false provider conclusions, both corrected in code and in every
+  document that carried them.
+- The rate-limit-revokes-credential defect this project introduced.
+- The Reconnect prompt outliving its own failure.
+- `flutter analyze` clean; 586 tests; integration 3/3 on `windows-x64`.

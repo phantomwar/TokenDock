@@ -23,9 +23,17 @@
 **Desvios do plano original, decididos durante a execução:**
 
 - **B.6 não criou `StorageFailure`.** O plano previa esse tipo no layer de storage. A garantia que os testes exigem é "a UI nunca interpola a exceção", cumprida inteiramente pelo mapper `userSafeErrorMessage` com literal por call site. Criar `StorageFailure` sem produtor seria API especulativa. Registrado.
+> **Os três itens acima são a avaliação de abertura deste plano, registada antes da
+> execução. Todos fecharam** — ver § Estado final, onde os 36 achados constam
+> como fechados com o commit de cada um. Mantidos como registo porque mostram o
+> que a auditoria e o plano tinham erroneamente em aberto no início, em
+> especial B.4/B.6: o plano descrevia `redactHeaders`/`redactUrl` como "sem
+> chamadores", e a verdade era pior — eram código morto vivo, acompanhado por
+> testes que também não testavam nada de production.
+
 - **B.1 corrigiu uma asserção minha**, não o código: o hairline é divisor decorativo de 1px a 1,2:1, isento pelo WCAG 1.4.11. O requisito real é `quotaFill` e o anel de foco.
-- **C.3 (C-19) permanece aberto por decisão:** é mudança visual e exige passe de design, não edição mecânica.
-- **B.4 (C-27) e B.6 (C-26) ficaram abertos:** `_credential` continua duplicado e `redactHeaders`/`redactUrl` seguem sem chamadores. Ambos constam como pendentes na auditoria.
+- **C.3 (C-19) permanece aberto por decisão:** é mudança visual e exige passe de design, não edição mecânica. **Fechado depois**, em `b853186`.
+- **B.4 (C-27) e B.6 (C-26) ficaram abertos:** `_credential` continua duplicado e `redactHeaders`/`redactUrl` seguem sem chamadores. Ambos constam como pendentes na auditoria. **Fechados depois**, em `45aad6c`.
 
 ---
 

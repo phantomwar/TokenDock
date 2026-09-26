@@ -45,6 +45,8 @@ flutter build windows --release
 
 The correction to read first: an earlier revision concluded that MiniMax publishes no usage API and that OpenCode Go could not be registered. Both were wrong, and both came from generalising a single measurement — a model listing that ignores the credential, which is correct behaviour for a static catalog — without looking for the endpoint that actually meters the account. The answer for MiniMax was already written in this repository at `docs/auth-quota-hardening-plan.md`.
 
+Two further defects in this project's own work came out of reading the reference implementation's auth more closely, and both are worth knowing because both are the kind that produce *plausible* output rather than an error: a rate limit was revoking a working credential, and a Reconnect prompt outlived the failure that raised it. The checkpoint records both, plus a **consolidated list of everything still open** — which is short, and split by whether it needs credentials, a product decision, or nothing at all.
+
 Carry-over risks worth knowing before touching tests: `redactSecret` does not catch a bare token with no `key:` prefix, which is why every user-facing error string is a call-site literal; test fakes keyed to a repository call ordinal go silently inert when a method changes, which bit twice this session; and a local-reader test that injects a discovery returning no sessions falls through to the real `agy` CLI unless a refusing `AntigravityProcessRunner` is injected.
 
 ## First use

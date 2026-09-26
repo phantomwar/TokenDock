@@ -25,9 +25,9 @@ adivinhados; cache-first (falha nunca apaga valor); SQLite só com `secret_ref`.
 ### Checkpoint de retomada (2026-09-24)
 
 - Branch de trabalho continua em `master`; o wiring da Connections UI está implementado.
-- Validar uma conta Google real, callback do navegador externo, refresh token rotation e um processo Antigravity real.
-- Manter MiniMax bloqueado até existir schema oficial.
-- Decidir separadamente polling adaptativo, fallback entre contas, grupos, notificações, installer e release 0.1.
+- Validar uma conta Google real, callback do navegador externo, refresh token rotation e um processo Antigravity real. **Este item continua aberto** e é o único desta lista que precisa de trabalho.
+- ~~Manter MiniMax bloqueado até existir schema oficial.~~ **Resolvido e a decisão estava errada.** O schema nunca foi publicado e nunca foi preciso: o endpoint existe em `GET /v1/token_plan/remains` e a MiniMax já reporta quota real. Pior: **esta secção, mais abaixo, listava o endpoint como oficial**, pelo que a resposta estava no próprio plano enquanto outra secção o declarava inexistente. Regra que daqui sai: *ausência num OpenAPI publicado não é ausência na API, e "não encontrei" não é motivo para fechar uma porta.*
+- Decidir separadamente polling adaptativo, fallback entre contas, grupos, notificações, installer e release 0.1. **Continua por decidir**; nenhum foi implementado.
 
 ## 2. O que 2026 confirma, corrige ou acrescenta ao relatório prévio
 

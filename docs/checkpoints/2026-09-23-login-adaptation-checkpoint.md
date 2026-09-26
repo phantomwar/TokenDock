@@ -1,9 +1,17 @@
 # TokenDock checkpoint — login adaptation and Antigravity
 
-**Date:** 2026-09-23  
+**Date:** 2026-09-23 — **historical, superseded by `2026-09-26-correctness-checkpoint.md`**
 **Branch:** `master`  
 **Checkpoint parent:** `b03190e`  
 **Status:** implementation merged locally; no implementation worktree registered.
+
+> Kept as the point-in-time record of the login-adaptation slice. The counts
+> below are that slice's and have since moved a long way: current state is
+> **586 tests, 0 analyzer diagnostics, 5 registered providers**, all pushed.
+> Read `2026-09-26-correctness-checkpoint.md` for the live numbers and the
+> resume list. What is *not* superseded is the one open item below that concerns
+> real-account validation — it is still open, and it is the only thing in this
+> document that still needs doing.
 
 ## Completed
 
@@ -16,6 +24,8 @@
 - Documentation synchronized across `PRODUCT.md`, `PRD.txt`, `tokendock/README.md`, and `docs/auth-quota-hardening-plan.md`.
 
 ## Verification
+
+**These are this slice's figures, measured 2026-09-23.** They are historical.
 
 - `flutter test --no-pub`: **227/227 passed**.
 - Focused suites: AppState 20/20, RefreshService 24/24, ConnectionsScreen 27/27, provider OAuth 21/21.
