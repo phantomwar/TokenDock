@@ -38,23 +38,24 @@ class TokenDockColors {
   final Color statusLimited;
   final Color statusUpdating;
   final Color quotaFill;
+
   /// Every color in the ramp, for opacity/readability audits in tests.
   List<Color> get values => <Color>[
-        canvas,
-        surface,
-        mutedSurface,
-        ink,
-        mutedInk,
-        hairline,
-        lime,
-        limeInk,
-        statusNormal,
-        statusOk,
-        statusWarning,
-        statusLimited,
-        statusUpdating,
-        quotaFill,
-      ];
+    canvas,
+    surface,
+    mutedSurface,
+    ink,
+    mutedInk,
+    hairline,
+    lime,
+    limeInk,
+    statusNormal,
+    statusOk,
+    statusWarning,
+    statusLimited,
+    statusUpdating,
+    quotaFill,
+  ];
 }
 
 abstract final class TokenDockTheme {
@@ -75,6 +76,13 @@ abstract final class TokenDockTheme {
     quotaFill: Color(0xFF1769C2),
   );
 
+  /// Dark counterpart of [light], not an inverted copy of it.
+  ///
+  /// The status accents are lightened here so they clear WCAG 2.2 AA (4.5:1)
+  /// for text against the dark surfaces. They previously reused the light
+  /// ramp verbatim, which left "Connected", "Degraded", "Limited" and the
+  /// quota blue between 3.06:1 and 3.29:1 on [surface]. Each keeps its
+  /// semantic hue so the label and glyph still read as green/amber/red/blue.
   static const TokenDockColors dark = TokenDockColors(
     canvas: Color(0xFF151419),
     surface: Color(0xFF1E1D23),
@@ -84,11 +92,11 @@ abstract final class TokenDockTheme {
     hairline: Color(0xFF393640),
     lime: Color(0xFFC8F54A),
     limeInk: Color(0xFF182000),
-    statusNormal: Color(0xFF1769C2),
-    statusOk: Color(0xFF087A4C),
-    statusWarning: Color(0xFFA85A00),
-    statusLimited: Color(0xFFC33737),
-    statusUpdating: Color(0xFF6C6A73),
+    statusNormal: Color(0xFF8AB8FF),
+    statusOk: Color(0xFF34A853),
+    statusWarning: Color(0xFFE8A33D),
+    statusLimited: Color(0xFFF26D6D),
+    statusUpdating: Color(0xFFB6B2BD),
     quotaFill: Color(0xFF8AB8FF),
   );
 
@@ -170,31 +178,31 @@ abstract final class TokenDockTypography {
 
   /// Numeric quota figures with tabular lining so values do not jitter.
   static TextStyle quotaStyle({Color? color}) => TextStyle(
-        fontFamily: fontFamily,
-        fontSize: 13,
-        fontWeight: FontWeight.w500,
-        color: color,
-        fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-      );
+    fontFamily: fontFamily,
+    fontSize: 13,
+    fontWeight: FontWeight.w500,
+    color: color,
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+  );
 
   static TextStyle titleStyle({Color? color}) => TextStyle(
-        fontFamily: fontFamily,
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-        color: color,
-      );
+    fontFamily: fontFamily,
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    color: color,
+  );
 
   static TextStyle bodyStyle({Color? color}) => TextStyle(
-        fontFamily: fontFamily,
-        fontSize: 14,
-        fontWeight: FontWeight.w400,
-        color: color,
-      );
+    fontFamily: fontFamily,
+    fontSize: 14,
+    fontWeight: FontWeight.w400,
+    color: color,
+  );
 
   static TextStyle captionStyle({Color? color}) => TextStyle(
-        fontFamily: fontFamily,
-        fontSize: 12,
-        fontWeight: FontWeight.w400,
-        color: color,
-      );
+    fontFamily: fontFamily,
+    fontSize: 12,
+    fontWeight: FontWeight.w400,
+    color: color,
+  );
 }

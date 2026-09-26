@@ -747,6 +747,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = TokenDockTheme.colorsOf(context);
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: ConstrainedBox(
@@ -881,18 +882,17 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                         children: [
                           Row(
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.check_circle,
-                                color: Colors.green,
+                                color: colors.statusOk,
                                 size: 18,
                               ),
                               const SizedBox(width: 6),
                               Text(
                                 _connectedMessage!,
-                                style: const TextStyle(
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                style: TokenDockTypography.bodyStyle(
+                                  color: colors.statusOk,
+                                ).copyWith(fontWeight: FontWeight.w600),
                               ),
                             ],
                           ),
@@ -934,16 +934,18 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
                       padding: const EdgeInsets.symmetric(vertical: 8.0),
                       child: Row(
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.error_outline,
-                            color: Colors.red,
+                            color: colors.statusLimited,
                             size: 18,
                           ),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               _errorMessage!,
-                              style: const TextStyle(color: Colors.red),
+                              style: TokenDockTypography.bodyStyle(
+                                color: colors.statusLimited,
+                              ),
                             ),
                           ),
                         ],
