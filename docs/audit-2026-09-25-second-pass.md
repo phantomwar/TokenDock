@@ -354,11 +354,36 @@ Cada item foi feito em RED→GREEN, com o teste visto falhar antes do fix.
    previsto na spec. Por isso A.3 precisou de um segundo single-flight, no
    provider, com chave = segredo apresentado.
 
-4. **Uma asserção minha estava errada.** Exigi 3:1 do `hairline`, que é um
-   divisor decorativo de 1px a 1,2:1 no light. O WCAG 1.4.11 isenta decoração, e
-   a 3:1 num canvas quase branco leria como borda pesada. O requisito real é o
-   `quotaFill` e o anel de foco. O teste foi corrigido para high contrast, onde
-   o hairline é fronteira estrutural.
+4. **C-05 estava exagerado, e o TDD refutou metade da análise.** Ver abaixo.
+
+5. **C-05 tinha um defeito pior e não documentado.** No caminho de
+   cancelamento a compensação era
+   `try { await repo.delete(id); } finally { await store.delete(ref); }`.
+   Um repositório que recusasse o delete reportava **"delete refused"** ao
+   chamador em vez do cancelamento pedido — a UI mostraria uma falha de
+   storage por um login que o usuário cancelou de propósito. É o defeito
+   realmente demonstrável, e não estava no achado original.
+
+### C-05 revisado: o que a evidência mostrou
+
+A hipótese original era que os `await Future<void>.value()` tornavam o
+cancelamento dependente de timing. O teste RED — cancelar de forma síncrona
+assim que o login resolve, repetido 25 vezes — **passou contra o código antigo**.
+Microtasks rodam em FIFO: quando o cancelamento é entregue antes de um `await`
+real, o callback dele já está enfileirado à frente da continuação, e o check o
+observa. A lacuna de determinismo era **mais estreita do que afirmei**.
+
+O que restou de verdadeiro e verificável:
+
+- Três checks consecutivos (`:547`, `:550`, `:556`) testavam a mesma flag sem
+  nenhuma operação entre eles — código morto por construção.
+- O mascaramento da compensação acima, que é o bug real.
+- A ausência de um invariante declarado: agora toda saída passa por um único
+  `_discardPartialConnection`, então uma conexão parcialmente commitada não
+  pode sobreviver por construção, e não por sorte.
+
+O cancelamento passou a ser observado uma vez por fronteira de commit,
+imediatamente após um `await` real, que é onde a ordem é garantida.
 
 ---
 
@@ -370,7 +395,7 @@ Cada item foi feito em RED→GREEN, com o teste visto falhar antes do fix.
 | C-02 | P0 | DDL e `user_version` não atômicos → app não abre | `migration_00{1,2,3}.dart` | ✅ `1e144e1` |
 | C-03 | P0 | `DateTime.parse` sem `tryParse` → 1 linha ruins todas | `quota_cache_repository.dart:25` | ✅ `1e144e1` |
 | C-04 | P0 | Revogação incondicional → race destrói credencial | `antigravity_oauth.dart:667-670` | ✅ `f477ac9` |
-| C-05 | P0 | Cancelamento por loteria de microtask | `app_state.dart:546-593` |
+| C-05 | P0 | Cancelamento por loteria de microtask | `app_state.dart:546-593` | ✅ compensação não mascara mais o cancelamento |
 | C-06 | P1 | Status colors dark = light → 3,1:1 (AA falha) | `theme.dart:78-93` | ✅ `91b8840` |
 | C-07 | P1 | `Colors.green`/`red` hardcoded → 2,78:1 | `connections_screen.dart:886-946` | ✅ `91b8840` |
 | C-08 | P1 | "Last updated" nunca atualiza | `token_dock_widget.dart:56-69` |
