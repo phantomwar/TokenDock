@@ -143,9 +143,14 @@ class _LoadFailingRepository implements ConnectionRepository {
   @override
   Future<List<Connection>> getAll() async {
     reads++;
-    if (reads == 2) throw StateError('load failed');
+    // Fails the load() that follows a reconnect commit. The single-connection
+    // pre-read now uses getById, so the load is the first getAll.
+    if (reads == 1) throw StateError('load failed');
     return delegate.getAll();
   }
+
+  @override
+  Future<Connection?> getById(String id) => delegate.getById(id);
 
   @override
   Future<void> save(Connection connection) => delegate.save(connection);
@@ -161,9 +166,14 @@ class _RestoreFailingRepository implements ConnectionRepository {
   @override
   Future<List<Connection>> getAll() async {
     reads++;
-    if (reads == 2) throw StateError('load failed');
+    // Fails the load() that follows a reconnect commit. The single-connection
+    // pre-read now uses getById, so the load is the first getAll.
+    if (reads == 1) throw StateError('load failed');
     return delegate.getAll();
   }
+
+  @override
+  Future<Connection?> getById(String id) => delegate.getById(id);
 
   @override
   Future<void> save(Connection connection) async {
@@ -194,6 +204,9 @@ class _LoadGateRepository implements ConnectionRepository {
     }
     return delegate.getAll();
   }
+
+  @override
+  Future<Connection?> getById(String id) => delegate.getById(id);
 
   @override
   Future<void> save(Connection connection) => delegate.save(connection);

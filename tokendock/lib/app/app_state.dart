@@ -692,8 +692,7 @@ class AppState implements ChangeNotifier {
     if (previous != null) await previous;
     try {
       cancelWatch.throwIfCancelled();
-      final rows = await repo.getAll();
-      final current = rows.where((row) => row.id == existing.id).firstOrNull;
+      final current = await repo.getById(existing.id);
       if (current == null)
         throw StateError('Antigravity connection no longer exists');
       final registered = providerRegistry?.get('antigravity');
@@ -924,8 +923,7 @@ class AppState implements ChangeNotifier {
       );
     }
 
-    final connections = await repo.getAll();
-    final target = connections.where((c) => c.id == id).firstOrNull;
+    final target = await repo.getById(id);
 
     // 1: Delete in database first
     await repo.delete(id);
@@ -959,8 +957,7 @@ class AppState implements ChangeNotifier {
         'connectionRepository must not be null to toggle connection.',
       );
     }
-    final connections = await repo.getAll();
-    final target = connections.where((c) => c.id == id).firstOrNull;
+    final target = await repo.getById(id);
     if (target == null) return;
 
     final updated = Connection(

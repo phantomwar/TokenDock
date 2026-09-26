@@ -124,6 +124,9 @@ class _SqlFailingRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() => inner.getAll();
 
   @override
+  Future<Connection?> getById(String id) => inner.getById(id);
+
+  @override
   Future<void> save(Connection connection) async {
     throw const _SqlException(
       'SQL logic error (code 1) no such table: connections. '
@@ -183,6 +186,13 @@ class _MemoryConnections implements ConnectionRepository {
   final List<Connection> rows = [_connection];
   @override
   Future<List<Connection>> getAll() async => List.of(rows);
+  @override
+  Future<Connection?> getById(String id) async {
+    for (final row in rows) {
+      if (row.id == id) return row;
+    }
+    return null;
+  }
   @override
   Future<void> save(Connection connection) async {
     rows.removeWhere((r) => r.id == connection.id);

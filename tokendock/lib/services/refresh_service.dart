@@ -265,10 +265,7 @@ class RefreshService {
       var effectiveConnection = connection;
       var effectiveSecret = secret;
       if (preferStoredSecret) {
-        final connections = await _connectionRepository.getAll();
-        final stored = connections
-            .where((value) => value.id == connection.id)
-            .firstOrNull;
+        final stored = await _connectionRepository.getById(connection.id);
         if (stored != null) {
           effectiveConnection = stored;
           effectiveSecret =
@@ -324,10 +321,7 @@ class RefreshService {
       ),
     );
 
-    final connections = await _connectionRepository.getAll();
-    final foundConnection = connections
-        .where((c) => c.id == connectionId)
-        .firstOrNull;
+    final foundConnection = await _connectionRepository.getById(connectionId);
     if (foundConnection == null) {
       _publishSnapshot(
         ProviderSnapshot(
@@ -834,6 +828,14 @@ class _InMemoryConnectionRepository implements ConnectionRepository {
 
   @override
   Future<List<Connection>> getAll() async => List.unmodifiable(_connections);
+
+  @override
+  Future<Connection?> getById(String id) async {
+    for (final row in _connections) {
+      if (row.id == id) return row;
+    }
+    return null;
+  }
 
   @override
   Future<void> save(Connection connection) async {

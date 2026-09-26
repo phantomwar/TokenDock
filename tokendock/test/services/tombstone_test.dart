@@ -26,6 +26,10 @@ class _ConnectionRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() async => [connection];
 
   @override
+  Future<Connection?> getById(String id) async =>
+      connection.id == id ? connection : null;
+
+  @override
   Future<void> save(Connection connection) async {
     this.connection = connection;
   }

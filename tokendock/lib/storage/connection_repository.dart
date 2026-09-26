@@ -6,6 +6,14 @@ import 'package:tokendock/storage/secret_store.dart';
 
 abstract interface class ConnectionRepository {
   Future<List<Connection>> getAll();
+
+  /// Single-connection lookup.
+  ///
+  /// Present so a per-connection operation does not have to load and filter the
+  /// whole table. Without it, refreshing N connections issued N+1 full reads
+  /// per cycle (audit C-16), which grows with the account count on a timer.
+  Future<Connection?> getById(String id);
+
   Future<void> save(Connection connection);
   Future<void> delete(String id);
 }
@@ -21,20 +29,19 @@ class SqliteConnectionRepository implements ConnectionRepository {
       'connections',
       orderBy: 'sort_order ASC, created_at ASC',
     );
-    return rows.map((row) {
-      return Connection(
-        id: row['id'] as String,
-        provider: row['provider'] as String,
-        displayName: row['display_name'] as String,
-        group: row['group_name'] as String?,
-        plan: row['plan'] as String?,
-        credentialRef: row['secret_ref'] as String,
-        enabled: (row['enabled'] as int? ?? 1) == 1,
-        authType: row['auth_type'] as String?,
-        identityKey: row['identity_key'] as String?,
-        providerData: row['provider_data'] as String?,
-      );
-    }).toList();
+    return rows.map(_toConnection).toList();
+  }
+
+  @override
+  Future<Connection?> getById(String id) async {
+    final rows = await _db.query(
+      'connections',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _toConnection(rows.first);
   }
 
   @override
@@ -93,8 +100,20 @@ class SqliteConnectionRepository implements ConnectionRepository {
   }
 }
 
-String? _sanitizeProviderData(String? value) {
-  if (value == null || value.isEmpty) return value;
+Connection _toConnection(Map<String, Object?> row) => Connection(
+      id: row['id'] as String,
+      provider: row['provider'] as String,
+      displayName: row['display_name'] as String,
+      group: row['group_name'] as String?,
+      plan: row['plan'] as String?,
+      credentialRef: row['secret_ref'] as String,
+      enabled: (row['enabled'] as int? ?? 1) == 1,
+      authType: row['auth_type'] as String?,
+      identityKey: row['identity_key'] as String?,
+      providerData: row['provider_data'] as String?,
+    );
+
+String? _sanitizeProviderData(String? value) {  if (value == null || value.isEmpty) return value;
   try {
     final decoded = jsonDecode(value);
     if (decoded is! Map) return null;

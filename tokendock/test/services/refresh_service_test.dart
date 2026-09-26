@@ -30,6 +30,14 @@ class _FakeConnectionRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() async => List.unmodifiable(_connections);
 
   @override
+  Future<Connection?> getById(String id) async {
+    for (final row in _connections) {
+      if (row.id == id) return row;
+    }
+    return null;
+  }
+
+  @override
   Future<void> save(Connection connection) async {
     _connections.removeWhere((c) => c.id == connection.id);
     _connections.add(connection);

@@ -27,6 +27,9 @@ class FailingConnectionRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() async => [];
 
   @override
+  Future<Connection?> getById(String id) async => null;
+
+  @override
   Future<void> save(Connection connection) async {
     throw Exception('Database write failed');
   }

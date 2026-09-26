@@ -86,6 +86,9 @@ class MemoryConnectionRepository implements ConnectionRepository {
   }
 
   @override
+  Future<Connection?> getById(String id) async => _storage[id];
+
+  @override
   Future<void> save(Connection connection) async {
     _storage[connection.id] = connection;
   }
