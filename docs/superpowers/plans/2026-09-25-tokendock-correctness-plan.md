@@ -259,11 +259,11 @@ A spec **proíbe** matching de mensagem. Tentar eliminar, não só reduzir.
 ## Fase D — Fechar a documentação (P3)
 
 - [x] **C-31** — implementar `No key cap` para quota sem limite (spec first-goal `:190`) **ou** corrigir a spec e update os testes. Escolher explicitamente; hoje o usuário vê "Unavailable" numa key **sem** limite, que se lê como erro. Colisão extra: `StatusIndicator` também usa `"Unavailable"`.
-- [ ] **C-32** — `AppCard` e `SectionHeader` são código morto. Ou compor, ou remover e atualizar a spec que os lista como obrigatórios.
-- [ ] **C-33** — unificar `defaultRefreshIntervalMinutes`.
-- [ ] **C-34** — sincronizar: ✅ `PRD.txt` 227→235→366 · ✅ nota de "nenhuma integração real" em `PRODUCT.md`/`README.md` · ⬜ `403` mapping na spec · ⬜ ramp dark na spec (o código já está certo, `91b8840`) · ⬜ tipografia (depende de C-19) · ⬜ formato do masking (`sk-...82AD` vs `sk-••••••••••82AD`) · ⬜ comentários "stub" obsoletos em `tray_controller.dart:66,122`.
-- [ ] **C-35** — testes que faltam: `limit == 0` · boundaries 330/550 · string `Unavailable` · paridade entre densidades. Já cobertos: `reset_at` corrompido (A.6) e `formatRelativeAge` (B.3).
-- [ ] **C-36** — trocar `Future.delayed` reais por `fakeAsync`/`pump`; subir o budget de socket de 250ms para 2s.
+- [x] **C-32** — `AppCard` e `SectionHeader` removidos. A spec first-goal listava-os como obrigatórios, mas o sistema visual migrou para um único contentor *card-free* (`WidgetShell`), e o próprio doc do `AppCard` afirmava ser "the one shell surface" quando o `WidgetShell` o era. Compor tê-los-ia reintroduzido o chrome de cards que o design eliminou; a spec regista agora a supersessão. `14f6979`
+- [x] **C-33** — `SqliteSettingsRepository.defaultRefreshIntervalMinutes` duplicado face à constante de topo; removido. `14f6979`
+- [x] **C-34** — sincronizado: ✅ contagens · ✅ nota de "nenhuma integração real" · ✅ **masking** (`sk-...` passou a `sk-` + 10 bullets fixos, como a spec; o glifo é `'\u2022'` porque um literal não-ASCII é corrompido em silêncio por ferramentas que adivinham o encoding) · ✅ **403** (a spec estava errada: mapeava 401 *e* 403 para `authError`; só 401 invalida credencial) · ✅ **ramp dark** (acentos escuros agora especificados com o valor medido) · ✅ **tipografia** (C-19, `b853186`) · ✅ **comentários "stub"** em `tray_controller.dart` (já não são stubs; estão ligados em `main.dart`). `75b7ef5`
+- [x] **C-35** — testes que faltam: ✅ `limit == 0` (era um bug vivo: renderizava `5/0 USD`) · ✅ boundaries 330/550 · ✅ paridade entre densidades (`density_parity_test.dart`) · ✅ `Unavailable` (já coberto). Já cobertos: `reset_at` corrompido (A.6) e `formatRelativeAge` (B.3). `757aa09`
+- [x] **C-36** — ✅ budget de socket 250ms → 2s, com nome e a nota de que é uma guarda de vivacidade e não um orçamento de performance · ✅ não restam `Future.delayed` reais na suite. `757aa09`
 - [x] Atualizar `PRODUCT.md` §Implementation Status e `tokendock/README.md` com a contagem real e com uma nota de que **nenhuma integração real** foi exercida.
 
 ---
@@ -288,11 +288,11 @@ Ordem **planejada** (válida para quem retomar) e o que de fato aconteceu:
 | B.6 redação | ⚠️ 3/7 — `StorageFailure` descartado de propósito, DPAPI real em aberto | `ca749bf` |
 | B.7 loopback | ✅ | `daf4af0` |
 | C.1 N+1 | ✅ 5/5 — o índice em `connections(sort_order, created_at)` foi criado em C-23 | `ba67afd`, `d2b8467`, `6b93b7b` |
-| C.2 paridade | ✅ 4/4 | `e353e9f`, `ddd03f7` |
-| C.3 tick | ⚠️ 1/4 — só o intervalo; tipografia em aberto (C-19) | `e353e9f` |
+| C.2 paridade | ✅ 4/4 | ``e353e9f``, ``ddd03f7`` |
+| C.3 tick e tipografia | ✅ 4/4 | ``e353e9f``, ``b853186`` |
 | C.4 schema | ⚠️ 4/7 — C-23 e C-18 fechados; falta C-28 e C-29/C-30 | `841eede`, `6b93b7b` |
 | C.5 notifier | ✅ 3/3 | `3705170` |
-| D.1 documentação | ⚠️ 2/7 | `4faea73` + este commit |
+| D.1 documentação | ✅ 7/7 | ``4faea73``, ``35cddde``, ``1fd84aa``, ``75b7ef5`` |
 
 **Sequenciamento interno:** B.1 e B.2 são ~30 minutos cada e transformam 2 reprovações medidas em verde — o melhor custo/benefício do plano. A.1 e A.4 são as únicas tarefas que **não** devem ser delegadas nem paralelizadas, porque tocam concorrência de socket e compensação de escrita.
 

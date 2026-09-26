@@ -159,10 +159,13 @@ Ordered by value. Each item names the audit ID it closes.
    line, so the footer cannot drift again. Compact renders errors — decided with
    the maintainer, on the grounds that a stale number presented as current breaks
    cache-first truth. `test/ui/density_parity_test.dart` pins the parity.
-3. **C-19, typography against the spec.** The design spec requires 11/13/15/18/22px
-   steps and 20px semibold quota figures. `theme.dart` ships 13px w500 quota
-   figures, 13px w600 titles, 14px body, 12px caption, and no 18px or 22px step.
-   This is a visual change and needs a design pass, not a mechanical edit.
+3. ~~**C-19, typography against the spec.**~~ **Closed at `b853186`.** The ramp is
+   now the spec's 11/13/15/18/22 with 20px semibold tabular figures, every step
+   a named token. The two roles that had no token were `copyWith` overrides at
+   the call site, which is how the ramp drifted unnoticed. The countdown got its
+   own step: sharing `quotaStyle` would have made "resets in 2h 15m" shout as
+   loudly as the figure it annotates, in the one density where that figure
+   already competes for space.
 4. ~~**C-24, `AppState` notifier.**~~ **Closed at `3705170`.** `AppState` is a
    real `ChangeNotifier` and owns its own listener list. The `Expando`, the
    `_StateNotifier` delegate and the const constructors are gone.
@@ -171,18 +174,34 @@ Ordered by value. Each item names the audit ID it closes.
    built **in the constructor**, not in `build`. Building a fresh `AppState` per
    build would look correct and would silently drop the `ListenableBuilder`'s
    subscription every time an ancestor rebuilt.
-5. **C-26, C-27, dead code.** `redactHeaders` and `redactUrl` in
-   `log_redaction.dart` and `isDefinitiveOAuthFailure` in
-   `credential_events.dart` have no callers. `_credential` is duplicated in
-   `antigravity_oauth.dart` at two sites. Either wire or delete.
-6. **C-29, C-30, cleanup.** `deleteSync` in a `finally` can mask the agy timeout
-   and leak the temp directory. `_loadedRawSecret` is never cleared in the
-   dialog's `dispose`.
-7. **C-28, C-32, C-33, C-34, C-35, C-36, smaller items.** Dual representation of
-   `AuthKind` versus raw `'oauth'`/`'none'` strings; `AppCard` and
-   `SectionHeader` are never instantiated though the spec requires them;
-   `defaultRefreshIntervalMinutes` is declared twice; remaining documentation
-   drift; and the test gaps and real-wall-clock waits listed in the audit.
+5. ~~**C-26, C-27, dead code.**~~ **Closed at `45aad6c`.** `redactHeaders`,
+   `redactUrl` and `isDefinitiveOAuthFailure` are deleted; each had no
+   production caller and existed only alongside tests that exercised it, which
+   is the worst kind of dead code. The duplicated `_credential` was worse than
+   duplication: one copy threw `credentialUnreadable` and the other silently
+   returned `{}`, so the C-10 tightening had left the second one swallowing.
+   Both now delegate to one pair of functions whose names state the difference.
+6. ~~**C-29, C-30, cleanup.**~~ **Closed at `f43e27b`.** A throw from a
+   `finally` was discarding the snapshot the `try` was about to return, so a
+   locked temp directory turned a good quota read into a `FileSystemException`.
+   Cleanup is now injected and swallows failures. The dialog no longer keeps a
+   plaintext credential in a `State` field: `RefreshService.testAdapter`
+   re-reads it from the store anyway, so the copy was only ever a fallback for a
+   store read that had already failed.
+7. ~~**C-28, C-32, C-33, C-34, C-35, C-36.**~~ **Closed across `14f6979`,
+   `75b7ef5` and `757aa09`.** `auth_type` is derived from `AuthKind` and guarded
+   by a source guard; `AppCard` and `SectionHeader` are deleted and the spec now
+   records that the design moved to a card-free shell; the duplicated
+   `defaultRefreshIntervalMinutes` is gone; the masked credential format now
+   matches the spec's bullet run; `limit == 0` reads as `No key cap`; the 330/550
+   breakpoints are pinned; and the 250ms socket budget is a named 2s liveness
+   guard.
+
+### The whole audit is closed
+
+All 36 findings are done. What is left is not code: `flutter build windows
+--release` and `integration_test/multi_account_flow_test.dart` have still never
+been run in this environment, and both need the full Windows toolchain.
 
 ### Carry-over risks worth knowing
 

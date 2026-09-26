@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -9,6 +11,8 @@ import 'providers/antigravity/antigravity_local.dart';
 import 'providers/provider_registry.dart';
 import 'storage/database.dart';
 import 'storage/secure_secret_store.dart';
+import 'ui/boot_failure.dart';
+import 'ui/maintenance.dart';
 import 'ui/settings/connections_screen.dart';
 
 Future<void> main() async {
@@ -30,15 +34,39 @@ Future<void> main() async {
   });
   await windowManager.setPreventClose(true);
 
-  final db = await AppDatabase.open();
+  // A failure here used to escape `main` before `runApp`, killing the process
+  // with no window and no message (plan A.5). The cause is logged, never shown:
+  // a raw exception can carry SQL or a file path.
+  final AppDatabase? database = await openOrSurface<AppDatabase?>(
+    open: AppDatabase.open,
+    surface: (error) {
+      debugPrint('TokenDock: database open failed: $error');
+      return null;
+    },
+  );
+
+  if (database == null) {
+    runApp(
+      BootFailureApp(
+        onRetry: () async {
+          await _relaunch();
+        },
+        onExit: () async {
+          await windowManager.destroy();
+        },
+      ),
+    );
+    return;
+  }
+
   final secretStore = SecureSecretStore();
   final antigravityLocalRuntime = AntigravityLocalRuntimeConfig();
   final appState = AppState(
-    connectionRepository: db.connectionRepository,
-    connectionHealthRepository: db.connectionHealthRepository,
-    quotaCacheRepository: db.quotaCacheRepository,
+    connectionRepository: database.connectionRepository,
+    connectionHealthRepository: database.connectionHealthRepository,
+    quotaCacheRepository: database.quotaCacheRepository,
     secretStore: secretStore,
-    settingsRepository: db.settingsRepository,
+    settingsRepository: database.settingsRepository,
     providerRegistry: ProviderRegistry(
       secretStore: secretStore,
       antigravityLocalRuntime: antigravityLocalRuntime,
@@ -74,4 +102,17 @@ Future<void> main() async {
       navigatorKey: navigatorKey,
     ),
   );
+}
+
+/// Restarts the process.
+///
+/// Retrying the open in place would keep a half-initialised window manager, tray
+/// icon and plugin set alive from the failed attempt, and the file handle that
+/// caused the failure is the sort of thing a clean process lets go of. A
+/// relaunch is the honest retry.
+Future<void> _relaunch() async {
+  await windowManager.destroy();
+  final executable = File(Platform.resolvedExecutable).path;
+  Process.run(executable, const <String>[], runInShell: false);
+  exit(0);
 }
