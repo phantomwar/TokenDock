@@ -154,10 +154,11 @@ Ordered by value. Each item names the audit ID it closes.
    § Open question below for why the pragma is applied after the migrations
    rather than through `onConfigure`, which is the part that is easy to get
    wrong on a future schema change.
-2. **C-22, density parity.** `_buildCompact`, `_buildNormal` and
-   `_buildExpanded` duplicate their preamble and footer. Compact does not render
-   `snapshot.error` while the other two do, and no test asserts that asymmetry.
-   Decide whether compact should show errors, then extract the shared parts.
+2. ~~**C-22, density parity.**~~ **Closed at `ddd03f7`.** The three densities
+   now share one frame (`_buildAccounts`) that owns the cache age and the error
+   line, so the footer cannot drift again. Compact renders errors — decided with
+   the maintainer, on the grounds that a stale number presented as current breaks
+   cache-first truth. `test/ui/density_parity_test.dart` pins the parity.
 3. **C-19, typography against the spec.** The design spec requires 11/13/15/18/22px
    steps and 20px semibold quota figures. `theme.dart` ships 13px w500 quota
    figures, 13px w600 titles, 14px body, 12px caption, and no 18px or 22px step.

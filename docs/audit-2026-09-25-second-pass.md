@@ -476,7 +476,7 @@ imediatamente após um `await` real, que é onde a ordem é garantida.
 | C-19 | P2 | Tipografia não bate com a spec | `theme.dart:172-199` |
 | C-20 | P2 | Quota primária em `mutedInk` | `quota_row.dart:45-46` | ✅ `e353e9f` |
 | C-21 | P2 | Tick 1s × N contra meta CPU≈0% | `countdown_text.dart:21` | ✅ `e353e9f` |
-| C-22 | P2 | 3 builders duplicados + erro ausente em compact | `token_dock_widget.dart:211-367` |
+| C-22 | P2 | 3 builders duplicados + erro ausente em compact | `token_dock_widget.dart:211-367` | ✅ `ddd03f7` |
 | C-23 | P2 | Sem FK; índice redundante; coluna morta | `migration_001.dart` | ✅ `6b93b7b` |
 | C-24 | P2 | `Expando` estático + `const` → notifier compartilhado | `app_state.dart:176-185` |
 | C-25 | P1 | Set ilimitado de refresh tokens em claro | `antigravity_oauth.dart:113` | ✅ `f477ac9` |
@@ -496,12 +496,20 @@ imediatamente após um `await` real, que é onde a ordem é garantida.
 
 | Situação | Qtd | IDs |
 |---|---|---|
-| ✅ Fechado | 23 | C-01 C-02 C-03 C-04 C-05 C-06 C-07 C-08 C-09 C-10 C-11 C-12 C-13 C-14 C-15 C-16 C-17 C-18 C-20 C-21 C-23 C-25 C-31 |
-| ⬜ Aberto | 13 | C-19 C-22 C-24 C-26 C-27 C-28 C-29 C-30 C-32 C-33 C-34 C-35 C-36 |
+| ✅ Fechado | 24 | C-01 C-02 C-03 C-04 C-05 C-06 C-07 C-08 C-09 C-10 C-11 C-12 C-13 C-14 C-15 C-16 C-17 C-18 C-20 C-21 C-22 C-23 C-25 C-31 |
+| ⬜ Aberto | 12 | C-19 C-24 C-26 C-27 C-28 C-29 C-30 C-32 C-33 C-34 C-35 C-36 |
 
-**Todos os P0 (5/5) e P1 (11/11) estão fechados.** Os 13 abertos são P2 e P3, exceto
-C-19, C-22 e C-24, que são os três de maior valor: tipografia contra a
-spec, paridade entre densidades e o notifier compartilhado por `Expando`.
+**Todos os P0 (5/5) e P1 (11/11) estão fechados.** Os 12 abertos são P2 e P3, exceto
+C-19 e C-24, que são os dois de maior valor: tipografia contra a spec e o
+notifier compartilhado por `Expando`.
+
+**O que C-22 revelou.** A duplicação dos 3 builders já tinha causado dano real:
+compact tinha deixado de renderizar a linha de erro, pelo que uma conta em
+falha mostrava um número de quota possivelmente com horas de atraso no formato
+default, sem qualquer indicação visível de porquê — enquanto as outras duas
+densidades se explicavam. Nenhum teste afirmava a assimetria, e é por isso que
+sobreviveu como se fosse uma decisão. A assimetria foi resolvida a favor de
+mostrar o erro, e o frame comum passou a ser a única owns do rodapé.
 
 **O que C-23 custou e o que revelou.** O `PRAGMA foreign_keys` é no-op dentro de
 uma transação, o que torna `onConfigure` — a opção que o plano prescrevia —

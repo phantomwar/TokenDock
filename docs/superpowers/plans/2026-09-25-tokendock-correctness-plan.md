@@ -210,16 +210,17 @@ A spec **proíbe** matching de mensagem. Tentar eliminar, não só reduzir.
 - [x] Teste que falha: um contador de queries em `refreshAll()` com 20 conexões deve ver **O(1)** leituras de `connections`, não 21.
 - [x] `load()`: mapear `last_status`/`last_checked_at`/`cooldown_until`/`last_error` no **mesmo** `getAll()` (a coluna já está na tabela — hoje `getAll()` a lê e descarta) e eliminar o `get()` por PK no loop.
 - [x] `quota_cache`: um `WHERE connection_id IN (...)` em vez de N queries.
-- [ ] Índice em `connections(sort_order, created_at)` para o `ORDER BY`.
+- [x] Índice em `connections(sort_order, created_at)` para o `ORDER BY`. `6b93b7b`
 
 ### C.2 · Corrigir a paridade das densidades e a hierarquia visual · **C-20, C-22**
-
 **Files:** `lib/ui/widget/token_dock_widget.dart:211-367` · `lib/ui/components/quota_row.dart:45-46`
 
-- [ ] Extrair o preâmbulo comum (`Divider` + `Focus` + `Semantics`) e o rodapé comum (`Last updated` + erro) num widget único; os 3 builders passam a diferir **só** pelo miolo.
-- [ ] Decidir explicitamente: compact **deve** mostrar erro? Se sim, adicionar + teste. (Hoje não mostra, e nenhum teste afirma a assimetria.)
-- [x] Promover a quota primária: `quotaStyle` em `colors.ink` e não `mutedInk` — é o número que responde a pergunta central do produto.
-- [ ] Teste: os 3 build paths produzem a mesma paridade de conteúdo.
+- [x] Extrair o preâmbulo comum (`Divider` + `Focus` + `Semantics`) e o rodapé comum (`Last updated` + erro) num widget único; os 3 builders passam a diferir **só** pelo miolo. `_buildAccounts(context, accounts, body)`. `ddd03f7`
+  - O gap de cauda fica com cada densidade, porque **difere de facto**: expanded afasta o rodapé por `s8` (empilha todas as quotas), compact e normal por `s4`. Output de normal e expanded inalterado.
+- [x] Decidir explicitamente: compact **deve** mostrar erro? **Sim, decidido com o mantenedor.** O gradiente de densidade passa a ser só sobre o detalhe da quota (1 valor simples · 1 `QuotaRow` · todas). Sem a linha, um utilizador no formato default lia um número possivelmente com horas de atraso apresentado como atual — a *cache-first truth* deixa de funcionar. Custo aceite: compact cresce uma linha exactamente quando o utilizador precisa de agir. `ddd03f7`
+- [x] Promover a quota primária: `quotaStyle` em `colors.ink` e não `mutedInk` — é o número que responde a pergunta central do produto. `e353e9f`
+- [x] Teste: os 3 build paths produzem a mesma paridade de conteúdo. `test/ui/density_parity_test.dart`, table-driven sobre as 3 larguras — 7 testes (a linha de erro em cada densidade, nenhum erro inventado numa conexão saudável, e nome + status expostos a tecnologia assistiva em cada densidade). Cobre também o gap de paridade que C-35 lista. `ddd03f7`
+  - Nota: o `Semantics` aqui não é `container`, logo a anotação funde-se com o texto dos descendentes num só nó. A primeira versão casava o label exacto e falhava nas 3 densidades — era uma expectativa errada no teste, não um bug de produto, confirmado contra `StatusIndicator.labelOf` antes de mudar para regex de prefixo.
 
 ### C.3 · Tipografia e countdown conforme a spec · **C-19, C-21**
 
@@ -283,7 +284,7 @@ Ordem **planejada** (válida para quem retomar) e o que de fato aconteceu:
 | B.6 redação | ⚠️ 3/7 — `StorageFailure` descartado de propósito, DPAPI real em aberto | `ca749bf` |
 | B.7 loopback | ✅ | `daf4af0` |
 | C.1 N+1 | ✅ 5/5 — o índice em `connections(sort_order, created_at)` foi criado em C-23 | `ba67afd`, `d2b8467`, `6b93b7b` |
-| C.2 paridade | ⚠️ 1/4 — só a quota primária | `e353e9f` |
+| C.2 paridade | ✅ 4/4 | `e353e9f`, `ddd03f7` |
 | C.3 tick | ⚠️ 1/4 — só o intervalo; tipografia em aberto (C-19) | `e353e9f` |
 | C.4 schema | ⚠️ 4/7 — C-23 e C-18 fechados; falta C-28 e C-29/C-30 | `841eede`, `6b93b7b` |
 | C.5 notifier | ⬜ não iniciado (C-24) | — |
