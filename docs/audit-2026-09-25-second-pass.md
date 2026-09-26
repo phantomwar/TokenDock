@@ -1,6 +1,6 @@
 # TokenDock — Auditoria de segunda passagem
 
-**Data:** 2026-09-25 · **Branch:** `master` @ `0f5205e` · **Método:** leitura integral de `PRD.txt`, `PRODUCT.md`, 2 specs, 3 plans, 1 checkpoint, 2 docs de pesquisa; leitura de 100% de `lib/` (7.122 linhas) e inspeção de `test/`; verificação reproduzida de `flutter test` e `flutter analyze`; cálculo de contraste WCAG por script.
+**Data:** 2026-09-25 · **Execução:** 2026-09-26 · **Branch:** `master` (`0f5205e` na auditoria, `9ae626f` ao fim da execução) · **Método:** leitura integral de `PRD.txt`, `PRODUCT.md`, 2 specs, 3 plans, 1 checkpoint, 2 docs de pesquisa; leitura de 100% de `lib/` (7.122 linhas) e inspeção de `test/`; verificação reproduzida de `flutter test` e `flutter analyze`; cálculo de contraste WCAG por script.
 
 > Documento companions: `docs/superpowers/plans/2026-09-25-tokendock-correctness-plan.md` (plano de correção) e os 3 docs de pesquisa já existentes. Este documento **não substitui** a spec; ele registra onde a spec e o código divergem.
 
@@ -464,18 +464,18 @@ imediatamente após um `await` real, que é onde a ordem é garantida.
 | C-07 | P1 | `Colors.green`/`red` hardcoded → 2,78:1 | `connections_screen.dart:886-946` | ✅ `91b8840` |
 | C-08 | P1 | "Last updated" nunca atualiza | `token_dock_widget.dart:56-69` | ✅ `b1ba687` |
 | C-09 | P1 | `runTokenOperation` morto → sem single-flight | `refresh_service.dart:225-236` | ✅ `a4f902c` |
-| C-10 | P1 | `_credential` mascar credencial corrompida | `antigravity_oauth.dart:808-814` |
-| C-11 | P1 | Regex de mensagem — proibido pela spec | `credential_events.dart:26-32` |
-| C-12 | P1 | `$e` cru na UI, sem redaction | `connections_screen.dart:589,742,155` |
+| C-10 | P1 | `_credential` mascar credencial corrompida | `antigravity_oauth.dart:808-814` | ✅ `44bcf25` |
+| C-11 | P1 | Regex de mensagem — proibido pela spec | `credential_events.dart:26-32` | ✅ `44bcf25` |
+| C-12 | P1 | `$e` cru na UI, sem redaction | `connections_screen.dart:589,742,155` | ✅ `ca749bf` |
 | C-13 | P1 | Sanitizador cego a token | `connection_repository.dart:106-112` | ✅ `1e144e1` |
 | C-14 | P1 | `shared: true` no loopback IPv6 | `oauth_loopback.dart:36-40` | ✅ `daf4af0` |
-| C-15 | P1 | Exceções SQLite vazam SQL | `connections_screen.dart:742` |
-| C-16 | P2 | N+1: `getAll()` no loop de refresh | `refresh_service.dart:308` |
-| C-17 | P2 | Health re-buscada though same row | `app_state.dart:291` |
-| C-18 | P2 | PowerShell sem timeout/cap no fetch | `antigravity_local.dart:169-173` |
+| C-15 | P1 | Exceções SQLite vazam SQL | `connections_screen.dart:742` | ✅ `ca749bf` |
+| C-16 | P2 | N+1: `getAll()` no loop de refresh | `refresh_service.dart:308` | ✅ `ba67afd` |
+| C-17 | P2 | Health re-buscada though same row | `app_state.dart:291` | ✅ `d2b8467` |
+| C-18 | P2 | PowerShell sem timeout/cap no fetch | `antigravity_local.dart:169-173` | ✅ `841eede` |
 | C-19 | P2 | Tipografia não bate com a spec | `theme.dart:172-199` |
-| C-20 | P2 | Quota primária em `mutedInk` | `quota_row.dart:45-46` |
-| C-21 | P2 | Tick 1s × N contra meta CPU≈0% | `countdown_text.dart:21` |
+| C-20 | P2 | Quota primária em `mutedInk` | `quota_row.dart:45-46` | ✅ `e353e9f` |
+| C-21 | P2 | Tick 1s × N contra meta CPU≈0% | `countdown_text.dart:21` | ✅ `e353e9f` |
 | C-22 | P2 | 3 builders duplicados + erro ausente em compact | `token_dock_widget.dart:211-367` |
 | C-23 | P2 | Sem FK; índice redundante; coluna morta | `migration_001.dart` |
 | C-24 | P2 | `Expando` estático + `const` → notifier compartilhado | `app_state.dart:176-185` |
@@ -485,9 +485,24 @@ imediatamente após um `await` real, que é onde a ordem é garantida.
 | C-28 | P2 | `AuthKind` vs strings sem validação | `app_state.dart:432,810` |
 | C-29 | P2 | `deleteSync` mascara timeout | `antigravity_local.dart:543-545` |
 | C-30 | P2 | Segredo cru retido no widget | `connections_screen.dart:376-385` |
-| C-31 | P3 | "No key cap" → "Unavailable" | `quota_row.dart:21` |
+| C-31 | P3 | "No key cap" → "Unavailable" | `quota_row.dart:21` | ✅ `4faea73` |
 | C-32 | P3 | `AppCard`/`SectionHeader` mortos | `app_card.dart:10` |
 | C-33 | P3 | `defaultRefreshIntervalMinutes` duplicado | `settings_repository.dart:9,42` |
 | C-34 | P3 | Drift de documentação (8 itens) | ver tabela §2 P3 |
 | C-35 | P3 | 1 asserção de contraste; 2 invariantes sem teste | `theme_test.dart` |
 | C-36 | P3 | Flake: sleeps reais + sockets de 250ms | `refresh_service_test.dart` |
+
+### 4.1 Consolidado
+
+| Situação | Qtd | IDs |
+|---|---|---|
+| ✅ Fechado | 22 | C-01 C-02 C-03 C-04 C-05 C-06 C-07 C-08 C-09 C-10 C-11 C-12 C-13 C-14 C-15 C-16 C-17 C-18 C-20 C-21 C-25 C-31 |
+| ⬜ Aberto | 14 | C-19 C-22 C-23 C-24 C-26 C-27 C-28 C-29 C-30 C-32 C-33 C-34 C-35 C-36 |
+
+**Todos os P0 (5/5) e P1 (11/11) estão fechados.** Os 14 abertos são P2 e P3, exceto
+C-19, C-22, C-23 e C-24, que são os quatro de maior valor: tipografia contra a
+spec, paridade entre densidades, integridade de schema e o notifier compartilhado
+por `Expando`.
+
+Ordem de retomada, com o raciocínio, em
+`docs/checkpoints/2026-09-26-correctness-checkpoint.md` § Resume checklist.
