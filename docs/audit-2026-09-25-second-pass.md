@@ -339,8 +339,24 @@ Cada item foi feito em RED→GREEN, com o teste visto falhar antes do fix.
 | C-15 | P1 | `ca749bf` | exceções SQLite não chegam à UI |
 | C-10 | P1 | `44bcf25` | credencial ilegível é reportada, não enviada |
 | C-11 | P1 | `44bcf25` | classificação por status, não por regex |
+| C-16 | P2 | `ba67afd` | `getById` elimina o N+1 por refresh |
+| C-17 | P2 | `d2b8467` | conexão + health numa linha só; quotas em lote |
+| C-31 | P3 | `4faea73` | quota sem limite diz "No key cap" |
 
-**Baseline:** 235/235 → **341/341**. `flutter analyze` 0 erros / 0 warnings / **31 infos** (caiu de 33: os condicionais reescritos dispensam `if` de uma linha).
+**Baseline:** 235/235 → **353/353**. `flutter analyze` 0 erros / 0 warnings / **31 infos** (caiu de 33: os condicionais reescritos dispensam `if` de uma linha).
+
+### C-16/C-17: o custo medido, não estimado
+
+Um repositório com contador mostrou **21 chamadas** de `getAll()` para 20
+conexões — exatamente o 1+N previsto — e `refreshOne` ainda fazia uma leitura
+completa. Após o `getById`, são 1 no ciclo e 0 por conexão. O `load()` passou de
+**1 + 2N** para **2** queries, independentemente da contagem de contas.
+
+A mudança de `getAll` para `getAllWithHealth` silenciou três fakes de teste que
+injetavam falha por **ordinal** de chamada. Mantê-los no ordinal os tornaria
+inertes sem falhar — foi exatamente assim que a mudança anterior de `getById`
+expôs o mesmo problema. Os hooks foram movidos para o método que `load()` usa,
+preservando a intenção.
 
 ### O que a execução revelou e a auditoria tinha omitido
 
