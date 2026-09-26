@@ -107,6 +107,7 @@ class RefreshService {
   final List<void Function(ProviderSnapshot snapshot)> _snapshotListeners = [];
   final List<void Function(CredentialDisabledEvent)> _disabledListeners = [];
   final Map<String, _InFlightConnectionOperation> _inFlight = {};
+  final Map<String, Future<String>> _tokenOperations = {};
   final List<String> _credentialCleanupWarnings = [];
   final Set<String> _pendingSecretCleanup = <String>{};
   Timer? _periodicTimer;
@@ -212,7 +213,6 @@ class RefreshService {
     final future = operation();
     final entry = _InFlightConnectionOperation(
       future.then<void>((_) {}, onError: (_, _) {}),
-      sharedResult: future,
     );
     _inFlight[connectionId] = entry;
     return future.whenComplete(() {
@@ -222,17 +222,36 @@ class RefreshService {
     });
   }
 
+  /// Runs [operation] at most once per connection at a time, sharing the
+  /// result with any caller that arrives while it is in flight.
+  ///
+  /// This is the single-writer guard for credential and token exchange. It
+  /// keeps its own map rather than delegating to [runConnectionOperation],
+  /// because `_performRefreshOne` runs *while* holding the connection's
+  /// in-flight slot. Delegating would chain the exchange behind the refresh
+  /// that issued it and deadlock the connection permanently.
+  ///
+  /// A rotating refresh token is single-use: two concurrent exchanges of the
+  /// same token make the loser receive `invalid_grant`, which the provider
+  /// treats as a revoked grant. Sharing one exchange per connection removes
+  /// that race at its source.
   Future<String> runTokenOperation({
     required String connectionId,
     required Future<String> Function() operation,
   }) {
-    final existing = _inFlight[connectionId];
-    final shared = existing?.sharedResult;
-    if (shared is Future<String>) return shared;
-    return runConnectionOperation(
-      connectionId: connectionId,
-      operation: operation,
-    ).whenComplete(() {});
+    if (_isDisposed) {
+      return Future<String>.error(StateError('RefreshService is disposed'));
+    }
+    final existing = _tokenOperations[connectionId];
+    if (existing != null) return existing;
+
+    final future = operation();
+    _tokenOperations[connectionId] = future;
+    return future.whenComplete(() {
+      if (identical(_tokenOperations[connectionId], future)) {
+        _tokenOperations.remove(connectionId);
+      }
+    });
   }
 
   Future<TestResult> testAdapter({
@@ -404,7 +423,10 @@ class RefreshService {
           DateTime.now().toUtc().add(refreshable.refreshLead),
         )) {
       try {
-        final refreshedSecret = await refreshable.refresh(currentSecret);
+        final refreshedSecret = await runTokenOperation(
+          connectionId: connectionId,
+          operation: () => refreshable.refresh(currentSecret),
+        );
         connection = await _rotateCredential(connection, refreshedSecret);
         secret = refreshedSecret;
         activeSecrets.add(refreshedSecret);
@@ -436,8 +458,10 @@ class RefreshService {
         if (providerSnapshot.failureCause ==
                 ProviderFailureCause.invalidCredential &&
             refreshable != null) {
-          final refreshedSecret = await refreshable.refresh(
-            secret ?? currentSecret,
+          final reactiveSecret = secret ?? currentSecret;
+          final refreshedSecret = await runTokenOperation(
+            connectionId: connectionId,
+            operation: () => refreshable.refresh(reactiveSecret),
           );
           connection = await _rotateCredential(connection, refreshedSecret);
           secret = refreshedSecret;
@@ -786,6 +810,7 @@ class RefreshService {
     _secretCleanupTimer?.cancel();
     _secretCleanupTimer = null;
     _inFlight.clear();
+    _tokenOperations.clear();
     _healthFallback.clear();
     _disabledListeners.clear();
     _snapshotListeners.clear();
@@ -793,15 +818,15 @@ class RefreshService {
 }
 
 class _InFlightConnectionOperation {
-  _InFlightConnectionOperation(
-    this.completion, {
-    this.refreshResult,
-    this.sharedResult,
-  });
+  _InFlightConnectionOperation(this.completion, {this.refreshResult});
 
+  /// Settles when the operation ends, successfully or not. Chained work waits
+  /// on this.
   final Future<void> completion;
+
+  /// Set only for a refresh, whose result callers join instead of re-running.
+  /// Token exchange has its own single-flight map, [runTokenOperation].
   final Future<void>? refreshResult;
-  final Future<Object?>? sharedResult;
 }
 
 class _InMemoryConnectionRepository implements ConnectionRepository {
