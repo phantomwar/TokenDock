@@ -310,6 +310,8 @@ Uma fase só fecha quando, **tudo** isto é verdade:
 
 **Estado em `9ae626f`:** 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ (para tudo que está fechado) · 5 ✅ — **os 5 critérios de P0 e P1 são satisfeitos.** Os que faltam são P2/P3, com decisão registrada item a item acima.
 
+**Estado em `431e2ca`:** **os 36 achados da auditoria estão fechados**, e os dois portões que faltavam verificação foram finalmente corridos pela primeira vez — `flutter build windows --release` bem-sucedido (158s) e `integration_test/multi_account_flow_test.dart` 3/3 no device `windows-x64`. Os cinco critérios acima estão todos satisfeitos. O que permanece por verificar não é código: integração real com Google/OpenRouter, browser externo e processo Antigravity, porque todos os testes usam fixtures sanitizadas.
+
 **Não faz parte deste plano** (já estava deferred e continua): installer, release 0.1, notificações, grupos, drag-and-drop, auto-start, histórico/gráficos, MiniMax (bloqueado por schema oficial), OpenCode Go (sem API pública), scaling do servidor. Este plano **não adiciona nenhuma dependência**.
 
 ---

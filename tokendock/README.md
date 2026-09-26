@@ -21,9 +21,8 @@ flutter build windows --release
 
 - `flutter test --no-pub`: **417/417 passed** (`431e2ca`). The 366-test gate was met on three consecutive runs at `9ae626f`; 379, 386, 389, 399, 409 and 410 were each re-confirmed on three consecutive runs before the next change. Baseline before the 2026-09-26 session was 235.
 - `flutter analyze --no-pub`: **0 errors, 0 warnings, 31 informational diagnostics**. Unchanged from before `6b93b7b`, with none in the files it touched. Baseline was 33.
-- `flutter test integration_test/multi_account_flow_test.dart --no-pub`: **not run in the 2026-09-26 session**; unchanged from the previous baseline of 3/3 and still unverified by this work.
-- `flutter build windows --release --no-pub`: **not run in the 2026-09-26 session**; previously succeeded, with plugin C/C++ conversion and `strcpy` warnings remaining.
-- `flutter run -d windows`: frameless 360x600 scrollable widget; first run shows `No connections yet` with one `Add Connection` action.
+- `flutter build windows --release --no-pub`: **succeeds** (first run in this project, 2026-09-26), `tokendock.exe` produced in 158s. 8 C4267/C4996 warnings, all inside the third-party `cnativeapi` plugin (the `strcpy` and `size_t` conversions); **zero warnings in this repository's code**. The build requires Windows Developer Mode or an elevated shell, because Flutter creates the plugin symlinks under `windows/flutter/ephemeral/.plugin_symlinks`.
+- `flutter test integration_test/multi_account_flow_test.dart -d windows`: **3/3 passed** (first run in this project, 2026-09-26). Builds a Debug binary and runs it on the `windows-x64` device. Transport is fixture-backed, so it proves independent multi-account restore/cache/failure wiring against the real `%LOCALAPPDATA%` database — **not** a live OpenRouter call.
 - Release smoke: `%LOCALAPPDATA%\TokenDock\tokendock.db` is created; close hides the window to the tray; Exit terminates.
 - `dart format` is clean on every file the session touched. 36 files in the tree remain unformatted; they are pre-existing and were deliberately left alone.
 

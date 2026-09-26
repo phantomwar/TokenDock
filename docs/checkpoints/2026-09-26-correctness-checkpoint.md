@@ -199,9 +199,23 @@ Ordered by value. Each item names the audit ID it closes.
 
 ### The whole audit is closed
 
-All 36 findings are done. What is left is not code: `flutter build windows
---release` and `integration_test/multi_account_flow_test.dart` have still never
-been run in this environment, and both need the full Windows toolchain.
+All 36 findings are done, and both previously unverified gates have now been
+run for the first time:
+
+- `flutter build windows --release` — **succeeds**, `tokendock.exe` in 158s, 8
+  `C4267`/`C4996` warnings all inside the third-party `cnativeapi` plugin and
+  none in this repository's code.
+- `flutter test integration_test/multi_account_flow_test.dart -d windows` —
+  **3/3**, on the `windows-x64` device. Fixture-backed, so it proves the
+  multi-account restore/cache/failure wiring against the real `%LOCALAPPDATA%`
+  database, not a live provider call.
+
+Both needed Windows Developer Mode. Flutter creates the plugin symlinks under
+`windows/flutter/ephemeral/.plugin_symlinks`, and on Windows that requires
+either Developer Mode or an elevated shell. This was the blocker the first-goal
+spec had already recorded as "Windows integration pending on symlink/Developer
+Mode" — it was never a code problem, and no amount of Dart-side work would have
+cleared it.
 
 ### Carry-over risks worth knowing
 
@@ -221,6 +235,14 @@ been run in this environment, and both need the full Windows toolchain.
   delete landing mid-refresh surfaces as that message rather than a crash. This
   is a product decision, not a schema one, and it is still open: the race is
   narrow and the outcome is transient, but the wording is wrong for the cause.
+- **The Windows build needs Developer Mode.** `flutter build windows` and any
+  `integration_test` on `windows-x64` fail at CMake with "add_subdirectory given
+  source ... which is not an existing directory" unless the plugin symlinks can
+  be created. On Windows that needs `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock\AllowDevelopmentWithoutDevLicense = 1`
+  (Developer Mode, no admin required once toggled in Settings) or an elevated
+  shell. Turning on `flutter config --enable-windows-desktop` alone is not
+  enough, and `--no-pub` makes it worse because the plugin registrations are
+  never regenerated.
 - **Any future table rebuild inherits the same trap.** `PRAGMA foreign_keys` is
   a no-op inside a transaction, so a migration that must rebuild a table has to
   run with enforcement off, which is why the pragma sits after the migration
