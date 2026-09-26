@@ -27,6 +27,9 @@ class FailingConnectionRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() async => [];
 
   @override
+  Future<List<StoredConnection>> getAllWithHealth() async => const [];
+
+  @override
   Future<Connection?> getById(String id) async => null;
 
   @override

@@ -830,6 +830,11 @@ class _InMemoryConnectionRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() async => List.unmodifiable(_connections);
 
   @override
+  Future<List<StoredConnection>> getAllWithHealth() async => _connections
+      .map((row) => StoredConnection(connection: row))
+      .toList();
+
+  @override
   Future<Connection?> getById(String id) async {
     for (final row in _connections) {
       if (row.id == id) return row;
@@ -855,6 +860,14 @@ class _InMemoryQuotaCacheRepository implements QuotaCacheRepository {
   @override
   Future<List<Quota>> getAll(String connectionId) async =>
       List.unmodifiable(_cache[connectionId] ?? const <Quota>[]);
+
+  @override
+  Future<Map<String, List<Quota>>> getAllForAll(
+    List<String> connectionIds,
+  ) async => {
+        for (final id in connectionIds)
+          id: List.unmodifiable(_cache[id] ?? const <Quota>[]),
+      };
 
   @override
   Future<void> saveAll(String connectionId, List<Quota> quotas) async {

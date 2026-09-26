@@ -26,6 +26,10 @@ class _ConnectionRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() async => [connection];
 
   @override
+  Future<List<StoredConnection>> getAllWithHealth() async =>
+      [StoredConnection(connection: connection)];
+
+  @override
   Future<Connection?> getById(String id) async =>
       connection.id == id ? connection : null;
 
@@ -47,6 +51,12 @@ class _QuotaCacheRepository implements QuotaCacheRepository {
 
   @override
   Future<List<Quota>> getAll(String connectionId) async => quotas;
+
+  @override
+  Future<Map<String, List<Quota>>> getAllForAll(
+    List<String> connectionIds,
+  ) async =>
+      {for (final id in connectionIds) id: quotas};
 
   @override
   Future<void> saveAll(String connectionId, List<Quota> quotas) async {

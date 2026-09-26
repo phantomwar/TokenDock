@@ -13,6 +13,10 @@ class _MemoryConnections implements ConnectionRepository {
   @override
   Future<List<Connection>> getAll() async => List.unmodifiable(_rows);
   @override
+  Future<List<StoredConnection>> getAllWithHealth() async => _rows
+      .map((row) => StoredConnection(connection: row))
+      .toList();
+  @override
   Future<Connection?> getById(String id) async {
     for (final row in _rows) {
       if (row.id == id) return row;

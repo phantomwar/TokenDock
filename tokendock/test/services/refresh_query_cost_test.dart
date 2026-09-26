@@ -90,6 +90,11 @@ class _CountingConnections implements ConnectionRepository {
   }
 
   @override
+  Future<List<StoredConnection>> getAllWithHealth() async => rows
+      .map((row) => StoredConnection(connection: row))
+      .toList();
+
+  @override
   Future<Connection?> getById(String id) async {
     getByIdCalls++;
     for (final row in rows) {

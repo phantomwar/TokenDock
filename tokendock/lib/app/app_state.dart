@@ -304,19 +304,26 @@ class AppState implements ChangeNotifier {
         _effectiveNotifier.accounts = const [];
         return;
       }
-      final connections = await repo.getAll();
-      final items = <AccountItem>[];
+      // One read for connections (carrying the health already on their rows)
+      // and one for every cached quota, instead of a keyed read per account
+      // (audit C-17).
+      final stored = await repo.getAllWithHealth();
+      final ids = stored.map((entry) => entry.connection.id).toList();
+      final cache = quotaCacheRepository;
+      final quotasById = cache == null
+          ? const <String, List<Quota>>{}
+          : await cache.getAllForAll(ids);
 
-      for (final conn in connections) {
-        final cachedQuotas =
-            await quotaCacheRepository?.getAll(conn.id) ?? const <Quota>[];
-        final health = await connectionHealthRepository?.get(conn.id);
+      final items = <AccountItem>[];
+      for (final entry in stored) {
+        final conn = entry.connection;
+        final health = entry.health;
         final snapshot = ProviderSnapshot(
           connectionId: conn.id,
           status: conn.enabled
               ? health?.status ?? ConnectionStatus.ok
               : ConnectionStatus.warning,
-          quotas: cachedQuotas,
+          quotas: quotasById[conn.id] ?? const <Quota>[],
           balance: null,
           fetchedAt: health?.lastCheckedAt ?? DateTime.now().toUtc(),
           error: health?.error,

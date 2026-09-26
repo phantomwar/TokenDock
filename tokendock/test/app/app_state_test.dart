@@ -141,12 +141,15 @@ class _LoadFailingRepository implements ConnectionRepository {
   final ConnectionRepository delegate;
   int reads = 0;
   @override
-  Future<List<Connection>> getAll() async {
+  Future<List<Connection>> getAll() async => delegate.getAll();
+
+  @override
+  Future<List<StoredConnection>> getAllWithHealth() async {
     reads++;
-    // Fails the load() that follows a reconnect commit. The single-connection
-    // pre-read now uses getById, so the load is the first getAll.
+    // Fails the load() that follows a reconnect commit. load() reads through
+    // getAllWithHealth, so the hook belongs there rather than on getAll.
     if (reads == 1) throw StateError('load failed');
-    return delegate.getAll();
+    return delegate.getAllWithHealth();
   }
 
   @override
@@ -164,12 +167,15 @@ class _RestoreFailingRepository implements ConnectionRepository {
   bool replacementSaved = false;
   int reads = 0;
   @override
-  Future<List<Connection>> getAll() async {
+  Future<List<Connection>> getAll() async => delegate.getAll();
+
+  @override
+  Future<List<StoredConnection>> getAllWithHealth() async {
     reads++;
-    // Fails the load() that follows a reconnect commit. The single-connection
-    // pre-read now uses getById, so the load is the first getAll.
+    // Fails the load() that follows a reconnect commit. load() reads through
+    // getAllWithHealth, so the hook belongs there rather than on getAll.
     if (reads == 1) throw StateError('load failed');
-    return delegate.getAll();
+    return delegate.getAllWithHealth();
   }
 
   @override
@@ -196,13 +202,16 @@ class _LoadGateRepository implements ConnectionRepository {
   final Completer<void> loadGate;
   int reads = 0;
   @override
-  Future<List<Connection>> getAll() async {
+  Future<List<Connection>> getAll() async => delegate.getAll();
+
+  @override
+  Future<List<StoredConnection>> getAllWithHealth() async {
     reads++;
     if (reads == 1) {
       loadStarted.complete();
       await loadGate.future;
     }
-    return delegate.getAll();
+    return delegate.getAllWithHealth();
   }
 
   @override
@@ -251,6 +260,12 @@ class _ProvisionalWritingProvider extends AntigravityOAuthProvider {
 class _FailingQuotaCacheRepository implements QuotaCacheRepository {
   @override
   Future<List<Quota>> getAll(String connectionId) async => const [];
+
+  @override
+  Future<Map<String, List<Quota>>> getAllForAll(
+    List<String> connectionIds,
+  ) async =>
+      const {};
 
   @override
   Future<void> saveAll(String connectionId, List<Quota> quotas) async {

@@ -12,6 +12,36 @@ DateTime? _parseUtc(String? value) {
   return DateTime.tryParse(value)?.toUtc();
 }
 
+/// Maps the health columns of a `connections` row to [ConnectionHealth].
+///
+/// Shared with `ConnectionRepository.getAllWithHealth`, which selects those
+/// same columns, so a connection and its health are one row rather than two
+/// queries (audit C-17). Returns null when no refresh has been recorded, or
+/// when the stored timestamp cannot be parsed.
+ConnectionHealth? healthFromRow(
+  Map<String, Object?> row, {
+  String? fallbackId,
+}) {
+  final statusName = row['last_status'] as String?;
+  final checkedAt = row['last_checked_at'] as String?;
+  if (statusName == null || checkedAt == null) return null;
+
+  final lastChecked = _parseUtc(checkedAt);
+  if (lastChecked == null) return null;
+
+  final status = ConnectionStatus.values.firstWhere(
+    (value) => value.name == statusName,
+    orElse: () => ConnectionStatus.error,
+  );
+  return ConnectionHealth(
+    connectionId: (row['id'] as String?) ?? fallbackId ?? '',
+    status: status,
+    lastCheckedAt: lastChecked,
+    cooldownUntil: _parseUtc(row['cooldown_until'] as String?),
+    error: row['last_error'] as String?,
+  );
+}
+
 abstract interface class ConnectionHealthRepository {
   Future<ConnectionHealth?> get(String connectionId);
   Future<void> save(ConnectionHealth health);
@@ -38,25 +68,7 @@ class SqliteConnectionHealthRepository implements ConnectionHealthRepository {
     );
     if (rows.isEmpty) return null;
 
-    final row = rows.first;
-    final statusName = row['last_status'] as String?;
-    final checkedAt = row['last_checked_at'] as String?;
-    if (statusName == null || checkedAt == null) return null;
-
-    final status = ConnectionStatus.values.firstWhere(
-      (value) => value.name == statusName,
-      orElse: () => ConnectionStatus.error,
-    );
-    final cooldown = row['cooldown_until'] as String?;
-    final lastChecked = _parseUtc(checkedAt);
-    if (lastChecked == null) return null;
-    return ConnectionHealth(
-      connectionId: connectionId,
-      status: status,
-      lastCheckedAt: lastChecked,
-      cooldownUntil: _parseUtc(cooldown),
-      error: row['last_error'] as String?,
-    );
+    return healthFromRow(rows.first, fallbackId: connectionId);
   }
 
   @override

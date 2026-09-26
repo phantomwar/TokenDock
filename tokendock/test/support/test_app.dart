@@ -89,6 +89,11 @@ class MemoryConnectionRepository implements ConnectionRepository {
   Future<Connection?> getById(String id) async => _storage[id];
 
   @override
+  Future<List<StoredConnection>> getAllWithHealth() async => _storage.values
+      .map((row) => StoredConnection(connection: row))
+      .toList();
+
+  @override
   Future<void> save(Connection connection) async {
     _storage[connection.id] = connection;
   }
@@ -119,6 +124,15 @@ class MemoryQuotaCacheRepository implements QuotaCacheRepository {
   Future<List<Quota>> getAll(String connectionId) async {
     return List<Quota>.unmodifiable(_storage[connectionId] ?? const <Quota>[]);
   }
+
+  @override
+  Future<Map<String, List<Quota>>> getAllForAll(
+    List<String> connectionIds,
+  ) async =>
+      {
+        for (final id in connectionIds)
+          id: List<Quota>.unmodifiable(_storage[id] ?? const <Quota>[]),
+      };
 
   @override
   Future<void> saveAll(String connectionId, List<Quota> quotas) async {

@@ -191,6 +191,9 @@ class _DeleteFailingRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() => _inner.getAll();
 
   @override
+  Future<List<StoredConnection>> getAllWithHealth() => _inner.getAllWithHealth();
+
+  @override
   Future<Connection?> getById(String id) => _inner.getById(id);
 
   @override

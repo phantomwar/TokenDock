@@ -2,10 +2,33 @@ import 'dart:convert';
 
 import 'package:sqflite_common/sqlite_api.dart';
 import 'package:tokendock/models/connection.dart';
+import 'package:tokendock/models/connection_health.dart';
+import 'package:tokendock/storage/connection_health_repository.dart';
 import 'package:tokendock/storage/secret_store.dart';
+
+/// A connection together with the health stored on its own row.
+///
+/// `ConnectionHealth` lives in columns of the `connections` table, so reading a
+/// connection and its health is one row, not two queries.
+class StoredConnection {
+  const StoredConnection({required this.connection, this.health});
+
+  final Connection connection;
+
+  /// Null when no refresh has been recorded for this connection yet.
+  final ConnectionHealth? health;
+}
 
 abstract interface class ConnectionRepository {
   Future<List<Connection>> getAll();
+
+  /// Every connection with the health already present on its row.
+  ///
+  /// Loading the widget previously issued 1 + 2N queries: one for the
+  /// connections, then a keyed read for cached quotas and another for health
+  /// inside the loop, even though the health columns had been selected and
+  /// discarded (audit C-17).
+  Future<List<StoredConnection>> getAllWithHealth();
 
   /// Single-connection lookup.
   ///
@@ -30,6 +53,22 @@ class SqliteConnectionRepository implements ConnectionRepository {
       orderBy: 'sort_order ASC, created_at ASC',
     );
     return rows.map(_toConnection).toList();
+  }
+
+  @override
+  Future<List<StoredConnection>> getAllWithHealth() async {
+    final rows = await _db.query(
+      'connections',
+      orderBy: 'sort_order ASC, created_at ASC',
+    );
+    return rows
+        .map(
+          (row) => StoredConnection(
+            connection: _toConnection(row),
+            health: healthFromRow(row),
+          ),
+        )
+        .toList();
   }
 
   @override

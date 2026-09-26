@@ -124,6 +124,9 @@ class _SqlFailingRepository implements ConnectionRepository {
   Future<List<Connection>> getAll() => inner.getAll();
 
   @override
+  Future<List<StoredConnection>> getAllWithHealth() => inner.getAllWithHealth();
+
+  @override
   Future<Connection?> getById(String id) => inner.getById(id);
 
   @override
@@ -187,6 +190,10 @@ class _MemoryConnections implements ConnectionRepository {
   @override
   Future<List<Connection>> getAll() async => List.of(rows);
   @override
+  Future<List<StoredConnection>> getAllWithHealth() async => rows
+      .map((row) => StoredConnection(connection: row))
+      .toList();
+  @override
   Future<Connection?> getById(String id) async {
     for (final row in rows) {
       if (row.id == id) return row;
@@ -216,6 +223,12 @@ class _MemorySecrets implements SecretStore {
 class _MemoryQuotaCache implements QuotaCacheRepository {
   @override
   Future<List<Quota>> getAll(String connectionId) async => const [];
+
+  @override
+  Future<Map<String, List<Quota>>> getAllForAll(
+    List<String> connectionIds,
+  ) async =>
+      const {};
   @override
   Future<void> saveAll(String connectionId, List<Quota> quotas) async {}
   @override
