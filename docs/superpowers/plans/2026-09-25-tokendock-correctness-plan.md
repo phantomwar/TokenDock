@@ -247,8 +247,12 @@ A spec **proíbe** matching de mensagem. Tentar eliminar, não só reduzir.
 
 ### C.5 · `AppState` sem `Expando` · **C-24**
 
-- [ ] `AppState` passa a **estender** `ChangeNotifier` (ou a expor um `Listenable` real). Remover o `_StateNotifier` paralelo e o `static final Expando`.
-- [ ] Teste que falha: dois `const AppState.loading()` independentes; descartar um não pode afetar o outro.
+- [x] `AppState` passa a **estender** `ChangeNotifier`. `_StateNotifier`, o `static final Expando`, `_effectiveNotifier` e os 4 métodos de delegação removidos; `isLoading`, `accounts` e a contabilidade do refresh-interval passaram a campos próprios. `3705170`
+- [x] Teste que falha: dois `const AppState.loading()` independentes; descartar um não pode afetar o outro. `test/app/app_state_notifier_test.dart`
+  - **O enunciado acima é auto-contraditório em Dart** — duas instâncias `const` são sempre o mesmo objecto, e a contradição *é* o bug. Os construtores passaram a não-`const` (um `ChangeNotifier` tem estado mutável; um objecto canonicalizado não pode ter) e o teste afirma a invariante pela grafia que a correcção introduz. O sintoma literal da auditoria foi reproduzido: `A _StateNotifier was used after being disposed`.
+- [x] `TokenDockWidget.loading()`/`.empty()` e `TokenDockApp` deixaram de ser `const`; o único call site `const` nos testes foi actualizado. `3705170`
+  - ⚠️ **Armadilha evitada:** o fallback de `TokenDockApp` era construído *dentro de `build`*. Escrever `AppState.loading()` ali criaria um notifier novo a cada rebuild de um antepassado e largaria a subscrição do `ListenableBuilder` sem erro visível. Passou a ser construído uma vez no construtor, guardado num campo. `TokenDockApp` não é `const` em nenhum call site, logo não custou nada.
+- [x] Ownership verificado: `ConnectionsScreen` já fazia `removeListener` no `dispose` e só descarta o state que criou — nunca o singleton da app.
 
 ---
 
@@ -287,7 +291,7 @@ Ordem **planejada** (válida para quem retomar) e o que de fato aconteceu:
 | C.2 paridade | ✅ 4/4 | `e353e9f`, `ddd03f7` |
 | C.3 tick | ⚠️ 1/4 — só o intervalo; tipografia em aberto (C-19) | `e353e9f` |
 | C.4 schema | ⚠️ 4/7 — C-23 e C-18 fechados; falta C-28 e C-29/C-30 | `841eede`, `6b93b7b` |
-| C.5 notifier | ⬜ não iniciado (C-24) | — |
+| C.5 notifier | ✅ 3/3 | `3705170` |
 | D.1 documentação | ⚠️ 2/7 | `4faea73` + este commit |
 
 **Sequenciamento interno:** B.1 e B.2 são ~30 minutos cada e transformam 2 reprovações medidas em verde — o melhor custo/benefício do plano. A.1 e A.4 são as únicas tarefas que **não** devem ser delegadas nem paralelizadas, porque tocam concorrência de socket e compensação de escrita.

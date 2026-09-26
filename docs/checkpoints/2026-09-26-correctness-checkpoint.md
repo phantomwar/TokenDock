@@ -163,11 +163,14 @@ Ordered by value. Each item names the audit ID it closes.
    steps and 20px semibold quota figures. `theme.dart` ships 13px w500 quota
    figures, 13px w600 titles, 14px body, 12px caption, and no 18px or 22px step.
    This is a visual change and needs a design pass, not a mechanical edit.
-4. **C-24, `AppState` notifier.** `AppState implements ChangeNotifier` by
-   delegating to a private `_StateNotifier` through a static `Expando`, while its
-   const constructors are canonicalised by Dart. Two `const AppState.loading()`
-   instances therefore share one notifier, and `dispose()` on one affects the
-   other. Convert to a real `ChangeNotifier` and drop the `Expando`.
+4. ~~**C-24, `AppState` notifier.**~~ **Closed at `3705170`.** `AppState` is a
+   real `ChangeNotifier` and owns its own listener list. The `Expando`, the
+   `_StateNotifier` delegate and the const constructors are gone.
+
+   One trap to know about if you touch `TokenDockApp`: its fallback state is
+   built **in the constructor**, not in `build`. Building a fresh `AppState` per
+   build would look correct and would silently drop the `ListenableBuilder`'s
+   subscription every time an ancestor rebuilt.
 5. **C-26, C-27, dead code.** `redactHeaders` and `redactUrl` in
    `log_redaction.dart` and `isDefinitiveOAuthFailure` in
    `credential_events.dart` have no callers. `_credential` is duplicated in

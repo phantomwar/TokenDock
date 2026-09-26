@@ -478,7 +478,7 @@ imediatamente após um `await` real, que é onde a ordem é garantida.
 | C-21 | P2 | Tick 1s × N contra meta CPU≈0% | `countdown_text.dart:21` | ✅ `e353e9f` |
 | C-22 | P2 | 3 builders duplicados + erro ausente em compact | `token_dock_widget.dart:211-367` | ✅ `ddd03f7` |
 | C-23 | P2 | Sem FK; índice redundante; coluna morta | `migration_001.dart` | ✅ `6b93b7b` |
-| C-24 | P2 | `Expando` estático + `const` → notifier compartilhado | `app_state.dart:176-185` |
+| C-24 | P2 | `Expando` estático + `const` → notifier compartilhado | `app_state.dart:176-185` | ✅ `3705170` |
 | C-25 | P1 | Set ilimitado de refresh tokens em claro | `antigravity_oauth.dart:113` | ✅ `f477ac9` |
 | C-26 | P2 | `redactHeaders`/`redactUrl` mortas | `log_redaction.dart:72,81` |
 | C-27 | P2 | `_credential` duplicado | `antigravity_oauth.dart:808,861` |
@@ -496,20 +496,27 @@ imediatamente após um `await` real, que é onde a ordem é garantida.
 
 | Situação | Qtd | IDs |
 |---|---|---|
-| ✅ Fechado | 24 | C-01 C-02 C-03 C-04 C-05 C-06 C-07 C-08 C-09 C-10 C-11 C-12 C-13 C-14 C-15 C-16 C-17 C-18 C-20 C-21 C-22 C-23 C-25 C-31 |
-| ⬜ Aberto | 12 | C-19 C-24 C-26 C-27 C-28 C-29 C-30 C-32 C-33 C-34 C-35 C-36 |
+| ✅ Fechado | 25 | C-01 C-02 C-03 C-04 C-05 C-06 C-07 C-08 C-09 C-10 C-11 C-12 C-13 C-14 C-15 C-16 C-17 C-18 C-20 C-21 C-22 C-23 C-24 C-25 C-31 |
+| ⬜ Aberto | 11 | C-19 C-26 C-27 C-28 C-29 C-30 C-32 C-33 C-34 C-35 C-36 |
 
-**Todos os P0 (5/5) e P1 (11/11) estão fechados.** Os 12 abertos são P2 e P3, exceto
-C-19 e C-24, que são os dois de maior valor: tipografia contra a spec e o
-notifier compartilhado por `Expando`.
+**Todos os P0 (5/5) e P1 (11/11) estão fechados, e os três P2 de maior valor
+também (C-22, C-23, C-24).** Dos 11 abertos, só **C-19** (tipografia contra a
+spec) exige um passe de design; os outros 10 são mecânicos.
 
-**O que C-22 revelou.** A duplicação dos 3 builders já tinha causado dano real:
-compact tinha deixado de renderizar a linha de erro, pelo que uma conta em
-falha mostrava um número de quota possivelmente com horas de atraso no formato
-default, sem qualquer indicação visível de porquê — enquanto as outras duas
-densidades se explicavam. Nenhum teste afirmava a assimetria, e é por isso que
-sobreviveu como se fosse uma decisão. A assimetria foi resolvida a favor de
-mostrar o erro, e o frame comum passou a ser a única owns do rodapé.
+**O que C-24 provou ser impossível como estava escrito.** O plano pedia "dois
+`const AppState.loading()` independentes". Em Dart duas instâncias `const` são
+sempre o mesmo objecto — o enunciado é auto-contraditório, e a contradição *é*
+o bug: um `ChangeNotifier` tem estado mutável e um objecto canonicalizado não
+pode ter nenhum. O teste reproduziu o sintoma literal da auditoria
+(`A _StateNotifier was used after being disposed`) e a correcção passou a
+afirmar a invariante pela grafia não-`const`.
+
+**Armadilha quase introduzida na correcção.** `TokenDockApp` construía o
+fallback *dentro de `build`*. Trocar `const AppState.loading()` por
+`AppState.loading()` ali parece correcto e é silenciosamente errado: cria um
+notifier novo a cada rebuild de um antepassado e larga a subscrição do
+`ListenableBuilder` sem erro visível. O fallback passou a ser construído no
+construtor.
 
 **O que C-23 custou e o que revelou.** O `PRAGMA foreign_keys` é no-op dentro de
 uma transação, o que torna `onConfigure` — a opção que o plano prescrevia —
