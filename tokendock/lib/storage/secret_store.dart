@@ -8,6 +8,32 @@ abstract interface class SecretStore {
   Future<void> delete(String key);
 }
 
+/// Substrings that mark a field name as carrying credential material.
+///
+/// Canonical definition shared by log redaction ([`redactSecret`]) and the
+/// SQLite `provider_data` sanitiser, so the last line of defence against
+/// writing a token into the database cannot drift from the redaction rules.
+///
+/// [redactSecret]: ../services/log_redaction.dart
+const List<String> sensitiveKeyMarkers = <String>[
+  'key',
+  'token',
+  'secret',
+  'auth',
+  'credential',
+  'cookie',
+];
+
+final RegExp _sensitiveKeyPattern = RegExp(
+  sensitiveKeyMarkers.join('|'),
+  caseSensitive: false,
+);
+
+/// Whether [name] identifies a field that must never be persisted in the
+/// clear, whether it is a JSON object key, a header name, or a query
+/// parameter.
+bool isSensitiveKeyName(String name) => _sensitiveKeyPattern.hasMatch(name);
+
 /// Generates a standard RFC 4122 compliant UUIDv4 string using 16 [Random.secure] bytes.
 ///
 /// Format: `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx` where y is 8, 9, a, or b.

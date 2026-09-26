@@ -1,6 +1,17 @@
 import 'package:sqflite_common/sqlite_api.dart';
 import 'package:tokendock/models/quota.dart';
 
+/// Parses an ISO-8601 UTC timestamp written by [saveAll].
+///
+/// A value this version did not write (manual edit, a future writer, a
+/// partially applied migration) degrades to `null` instead of throwing. A
+/// throwing read here would take down every connection's cached quota, not
+/// just the corrupted row.
+DateTime? _parseUtc(String? value) {
+  if (value == null) return null;
+  return DateTime.tryParse(value)?.toUtc();
+}
+
 abstract interface class QuotaCacheRepository {
   Future<List<Quota>> getAll(String connectionId);
   Future<void> saveAll(String connectionId, List<Quota> quotas);
@@ -20,9 +31,7 @@ class SqliteQuotaCacheRepository implements QuotaCacheRepository {
       whereArgs: [connectionId],
     );
     return rows.map((row) {
-      final resetAtStr = row['reset_at'] as String?;
-      final resetAt =
-          resetAtStr != null ? DateTime.parse(resetAtStr).toUtc() : null;
+      final resetAt = _parseUtc(row['reset_at'] as String?);
       return Quota(
         id: row['quota_key'] as String,
         label: row['label'] as String,
@@ -45,21 +54,18 @@ class SqliteQuotaCacheRepository implements QuotaCacheRepository {
         whereArgs: [connectionId],
       );
       for (final quota in quotas) {
-        await txn.insert(
-          'quota_cache',
-          {
-            'connection_id': connectionId,
-            'quota_key': quota.id,
-            'label': quota.label,
-            'percent': quota.percent,
-            'remaining': quota.remaining,
-            'limit_value': quota.limit,
-            'unit': quota.unit,
-            'reset_at': quota.resetAt?.toUtc().toIso8601String(),
-            'status': null,
-            'updated_at': now,
-          },
-        );
+        await txn.insert('quota_cache', {
+          'connection_id': connectionId,
+          'quota_key': quota.id,
+          'label': quota.label,
+          'percent': quota.percent,
+          'remaining': quota.remaining,
+          'limit_value': quota.limit,
+          'unit': quota.unit,
+          'reset_at': quota.resetAt?.toUtc().toIso8601String(),
+          'status': null,
+          'updated_at': now,
+        });
       }
     });
   }

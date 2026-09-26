@@ -3,6 +3,15 @@ import 'package:sqflite_common/sqlite_api.dart';
 import '../models/connection_health.dart';
 import '../models/connection_status.dart';
 
+/// Parses an ISO-8601 UTC timestamp written by [save].
+///
+/// A malformed value degrades to `null` rather than throwing, so one
+/// corrupted row cannot break the health read for every connection.
+DateTime? _parseUtc(String? value) {
+  if (value == null) return null;
+  return DateTime.tryParse(value)?.toUtc();
+}
+
 abstract interface class ConnectionHealthRepository {
   Future<ConnectionHealth?> get(String connectionId);
   Future<void> save(ConnectionHealth health);
@@ -39,11 +48,13 @@ class SqliteConnectionHealthRepository implements ConnectionHealthRepository {
       orElse: () => ConnectionStatus.error,
     );
     final cooldown = row['cooldown_until'] as String?;
+    final lastChecked = _parseUtc(checkedAt);
+    if (lastChecked == null) return null;
     return ConnectionHealth(
       connectionId: connectionId,
       status: status,
-      lastCheckedAt: DateTime.parse(checkedAt).toUtc(),
-      cooldownUntil: cooldown == null ? null : DateTime.parse(cooldown).toUtc(),
+      lastCheckedAt: lastChecked,
+      cooldownUntil: _parseUtc(cooldown),
       error: row['last_error'] as String?,
     );
   }

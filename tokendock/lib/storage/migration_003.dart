@@ -1,24 +1,28 @@
 import 'package:sqflite_common/sqlite_api.dart';
 
+import 'migration_support.dart';
+
 class Migration003 {
   static const int version = 3;
 
+  static const Map<String, String> _identityColumns = <String, String>{
+    'identity_key': 'TEXT',
+    'provider_data': 'TEXT',
+  };
+
   static Future<void> run(Database db) async {
-    final result = await db.rawQuery('PRAGMA user_version');
-    final currentVersion = (result.first.values.first as num?)?.toInt() ?? 0;
+    final currentVersion = await MigrationSupport.currentVersion(db);
     if (currentVersion >= version) {
       return;
     }
 
     await db.transaction((txn) async {
-      await txn.execute(
-        'ALTER TABLE connections ADD COLUMN identity_key TEXT',
+      await MigrationSupport.addMissingColumns(
+        txn,
+        table: 'connections',
+        columns: _identityColumns,
       );
-      await txn.execute(
-        'ALTER TABLE connections ADD COLUMN provider_data TEXT',
-      );
+      await MigrationSupport.stampVersion(txn, version);
     });
-
-    await db.execute('PRAGMA user_version = $version');
   }
 }

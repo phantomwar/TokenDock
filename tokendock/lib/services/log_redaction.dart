@@ -1,9 +1,10 @@
 import 'dart:convert';
 
-final _sensitiveHeader = RegExp(
-  r'key|token|secret|auth|credential|cookie',
-  caseSensitive: false,
-);
+import '../storage/secret_store.dart';
+
+/// Sensitive-name predicate shared with the SQLite `provider_data`
+/// sanitiser, so redaction rules and persistence rules cannot drift apart.
+bool _isSensitive(String name) => isSensitiveKeyName(name);
 
 String redactSecret(String input, [List<String> secrets = const []]) {
   var redacted = input;
@@ -28,7 +29,8 @@ String redactSecret(String input, [List<String> secrets = const []]) {
       final value = match.group(2)!;
       if (prefix.toLowerCase().contains('authorization') &&
           value.trimLeft().toLowerCase().startsWith('bearer ')) {
-        return '$prefix' 'Bearer [redacted]';
+        return '$prefix'
+            'Bearer [redacted]';
       }
       return '$prefix[redacted]';
     },
@@ -47,7 +49,7 @@ String? _tryRedactJson(String input) {
 }
 
 dynamic _redactJsonValue(dynamic value, {String? fieldName}) {
-  if (fieldName != null && _sensitiveHeader.hasMatch(fieldName)) {
+  if (fieldName != null && _isSensitive(fieldName)) {
     if (fieldName.toLowerCase().contains('authorization') &&
         value is String &&
         value.toLowerCase().startsWith('bearer ')) {
@@ -71,18 +73,14 @@ dynamic _redactJsonValue(dynamic value, {String? fieldName}) {
 
 Map<String, String> redactHeaders(Map<String, String> headers) {
   return headers.map(
-    (name, value) => MapEntry(
-      name,
-      _sensitiveHeader.hasMatch(name) ? '[redacted]' : value,
-    ),
+    (name, value) => MapEntry(name, _isSensitive(name) ? '[redacted]' : value),
   );
 }
 
 String redactUrl(String url) {
   final queryStart = url.indexOf('?');
   final fragmentStart = url.indexOf('#');
-  if (queryStart == -1 ||
-      (fragmentStart != -1 && queryStart > fragmentStart)) {
+  if (queryStart == -1 || (fragmentStart != -1 && queryStart > fragmentStart)) {
     return url;
   }
   final queryEnd = fragmentStart == -1 ? url.length : fragmentStart;

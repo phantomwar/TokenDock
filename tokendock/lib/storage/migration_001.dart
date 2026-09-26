@@ -1,11 +1,12 @@
 import 'package:sqflite_common/sqlite_api.dart';
 
+import 'migration_support.dart';
+
 class Migration001 {
   static const int version = 1;
 
   static Future<void> run(Database db) async {
-    final result = await db.rawQuery('PRAGMA user_version');
-    final currentVersion = (result.first.values.first as num?)?.toInt() ?? 0;
+    final currentVersion = await MigrationSupport.currentVersion(db);
     if (currentVersion >= version) {
       return;
     }
@@ -53,8 +54,10 @@ class Migration001 {
       await txn.execute('''
         CREATE INDEX IF NOT EXISTS idx_quota_cache_connection ON quota_cache(connection_id)
       ''');
-    });
 
-    await db.execute('PRAGMA user_version = $version');
+      // The schema and the version marker now commit together, so a crash can
+      // no longer leave the DDL applied with a stale `user_version`.
+      await MigrationSupport.stampVersion(txn, version);
+    });
   }
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:sqflite_common/sqlite_api.dart';
 import 'package:tokendock/models/connection.dart';
+import 'package:tokendock/storage/secret_store.dart';
 
 abstract interface class ConnectionRepository {
   Future<List<Connection>> getAll();
@@ -97,22 +98,30 @@ String? _sanitizeProviderData(String? value) {
   try {
     final decoded = jsonDecode(value);
     if (decoded is! Map) return null;
-    return jsonEncode(_withoutCsrfFields(Map<String, dynamic>.from(decoded)));
+    return jsonEncode(
+      _withoutSensitiveFields(Map<String, dynamic>.from(decoded)),
+    );
   } catch (_) {
     return null;
   }
 }
 
-dynamic _withoutCsrfFields(dynamic value) {
+/// Strips every credential-bearing key before the value reaches SQLite.
+///
+/// Uses the shared [isSensitiveKeyName] predicate rather than a CSRF-only
+/// check, so `accessToken`, `refreshToken`, `idToken`, `apiKey` and friends are
+/// removed alongside `csrfToken` at any nesting depth. Non-secret provider
+/// metadata such as `source`, `projectId` and `tier` is preserved.
+dynamic _withoutSensitiveFields(dynamic value) {
   if (value is Map) {
     return <String, dynamic>{
       for (final entry in value.entries)
-        if (!(entry.key as String).toLowerCase().contains('csrf'))
-          entry.key as String: _withoutCsrfFields(entry.value),
+        if (!isSensitiveKeyName(entry.key as String))
+          entry.key as String: _withoutSensitiveFields(entry.value),
     };
   }
   if (value is List) {
-    return value.map(_withoutCsrfFields).toList();
+    return value.map(_withoutSensitiveFields).toList();
   }
   return value;
 }
