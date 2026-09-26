@@ -96,6 +96,13 @@ class ProviderHttpProbe {
   /// `x-opencode-session` and a real user agent, and says so in its own
   /// documentation.
   ///
+  /// [authorization] overrides the whole header when a vendor does not use the
+  /// Bearer scheme. z.ai sends the raw key in `Authorization` with no prefix,
+  /// so prefixing it here would send `Bearer <key>` and be rejected. The
+  /// credential is still never placed in the URL, and the adapter decides the
+  /// scheme by returning a header value -- the probe has no knowledge of which
+  /// vendors exist.
+  ///
   /// Never throws. Every failure becomes a [ProbeResult], because this runs on
   /// the refresh path where an escaping exception would take down every
   /// connection's cached quota rather than just this one.
@@ -103,10 +110,14 @@ class ProviderHttpProbe {
     Uri uri, {
     required String secret,
     Map<String, String> extraHeaders = const <String, String>{},
+    String? authorization,
   }) async {
     try {
       final request = await _client.getUrl(uri).timeout(connectionTimeout);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $secret');
+      request.headers.set(
+        HttpHeaders.authorizationHeader,
+        authorization ?? 'Bearer $secret',
+      );
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       extraHeaders.forEach(request.headers.set);
 

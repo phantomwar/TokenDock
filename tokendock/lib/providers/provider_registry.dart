@@ -4,6 +4,7 @@ import 'minimax/minimax_provider.dart';
 import 'opencode/opencode_go_provider.dart';
 import 'openrouter/openrouter_provider.dart';
 import 'provider_adapter.dart';
+import 'zai/zai_provider.dart';
 import '../storage/secret_store.dart';
 
 class ProviderRegistry {
@@ -19,6 +20,7 @@ class ProviderRegistry {
       register(OpenRouterProvider());
       register(MiniMaxProvider());
       register(OpenCodeGoProvider());
+      register(ZaiProvider());
       register(
         AntigravityProvider(
           secretStore: secretStore,

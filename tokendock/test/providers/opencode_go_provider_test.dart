@@ -24,6 +24,7 @@ class _StubProbe extends ProviderHttpProbe {
     Uri uri, {
     required String secret,
     Map<String, String> extraHeaders = const <String, String>{},
+    String? authorization,
   }) async {
     requestedUris.add(uri);
     sentSecrets.add(secret);

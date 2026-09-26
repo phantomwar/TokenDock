@@ -1,6 +1,7 @@
 import '../models/connection_status.dart';
 import '../models/provider_snapshot.dart';
 import '../models/quota.dart';
+import 'provider_http.dart';
 
 /// The parts of a provider response every adapter needs.
 ///
@@ -103,6 +104,41 @@ abstract final class ProviderStatus {
       balance: null,
       fetchedAt: fetchedAt,
       error: null,
+    );
+  }
+
+  /// Turns a failed [ProbeResult] into a snapshot.
+  ///
+  /// Every provider that reaches a network endpoint needs exactly this, and
+  /// getting it subtly different per vendor is how "a timeout is reported as a
+  /// dead credential" or "a 403 revokes a working key" happens. The two rules
+  /// that matter are already load-bearing in [fromHttpStatus] and are not
+  /// re-decided here:
+  ///
+  /// - a timeout is a timeout, not a credential problem, and must never revoke
+  ///   a key;
+  /// - only 401 invalidates a credential.
+  ///
+  /// [fallback] handles a result with no status code at all, which only happens
+  /// on a transport failure.
+  static ProviderSnapshot fromProbeResult({
+    required ProbeResult result,
+    required String connectionId,
+    required DateTime fetchedAt,
+  }) {
+    if (result.isTimeout) {
+      return timeout(connectionId: connectionId, fetchedAt: fetchedAt);
+    }
+    final code = result.statusCode;
+    if (code == null) {
+      return malformed(connectionId: connectionId, fetchedAt: fetchedAt);
+    }
+    final mapped = fromHttpStatus(code);
+    return failure(
+      connectionId: connectionId,
+      fetchedAt: fetchedAt,
+      status: mapped.status,
+      error: mapped.error,
     );
   }
 }

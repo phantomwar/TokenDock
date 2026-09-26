@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../models/provider_snapshot.dart';
 import '../../models/quota.dart';
+import '../provider_http.dart';
 import '../provider_status.dart';
 
 /// Parses OpenCode Go usage from `GET https://opencode.ai/zen/go/v1/usage`.
@@ -127,32 +128,24 @@ class OpenCodeUsageResponse {
 
   /// Maps a non-2xx response.
   ///
-  /// 401 and 403 are the only two that mean the credential is unusable;
-  /// anything else is transient and must not revoke a working key.
+  /// The rules live in [ProviderStatus] and are not re-decided per vendor: a
+  /// timeout is a timeout, and only 401 invalidates a credential. In particular
+  /// 403 means a valid key with no Go subscription, and telling the user to
+  /// re-enter a key that is fine is wrong.
   static ProviderSnapshot mapError({
     required String connectionId,
     required DateTime fetchedAt,
     int? statusCode,
     bool isTimeout = false,
   }) {
-    if (isTimeout) {
-      return ProviderStatus.timeout(
-        connectionId: connectionId,
-        fetchedAt: fetchedAt,
-      );
-    }
-    if (statusCode == null) {
-      return ProviderStatus.malformed(
-        connectionId: connectionId,
-        fetchedAt: fetchedAt,
-      );
-    }
-    final mapped = ProviderStatus.fromHttpStatus(statusCode);
-    return ProviderStatus.failure(
+    return ProviderStatus.fromProbeResult(
+      result: isTimeout
+          ? const ProbeResult.timeout()
+          : statusCode == null
+          ? const ProbeResult.transportFailure()
+          : ProbeResult.response(statusCode: statusCode, body: ''),
       connectionId: connectionId,
       fetchedAt: fetchedAt,
-      status: mapped.status,
-      error: mapped.error,
     );
   }
 }
