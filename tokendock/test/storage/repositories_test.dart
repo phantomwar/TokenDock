@@ -231,28 +231,32 @@ void main() {
       expect(updated.providerData, '{"workspace":"staging"}');
     });
 
-    test('recursively strips CSRF fields from provider data before persistence', () async {
-      const connection = Connection(
-        id: 'conn-nested-csrf',
-        provider: 'antigravity',
-        displayName: 'Nested CSRF',
-        group: null,
-        plan: null,
-        credentialRef: 'secret-nested-csrf',
-        enabled: true,
-        providerData: '{"workspace":"production","servers":[{"name":"primary"},{"name":"secondary","settings":{"X-Csrf-Token":"nested-list-secret"}}],"nested":{"serverCsrfToken":"nested-map-secret"}}',
-      );
+    test(
+      'recursively strips CSRF fields from provider data before persistence',
+      () async {
+        const connection = Connection(
+          id: 'conn-nested-csrf',
+          provider: 'antigravity',
+          displayName: 'Nested CSRF',
+          group: null,
+          plan: null,
+          credentialRef: 'secret-nested-csrf',
+          enabled: true,
+          providerData: '{"workspace":"production","servers":[{"name":"primary"},{"name":"secondary","settings":{"X-Csrf-Token":"nested-list-secret"}}],"nested":{"serverCsrfToken":"nested-map-secret"}}',
+        );
 
-      await testDb.connectionRepository.save(connection);
+        await testDb.connectionRepository.save(connection);
 
-      final persisted = (await testDb.connectionRepository.getAll()).single.providerData;
-      expect(
-        persisted,
-        '{"workspace":"production","servers":[{"name":"primary"},{"name":"secondary","settings":{}}],"nested":{}}',
-      );
-      expect(persisted, isNot(contains('nested-list-secret')));
-      expect(persisted, isNot(contains('nested-map-secret')));
-    });
+        final persisted =
+            (await testDb.connectionRepository.getAll()).single.providerData;
+        expect(
+          persisted,
+          '{"workspace":"production","servers":[{"name":"primary"},{"name":"secondary","settings":{}}],"nested":{}}',
+        );
+        expect(persisted, isNot(contains('nested-list-secret')));
+        expect(persisted, isNot(contains('nested-map-secret')));
+      },
+    );
 
     test('saving a connection update preserves health and cooldown', () async {
       const original = Connection(
@@ -418,6 +422,8 @@ void main() {
         ),
       ];
 
+      await testDb.connectionRepository.save(connectionForQuota('conn-a'));
+      await testDb.connectionRepository.save(connectionForQuota('conn-b'));
       await testDb.quotaCacheRepository.saveAll('conn-a', initialQuotasA);
       await testDb.quotaCacheRepository.saveAll('conn-b', quotasB);
 
@@ -463,6 +469,7 @@ void main() {
         resetAt: utcDateTime,
       );
 
+      await testDb.connectionRepository.save(connectionForQuota('conn-utc'));
       await testDb.quotaCacheRepository.saveAll('conn-utc', [quotaWithDate]);
 
       final retrieved = await testDb.quotaCacheRepository.getAll('conn-utc');
@@ -481,6 +488,9 @@ void main() {
         limit: null,
         unit: null,
         resetAt: null,
+      );
+      await testDb.connectionRepository.save(
+        connectionForQuota('conn-null-date'),
       );
       await testDb.quotaCacheRepository.saveAll('conn-null-date', [
         quotaWithNullDate,
@@ -580,3 +590,19 @@ void main() {
     });
   });
 }
+
+/// A bare parent row for a `quota_cache` fixture.
+///
+/// `quota_cache.connection_id` carries a foreign key to `connections`, so a
+/// cached quota can only exist for a real connection. Fixtures that write
+/// quotas directly have to create the parent or they are asserting against a
+/// state the database now refuses.
+Connection connectionForQuota(String id) => Connection(
+  id: id,
+  provider: 'openrouter',
+  displayName: id,
+  group: null,
+  plan: null,
+  credentialRef: 'sec-$id',
+  enabled: true,
+);

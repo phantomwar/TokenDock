@@ -232,9 +232,10 @@ A spec **proíbe** matching de mensagem. Tentar eliminar, não só reduzir.
 
 ### C.4 · Integridade de schema e custódia · **C-23, C-25, C-28, C-30**
 
-- [ ] Declarar `FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE` em `quota_cache`; `PRAGMA foreign_keys = ON` via `onConfigure` do `openDatabase` (hoje **nunca** habilitado).
-- [ ] Remover o índice redundante `idx_quota_cache_connection` (coberto pela PK composta).
-- [ ] Dropear a coluna morta `quota_cache.status` (sempre `null`, nunca lida).
+- [ ] Declarar `FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE` em `quota_cache`; `PRAGMA foreign_keys = ON` aplicado em `AppDatabase.open` **depois** das migrations (decidido — `onConfigure` foi descartado, ver checkpoint).
+  - `Migration004` reconstrói `quota_cache` (SQLite não adiciona FK a tabela existente) e **purga órfãos** no copy.
+  - Restringir-se a um teste que afirme `PRAGMA foreign_keys` = 1 após `AppDatabase.open`, e um que falhe se o rebuild quebrar com órfão presente.
+- [ ] `Migration004`: remover o índice redundante `idx_quota_cache_connection` (coberto pela PK composta), a coluna morta `quota_cache.status`, e criar `idx_connections_sort_order ON connections(sort_order, created_at)` (deixado por trás em C.1).
 - [ ] Migrar `auth_type` de string para derivado de `AuthKind` (ou validar na escrita que `adapter.authKind.name == authType`), eliminando a representação dupla (C-28).
 - [ ] Limpar `_loadedRawSecret` no `dispose()` do diálogo (C-30).
 - [ ] `deleteSync` do temp dir: tolerar `SHARING_VIOLATION` e não mascarar a exceção original (C-29).
@@ -314,9 +315,12 @@ carregados estão em `docs/checkpoints/2026-09-26-correctness-checkpoint.md`.
 1. **C-23 · integridade de schema.** Sem FK em lugar nenhum, `PRAGMA foreign_keys`
    nunca habilitado, `idx_quota_cache_connection` redundante com a PK composta,
    `quota_cache.status` morta. Também cobre o índice `connections(sort_order,
-   created_at)` que C.1 deixou para trás. **Exige migration** e uma decisão:
-   adotar `onConfigure`/`onUpgrade` do sqflite, ou manter o ownership manual de
-   `user_version` e aplicar o pragma na abertura.
+   created_at)` que C.1 deixou para trás. **Exige migration** (`Migration004`).
+   **Decisão tomada:** manter o ownership manual de `user_version` e aplicar o
+   pragma em `AppDatabase.open` **depois** das migrations. `onConfigure` foi
+   descartado porque `PRAGMA foreign_keys` é no-op dentro de transação, então
+   ele deixaria a enforcement ativa sobre o rebuild que a FK exige — medido, e
+   um banco com um órfão deixaria de abrir. Detalhes no checkpoint.
 2. **C-22 · paridade entre densidades.** Extrair preâmbulo e rodapé comuns dos
    3 builders e decidir se compact deve mostrar `snapshot.error`.
 3. **C-19 · tipografia contra a spec.** 11/13/15/18/22px e 20px semibold.

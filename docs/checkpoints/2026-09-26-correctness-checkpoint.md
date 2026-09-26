@@ -212,7 +212,7 @@ Ordered by value. Each item names the audit ID it closes.
 
 ---
 
-## Open question for the maintainer
+## Open question for the maintainer — **resolved 2026-09-26**
 
 The `connections` table has no foreign key from `quota_cache` and
 `PRAGMA foreign_keys` is never enabled, so referential integrity is currently
@@ -222,3 +222,46 @@ deliberately owns `user_version` itself rather than using sqflite's `version:`
 callback. **Decide whether to adopt sqflite's `onConfigure`/`onUpgrade` for
 foreign keys only, or keep the manual ownership and add the pragma at open
 time.** The manual route is smaller and consistent with what is already there.
+
+### Decision: keep the manual ownership, enable the pragma **after** the migrations run
+
+`AppDatabase.open` runs the migrations by hand, after `openDatabase` returns.
+The pragma therefore goes in `AppDatabase.open` too, in this order:
+
+1. `openDatabase`
+2. `Migration001` … `Migration004`
+3. `PRAGMA foreign_keys = ON`
+
+**This is not only the smaller diff. `onConfigure` is the option that cannot
+work.** Measured against the bundled SQLite (`sqflite_common_ffi` 2.4.3), with
+a throwaway probe that was run and then deleted:
+
+- `PRAGMA foreign_keys = OFF` **issued inside a transaction is a no-op.** The
+  pragma stayed at `1` after the `OFF` and the transaction still saw
+  enforcement on. SQLite only accepts the toggle when no `BEGIN`/`SAVEPOINT`
+  is pending.
+- An `INSERT` of an orphan row into an FK-declared table fails with
+  `FOREIGN KEY constraint failed (code 787)`, as expected.
+- The standard table rebuild — create `quota_cache_new` with the FK, copy,
+  drop, rename — run inside a transaction with a **pre-existing orphan** in
+  `quota_cache` **fails with error 787**, and the in-transaction `foreign_keys
+  = OFF` does not rescue it.
+
+That third result is the whole decision. `onConfigure` fires *before*
+`AppDatabase.open` gets the handle back, so it would leave FK enforcement
+active across the migration that has to rebuild the table, and no statement
+inside that migration can turn it off. Any existing database holding a single
+orphan row would fail to launch. Ordering the pragma after the migrations
+keeps the rebuild in the configuration the file has always been in, and the
+rebuild also purges orphans explicitly so the new table is clean regardless of
+the pragma's state.
+
+The costs accepted: the pragma is now asserted by a test rather than by the
+type system, and `TestDatabase.create` must set it too or the repositories
+would be tested under a weaker contract than production. Both are one line
+each and both are asserted.
+
+`PRAGMA foreign_keys` is off by default in SQLite, so the route also preserves
+the existing invariant that nothing on the write path depends on enforcement
+being on — `saveAll` is called from the refresh path and would now raise
+instead of silently orphaning a row if the parent connection were gone.

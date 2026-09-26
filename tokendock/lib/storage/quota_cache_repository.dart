@@ -91,7 +91,6 @@ class SqliteQuotaCacheRepository implements QuotaCacheRepository {
           'limit_value': quota.limit,
           'unit': quota.unit,
           'reset_at': quota.resetAt?.toUtc().toIso8601String(),
-          'status': null,
           'updated_at': now,
         });
       }

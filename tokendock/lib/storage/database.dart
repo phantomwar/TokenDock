@@ -7,6 +7,7 @@ import 'package:tokendock/storage/connection_repository.dart';
 import 'package:tokendock/storage/migration_001.dart';
 import 'package:tokendock/storage/migration_002.dart';
 import 'package:tokendock/storage/migration_003.dart';
+import 'package:tokendock/storage/migration_004.dart';
 import 'package:tokendock/storage/quota_cache_repository.dart';
 import 'package:tokendock/storage/settings_repository.dart';
 
@@ -60,6 +61,16 @@ class AppDatabase {
     await Migration001.run(db);
     await Migration002.run(db);
     await Migration003.run(db);
+    await Migration004.run(db);
+    // Applied last, deliberately, and not through sqflite's `onConfigure`.
+    // `PRAGMA foreign_keys` is a no-op inside a transaction, so a pragma set
+    // before Migration004 would leave enforcement active across the rebuild
+    // that declaring the cascade requires — and that rebuild cannot turn it
+    // off. A single orphaned `quota_cache` row would then stop the app from
+    // launching. Migrations run in the file's historical configuration
+    // (enforcement off, which is SQLite's default) and the invariant starts
+    // holding once the open completes.
+    await db.execute('PRAGMA foreign_keys = ON');
     return AppDatabase(db);
   }
 
