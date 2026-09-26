@@ -4,6 +4,7 @@ import 'dart:io';
 import '../../models/connection_status.dart';
 import '../../models/provider_snapshot.dart';
 import '../../models/quota.dart';
+import '../provider_status.dart';
 
 class OpenRouterResponse {
   const OpenRouterResponse._();
@@ -92,24 +93,7 @@ class OpenRouterResponse {
 
   static ({ConnectionStatus status, String error}) mapHttpStatus(
     int statusCode,
-  ) {
-    if (statusCode == 401) {
-      return (status: ConnectionStatus.authError, error: 'Invalid API key');
-    }
-    if (statusCode == 403) {
-      return (status: ConnectionStatus.error, error: 'Forbidden');
-    }
-    if (statusCode == 402) {
-      return (status: ConnectionStatus.limited, error: 'Insufficient credits');
-    }
-    if (statusCode == 429) {
-      return (status: ConnectionStatus.warning, error: 'Rate limited');
-    }
-    if (statusCode >= 500 && statusCode <= 599) {
-      return (status: ConnectionStatus.error, error: 'Provider unavailable');
-    }
-    return (status: ConnectionStatus.error, error: 'Unknown response');
-  }
+  ) => ProviderStatus.fromHttpStatus(statusCode);
 
   static ProviderSnapshot errorSnapshot({
     required String connectionId,
@@ -117,44 +101,27 @@ class OpenRouterResponse {
     required ConnectionStatus status,
     required String error,
     DateTime? cooldownUntil,
-  }) {
-    return ProviderSnapshot(
-      connectionId: connectionId,
-      status: status,
-      quotas: const [],
-      balance: null,
-      failureCause: status == ConnectionStatus.authError
-          ? ProviderFailureCause.invalidCredential
-          : null,
-      fetchedAt: fetchedAt,
-      error: error,
-      cooldownUntil: cooldownUntil,
-    );
-  }
+  }) => ProviderStatus.failure(
+    connectionId: connectionId,
+    fetchedAt: fetchedAt,
+    status: status,
+    error: error,
+    cooldownUntil: cooldownUntil,
+  );
 
   static ProviderSnapshot timeoutSnapshot({
     required String connectionId,
     required DateTime fetchedAt,
-  }) {
-    return errorSnapshot(
-      connectionId: connectionId,
-      fetchedAt: fetchedAt,
-      status: ConnectionStatus.error,
-      error: 'Timeout',
-    );
-  }
+  }) =>
+      ProviderStatus.timeout(connectionId: connectionId, fetchedAt: fetchedAt);
 
   static ProviderSnapshot malformedSnapshot({
     required String connectionId,
     required DateTime fetchedAt,
-  }) {
-    return errorSnapshot(
-      connectionId: connectionId,
-      fetchedAt: fetchedAt,
-      status: ConnectionStatus.error,
-      error: 'Unknown response',
-    );
-  }
+  }) => ProviderStatus.malformed(
+    connectionId: connectionId,
+    fetchedAt: fetchedAt,
+  );
 
   static ProviderSnapshot mapError({
     required String connectionId,
