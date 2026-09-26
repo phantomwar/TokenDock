@@ -85,7 +85,7 @@ void main() {
 
   /// The body metadata of the first Cloud Code call.
   Map<String, dynamic> firstCodeAssistMetadata() {
-    final body = sentBodies.firstWhere((b) => b.contains('pluginType'));
+    final body = sentBodies.firstWhere((b) => b.contains('ideType'));
     return (jsonDecode(body) as Map<String, dynamic>)['metadata']
         as Map<String, dynamic>;
   }
@@ -100,40 +100,31 @@ void main() {
       );
     });
 
-    test('pluginType is GEMINI, which is not a typo', () async {
-      // This is the field that reads like a mistake and is not: the Antigravity
-      // surface is carried by the *IDE* type, and the plugin that reaches it is
-      // the Gemini one. Both working implementations send exactly this pair.
+    test('the body carries ideType and nothing else', () async {
+      // Corrected 2026-09-26. This test previously asserted that the body
+      // carried `platform` and `pluginType: GEMINI`, on the reading that
+      // `pluginType: GEMINI` was a required part of the Antigravity identity. It
+      // is the opposite: in the request *body* it is the marker that declares
+      // the caller to be the Gemini CLI, and a live sign-in was answered
+      // `INVALID_ARGUMENT` while this was being sent. The full three-field map
+      // belongs in the `Client-Metadata` header, which is asserted below.
       await signIn();
-      expect(
-        firstCodeAssistMetadata()['pluginType'],
-        'GEMINI',
-        reason: 'ANTIGRAVITY belongs in ideType, not pluginType',
-      );
-    });
-
-    test('platform is present', () async {
-      await signIn();
-      expect(
-        firstCodeAssistMetadata().keys,
-        contains('platform'),
-        reason: 'the reference sends platform alongside ideType and pluginType',
-      );
+      expect(firstCodeAssistMetadata(), <String, dynamic>{
+        'ideType': 'ANTIGRAVITY',
+      });
     });
 
     test('the same metadata appears on the onboardUser call', () async {
       // Two call sites wrote the metadata independently, which is exactly how
       // they came to disagree. Asserted together so they cannot drift again.
       await signIn();
-      final bodies = sentBodies.where((b) => b.contains('pluginType'));
-      // At minimum loadCodeAssist; onboardUser only runs when there is no tier.
+      final bodies = sentBodies.where((b) => b.contains('ideType'));
       expect(bodies, isNotEmpty);
       for (final body in bodies) {
         final metadata =
             (jsonDecode(body) as Map<String, dynamic>)['metadata']
                 as Map<String, dynamic>;
-        expect(metadata['ideType'], 'ANTIGRAVITY');
-        expect(metadata['pluginType'], 'GEMINI');
+        expect(metadata, <String, dynamic>{'ideType': 'ANTIGRAVITY'});
       }
     });
   });
@@ -199,7 +190,7 @@ void main() {
     test('userIdentifier reaches the body', () async {
       await signIn();
       final body = jsonDecode(
-        sentBodies.firstWhere((b) => b.contains('pluginType')),
+        sentBodies.firstWhere((b) => b.contains('ideType')),
       ) as Map<String, dynamic>;
       expect(
         body['userIdentifier'],

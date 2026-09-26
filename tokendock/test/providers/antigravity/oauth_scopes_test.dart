@@ -37,7 +37,9 @@ void main() {
       );
       expect(
         AntigravityOAuthProvider.clientId,
-        isNot('GEMINI_CLI_CLIENT_ID.apps.googleusercontent.com'),
+        isNot(
+          'GEMINI_CLI_CLIENT_ID.apps.googleusercontent.com',
+        ),
         reason: 'that is the Gemini CLI client and it rejects these scopes',
       );
     });
@@ -104,19 +106,25 @@ void main() {
 
   group('token exchange', () {
     test('sends the secret, which a confidential client requires', () {
-      expect(AntigravityOAuthProvider.tokenRequestFields(
-        code: 'test-code',
-        codeVerifier: 'test-verifier',
-        redirectUri: 'http://127.0.0.1:1/callback',
-      ), containsPair('client_secret', AntigravityOAuthProvider.clientSecret));
+      expect(
+        AntigravityOAuthProvider.tokenRequestFields(
+          code: 'test-code',
+          codeVerifier: 'test-verifier',
+          redirectUri: 'http://127.0.0.1:1/callback',
+        ),
+        containsPair('client_secret', AntigravityOAuthProvider.clientSecret),
+      );
     });
 
     test('sends the client id alongside it', () {
-      expect(AntigravityOAuthProvider.tokenRequestFields(
-        code: 'test-code',
-        codeVerifier: 'test-verifier',
-        redirectUri: 'http://127.0.0.1:1/callback',
-      ), containsPair('client_id', AntigravityOAuthProvider.clientId));
+      expect(
+        AntigravityOAuthProvider.tokenRequestFields(
+          code: 'test-code',
+          codeVerifier: 'test-verifier',
+          redirectUri: 'http://127.0.0.1:1/callback',
+        ),
+        containsPair('client_id', AntigravityOAuthProvider.clientId),
+      );
     });
 
     test('carries the PKCE verifier and redirect, unchanged', () {

@@ -197,6 +197,15 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   ///
   /// `cclog` and `experimentsandconfigs` were missing from the previous request
   /// entirely.
+  /// The order the Cloud Code endpoints are probed in.
+  ///
+  /// **Daily first.** `cortexkit/antigravity-auth` probes
+  /// `daily-cloudcode-pa.googleapis.com` before production, and records that live
+  /// `agy` CLI 1.1.24 traffic uses the daily endpoint. TokenDock probed
+  /// production first, which meant the endpoint a real Antigravity client
+  /// actually talks to was only reached after production had already failed.
+  static const List<String> loadEndpointOrder = <String>[dailyHost, prodHost];
+
   static const List<String> scopes = <String>[
     'https://www.googleapis.com/auth/cloud-platform',
     'https://www.googleapis.com/auth/userinfo.email',
@@ -244,13 +253,29 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   /// - `wiseai/picoclaw` `docs/security/ANTIGRAVITY_AUTH.md` sends
   ///   `loadCodeAssist` with the same body metadata.
   ///
+  /// The platform value the endpoint expects, rather than the sentinel.
+  ///
+  /// `PLATFORM_UNSPECIFIED` is what the Gemini CLI sends. Naming it here is the
+  /// same class of mistake as sending `ideType: IDE_UNSPECIFIED`: it declares
+  /// the client to be something it is not.
+  static String get currentPlatform => Platform.isWindows ? 'WINDOWS' : 'MACOS';
+
   /// One map, built once, because the two call sites previously wrote it
   /// independently and that is how they came to disagree.
-  static const Map<String, String> clientMetadata = <String, String>{
+  static Map<String, String> get clientMetadata => <String, String>{
     'ideType': 'ANTIGRAVITY',
-    'platform': 'PLATFORM_UNSPECIFIED',
+    'platform': currentPlatform,
     'pluginType': 'GEMINI',
   };
+
+  /// The project id a *reference* client falls back to, recorded but not used.
+  ///
+  /// `cortexkit/antigravity-auth` hardcodes this for accounts the endpoint
+  /// provisions no project for. It belongs to that project's owner. Using it
+  /// here would point a user's requests and quota reporting at a Google Cloud
+  /// project that is not theirs, so it is deliberately not applied -- see the
+  /// branch in `login` for the full reasoning.
+  static const String referenceFallbackProjectId = 'rising-fact-p41fc';
 
   /// Sent as the `Client-Metadata` header on Cloud Code calls, alongside the same
   /// map in the request body.
@@ -263,13 +288,50 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   static const String apiClientValue =
       'google-cloud-sdk vscode_cloudshelleditor/0.1';
 
-  /// The `User-Agent` these endpoints expect.
+  /// The metadata the **request body** carries on the provisioning calls.
   ///
-  /// `antigravity` alone, as both references send it. TokenDock is not claiming
-  /// to be a specific Antigravity build: it is declaring which client surface it
-  /// speaks, the same role the `User-Agent` plays anywhere else, and the version
-  /// number in a reference's value is not something TokenDock can honestly assert.
-  static const String userAgent = 'antigravity';
+  /// One field, and the other two are deliberately absent.
+  ///
+  /// `cortexkit/antigravity-auth`, verified against live `agy` CLI 1.1.24
+  /// traffic, returns exactly `{ ideType: 'ANTIGRAVITY' }` from
+  /// `buildAntigravityLoadCodeAssistMetadata`. TokenDock was sending the full
+  /// three-field map here too, and `pluginType: GEMINI` is the marker that
+  /// declares the caller to be the **Gemini CLI**. `INVALID_ARGUMENT` is the
+  /// endpoint refusing a body that names a different client.
+  ///
+  /// This is not a contradiction with [clientMetadata], which is three fields:
+  /// the reference sends exactly this pair -- a narrow body and a full
+  /// `Client-Metadata` header. The header exists to carry the platform
+  /// declaration; narrowing it too would lose that.
+  static Map<String, dynamic> get bootstrapBodyMetadata => <String, dynamic>{
+    'ideType': 'ANTIGRAVITY',
+  };
+
+  /// The `User-Agent` the provisioning endpoints expect.
+  ///
+  /// The harness CLI form, which is what the reference sends on this path. Its
+  /// `getAntigravityHeaders()` carries a full Chrome/Electron string, but that
+  /// is the *desktop IDE's* identity and this is a CLI; the reference uses the
+  /// harness form for `loadCodeAssist` specifically.
+  ///
+  /// The version is the one the reference's captured traffic used. It is a
+  /// protocol constant here, not a claim about TokenDock's own version -- the
+  /// string names the Antigravity client surface, in the same way any
+  /// `User-Agent` names the client. It deliberately does not claim to be Chrome
+  /// or Electron, because TokenDock is neither.
+  static String get userAgent =>
+      'antigravity/cli/$antigravityCliVersion '
+      '(aidev_client; os_type=$_harnessPlatform; arch=$_harnessArch; '
+      'auth_method=consumer)';
+
+  static const String antigravityCliVersion = '1.1.24';
+
+  static String get _harnessPlatform =>
+      Platform.isWindows ? 'windows' : 'macos';
+
+  /// `x64` on the wire, as the reference normalises it. Dart has no
+  /// architecture at runtime, and this app only ships for `windows-x64`.
+  static const String _harnessArch = 'amd64';
 
   /// The OAuth error codes that may appear in a log line.
   ///
@@ -398,6 +460,20 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   /// the call sites pass only a stage name, a status, and [oauthErrorCodeOf]'s
   /// output. Debug-only, so a release build prints nothing at all — stdout from a
   /// desktop app ends up in whatever the user pastes into a bug report.
+  /// The top-level keys of a provisioning envelope, for the log.
+  ///
+  /// Key **names** only, never values: an envelope carries the account email and
+  /// the project id, and a shape that has shifted is diagnosable from which keys
+  /// appeared without disclosing what they hold.
+  static List<String> _envelopeKeys(Map<String, dynamic> value) {
+    final response = value['response'];
+    final source = response is Map
+        ? Map<String, dynamic>.from(response)
+        : value;
+    final keys = source.keys.toList()..sort();
+    return keys;
+  }
+
   static void _logStage(String stage, {int? status, String? reason}) {
     if (!kDebugMode) return;
     debugPrint(
@@ -552,6 +628,10 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       _logStage('token exchange returned no access token', status: 200);
       throw StateError('OAuth access token missing');
     }
+    // The exchange succeeded. Logged explicitly, because every subsequent step
+    // is a provisioning question rather than an authentication one, and the
+    // difference decides where a failure is even possible.
+    _logStage('token exchange succeeded; asking Cloud Code to provision');
     final refresh = (token['refresh_token'] ?? '').toString().trim();
     if (refresh.isEmpty) {
       // Named separately because it is the `prompt=consent` failure: Google
@@ -564,6 +644,11 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       );
       throw StateError('OAuth refresh token missing');
     }
+    // Past this point the token exchange has succeeded, so every remaining step
+    // is a provisioning question rather than an authentication one. Each one
+    // used to be able to fail with *no log line at all*, which is how a live
+    // attempt could stop dead after the authorization code and leave nothing to
+    // diagnose. The step names are logged as they are entered.
     final identity =
         AntigravitySelectedAccountGuard.identityOf(token) ??
         connection.identityKey;
@@ -572,24 +657,50 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       identity: identity,
       projectId: _providerData(connection)['projectId']?.toString(),
     );
+    _logStage('loadCodeAssist returned provisioning data');
     _requireProvisioningIdentity(provisioning, identity);
-    var project = _project(provisioning);
+    var project = _projectOf(provisioning);
     if (_tier(provisioning) == null) {
+      _logStage('no tier on the account, onboarding');
       provisioning = await _onboardUser(
         access,
         identity: identity,
         projectId: project,
       );
       _requireProvisioningIdentity(provisioning, identity);
-      project = _project(provisioning);
+      project = _projectOf(provisioning);
     }
+    // Which keys the body actually carried, so a shape that shifted is visible
+    // without logging any of their values.
+    _logStage('provisioning keys: ${_envelopeKeys(provisioning).join(',')}');
     if (project == null || project.isEmpty) {
-      _logStage('Antigravity has not onboarded this account yet');
+      // No fallback project, unlike the reference, and the difference is
+      // deliberate.
+      //
+      // `cortexkit/antigravity-auth` hardcodes `rising-fact-p41fc` for accounts
+      // the endpoint provisions no project for. That project is *theirs*: it
+      // belongs to the operator of that client. Copying the id into a
+      // distributed app would point a user's requests -- and their quota
+      // reporting -- at a Google Cloud project that is not theirs and that they
+      // have no relationship with. A shared hardcoded project is a resource
+      // that works for one deployer and misattributes for everyone else.
+      //
+      // So a projectless account is reported as needing onboarding, which is the
+      // truthful state: there is no project to use, and the user has to create
+      // one. The cost is that business and workspace accounts cannot connect
+      // until they do; the alternative would be silently billing someone else's
+      // project.
+      _logStage(
+        'no project provisioned for this account; onboarding is required',
+      );
       throw const AntigravityOnboardingRequired();
     }
     final identityKey =
         identity ?? AntigravitySelectedAccountGuard.identityOf(provisioning);
-    if (identityKey == null) throw StateError('OAuth account identity missing');
+    if (identityKey == null) {
+      _logStage('the token response carried no account identity');
+      throw StateError('OAuth account identity missing');
+    }
     final secret = jsonEncode({
       'accessToken': access,
       'refreshToken': token['refresh_token'],
@@ -617,10 +728,13 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     String? projectId,
   }) async {
     AntigravityTransportFailure? transportFailure;
-    for (final host in const [prodHost, dailyHost]) {
+    for (final host in loadEndpointOrder) {
       try {
         final payload = <String, dynamic>{
-          'metadata': Map<String, String>.of(clientMetadata),
+          // One field only. See [bootstrapBodyMetadata]: the full three-field map
+          // in the body declares the caller to be the Gemini CLI, and the
+          // endpoint answers INVALID_ARGUMENT to that.
+          'metadata': Map<String, dynamic>.of(bootstrapBodyMetadata),
           if (projectId case final project? when project.isNotEmpty)
             'cloudaicompanionProject': project,
         };
@@ -632,13 +746,23 @@ class AntigravityOAuthProvider implements ProviderAdapter {
           stage: 'loadCodeAssist',
           clientMetadata: true,
         );
-        if (result['response'] is Map) return result;
+        if (_hasProvisioning(result)) return result;
+        // The silent one, and where a live sign-in actually stopped. Key *names*
+        // only, never values: the body is the account's own provisioning data.
+        _logStage(
+          '$host answered 200 with no project and no tier; '
+          'top-level keys: ${_envelopeKeys(result).join(',')}',
+        );
         throw const AntigravitySchemaChanged();
       } on AntigravityTransportFailure catch (error) {
         transportFailure = error;
       }
     }
-    if (transportFailure != null) throw transportFailure;
+    if (transportFailure != null) {
+      _logStage('loadCodeAssist failed on every host, transport failure');
+      throw transportFailure;
+    }
+    _logStage('loadCodeAssist returned no provisioning at all');
     throw StateError('loadCodeAssist unavailable');
   }
 
@@ -648,7 +772,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     String? projectId,
   }) async {
     final payload = <String, dynamic>{
-      'metadata': Map<String, String>.of(clientMetadata),
+      'metadata': Map<String, dynamic>.of(bootstrapBodyMetadata),
       if (projectId case final project? when project.isNotEmpty)
         'cloudaicompanionProject': project,
     };
@@ -660,7 +784,13 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       stage: 'onboardUser',
       clientMetadata: true,
     );
-    if (result['response'] is! Map) throw const AntigravitySchemaChanged();
+    if (!_hasProvisioning(result)) {
+      _logStage(
+        'onboardUser answered 200 with no project and no tier; '
+        'top-level keys: ${_envelopeKeys(result).join(',')}',
+      );
+      throw const AntigravitySchemaChanged();
+    }
     return result;
   }
 
@@ -832,7 +962,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
             {
               'project': project,
               'userIdentifier': expected,
-              'metadata': Map<String, String>.of(clientMetadata),
+              'metadata': Map<String, dynamic>.of(bootstrapBodyMetadata),
             },
             bearer: credential['accessToken']?.toString(),
             stage: 'retrieveUserQuotaSummary',
@@ -930,7 +1060,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       {
         'project': project,
         'userIdentifier': expected,
-        'metadata': Map<String, String>.of(clientMetadata),
+        'metadata': Map<String, dynamic>.of(bootstrapBodyMetadata),
       },
       bearer: credential['accessToken']?.toString(),
       stage: 'fetchAvailableModels',
@@ -940,7 +1070,7 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       {
         'project': project,
         'userIdentifier': expected,
-        'metadata': Map<String, String>.of(clientMetadata),
+        'metadata': Map<String, dynamic>.of(bootstrapBodyMetadata),
       },
       bearer: credential['accessToken']?.toString(),
       stage: 'retrieveUserQuota',
@@ -975,6 +1105,45 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       value['response'] is Map
       ? Map<String, dynamic>.from(value['response'] as Map)
       : value;
+
+  /// True when a provisioning body carries usable data, enveloped or not.
+  ///
+  /// **`loadCodeAssist` does not wrap its response in a `response` envelope.**
+  /// It returns `cloudaicompanionProject` and `currentTier` at the top level.
+  /// TokenDock required `body['response'] is Map` and threw
+  /// `AntigravitySchemaChanged` otherwise — and that throw had no log line, so a
+  /// live sign-in stopped dead there and the log simply ended at the
+  /// authorization code.
+  ///
+  /// Both shapes are accepted, because the enveloped one is what `onboardUser`
+  /// and the quota endpoints return and the two were never distinguished.
+  static bool _hasProvisioning(Map<String, dynamic> body) {
+    if (body['response'] is Map) return true;
+    return body['cloudaicompanionProject'] != null ||
+        body['currentTier'] != null ||
+        body['projectId'] != null ||
+        body['project'] != null;
+  }
+
+  /// The project id, in either of the two forms the endpoint returns.
+  ///
+  /// `cortexkit` accepts `cloudaicompanionProject` as a plain string *and* as an
+  /// object with an `id`. A client that reads only the string form reports "no
+  /// project" for every account served the object form, which is a silent
+  /// failure that looks like an ineligible account.
+  static String? _projectOf(Map<String, dynamic> body) {
+    final raw = _unwrapEnvelope(body)['cloudaicompanionProject'];
+    if (raw is String && raw.isNotEmpty) return raw;
+    if (raw is Map) {
+      final id = raw['id'];
+      if (id is String && id.isNotEmpty) return id;
+    }
+    final unwrapped = _unwrapEnvelope(body);
+    final flat = unwrapped['projectId'] ?? unwrapped['project'];
+    if (flat is String && flat.isNotEmpty) return flat;
+    return null;
+  }
+
   static Map<String, dynamic> _mergeLegacyModels(
     Map<String, dynamic> quota,
     Map<String, dynamic> models,
@@ -1276,14 +1445,18 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     }
   }
 
-  static String? _project(Map<String, dynamic> v) {
-    final r = _map(v['response']);
-    return (r['cloudaicompanionProject'] ?? r['projectId'] ?? r['project'])
-        ?.toString();
-  }
+  // `_project` is gone: it read only the enveloped shape and only the string
+  // form of the project, and is replaced by `_projectOf`. See that method for
+  // the two response shapes and the two project shapes it has to accept.
 
+  /// The tier, from either response shape.
+  ///
+  /// Read through [_unwrapEnvelope] for the same reason [_projectOf] exists: a
+  /// bare `loadCodeAssist` body carries `currentTier` at the top level, and
+  /// reading only the enveloped shape reported "no tier" for exactly those
+  /// accounts -- which sent them down the onboarding path unnecessarily.
   static String? _tier(Map<String, dynamic> v) {
-    final r = _map(v['response']);
+    final r = _unwrapEnvelope(v);
     final t = _map(r['currentTier']);
     return (t['id'] ?? t['name'] ?? r['tier'])?.toString();
   }
