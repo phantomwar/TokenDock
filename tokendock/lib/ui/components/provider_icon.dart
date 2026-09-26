@@ -6,8 +6,18 @@ import '../../app/theme.dart';
 ///
 /// Derives a one-letter glyph from [provider] so account headers and compact
 /// rows stay consistent without duplicating display strings.
+///
+/// 24px, down from 32. At 32 the disc was exactly as tall as the account name it
+/// precedes, so the two competed and the name — the thing a user scans for —
+/// lost. The glyph drops to the body step with the disc so it still fits inside.
 class ProviderIcon extends StatelessWidget {
   const ProviderIcon({super.key, required this.provider});
+
+  /// The disc's diameter.
+  ///
+  /// Named because the glyph has to be sized against it; shrinking the disc
+  /// without the glyph is how a monogram ends up clipped.
+  static const double diameter = 24;
 
   final String provider;
   String get _monogram {
@@ -22,8 +32,8 @@ class ProviderIcon extends StatelessWidget {
     return Semantics(
       label: 'Provider $provider',
       child: Container(
-        width: 32,
-        height: 32,
+        width: diameter,
+        height: diameter,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: colors.mutedSurface,
@@ -32,7 +42,7 @@ class ProviderIcon extends StatelessWidget {
         ),
         child: Text(
           _monogram,
-          style: TokenDockTypography.titleStyle(color: colors.ink),
+          style: TokenDockTypography.bodyStyle(color: colors.ink),
         ),
       ),
     );

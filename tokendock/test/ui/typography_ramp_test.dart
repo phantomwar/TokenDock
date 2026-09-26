@@ -40,9 +40,13 @@ void main() {
       expect(TokenDockTypography.widgetHeadingStyle().fontSize, 22);
     });
 
-    test('quota figures are 20px semibold', () {
+    test('quota figures are 15px semibold', () {
+      // Amended 2026-09-26 from 20px. The figure overran the shipped 360px
+      // window and pushed the window label below it; the label is what says
+      // *which* quota a row is. `figure_scale_test.dart` covers the hierarchy
+      // constraints this change had to respect.
       final style = TokenDockTypography.quotaStyle();
-      expect(style.fontSize, 20);
+      expect(style.fontSize, 15);
       expect(style.fontWeight, FontWeight.w600);
     });
   });

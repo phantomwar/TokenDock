@@ -192,7 +192,15 @@ abstract final class TokenDockTypography {
   static const double titleSize = 15;
   static const double sectionHeadingSize = 18;
   static const double widgetHeadingSize = 22;
-  static const double quotaFigureSize = 20;
+
+  /// The authoritative quota figure.
+  ///
+  /// Was 20, which overran a 360px window: the percentage became the loudest
+  /// element in the widget and pushed the window label — the thing that says
+  /// *which* quota this is — below it. 15 keeps the hierarchy the audits
+  /// required (C-19: above the metadata beside it; C-20: full-contrast ink) while
+  /// letting the label and the figure read as one unit.
+  static const double quotaFigureSize = 15;
 
   static const List<FontFeature> _tabular = <FontFeature>[
     FontFeature.tabularFigures(),
