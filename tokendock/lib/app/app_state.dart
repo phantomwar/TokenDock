@@ -412,7 +412,7 @@ class AppState extends ChangeNotifier {
       plan: null,
       credentialRef: '',
       enabled: true,
-      authType: 'none',
+      authType: AuthKind.none.name,
       providerData: jsonEncode({'source': source}),
     );
     try {
@@ -520,7 +520,7 @@ class AppState extends ChangeNotifier {
       plan: null,
       credentialRef: ref,
       enabled: true,
-      authType: 'oauth',
+      authType: AuthKind.oauth.name,
     );
     try {
       final registered = providerRegistry?.get('antigravity');
@@ -547,7 +547,7 @@ class AppState extends ChangeNotifier {
         plan: result.tier,
         credentialRef: ref,
         enabled: true,
-        authType: 'oauth',
+        authType: AuthKind.oauth.name,
         identityKey: result.identityKey,
         providerData: jsonEncode({
           'source': 'remote',
@@ -672,7 +672,7 @@ class AppState extends ChangeNotifier {
         plan: current.plan,
         credentialRef: newRef,
         enabled: current.enabled,
-        authType: 'oauth',
+        authType: AuthKind.oauth.name,
         identityKey: current.identityKey,
         providerData: current.providerData,
       );
@@ -696,7 +696,7 @@ class AppState extends ChangeNotifier {
           plan: result.tier,
           credentialRef: newRef,
           enabled: current.enabled,
-          authType: 'oauth',
+          authType: AuthKind.oauth.name,
           identityKey: result.identityKey,
           providerData: jsonEncode({
             'source': 'remote',
@@ -894,7 +894,7 @@ class AppState extends ChangeNotifier {
     if (target != null &&
         store != null &&
         target.credentialRef.isNotEmpty &&
-        target.authType != 'none') {
+        target.authType != AuthKind.none.name) {
       try {
         await store.delete(target.credentialRef);
       } catch (e) {

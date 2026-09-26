@@ -375,7 +375,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
     if (existing != null &&
         widget.secretStore != null &&
         existing.credentialRef.isNotEmpty &&
-        existing.authType != 'none') {
+        existing.authType != AuthKind.none.name) {
       widget.secretStore!.read(existing.credentialRef).then((raw) {
         if (mounted && raw != null) {
           setState(() {
@@ -512,7 +512,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
       if (existing != null &&
           _initialMaskedSecret != null &&
           _credentialController.text == _initialMaskedSecret &&
-          existing.authType != 'none' &&
+          existing.authType != AuthKind.none.name &&
           existing.credentialRef.isNotEmpty &&
           store != null) {
         // Read the credential back rather than keeping a plaintext copy for the
@@ -540,7 +540,7 @@ class _ConnectionFormDialogState extends State<_ConnectionFormDialog> {
         credentialRef: widget.existing?.credentialRef ?? '',
         enabled: true,
         authType:
-            widget.existing?.authType ?? (_isLocalAntigravity ? 'none' : null),
+            widget.existing?.authType ?? (_isLocalAntigravity ? AuthKind.none.name : null),
         identityKey: widget.existing?.identityKey,
         providerData: providerData ?? widget.existing?.providerData,
       );

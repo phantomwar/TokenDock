@@ -165,7 +165,9 @@ The widget uses one responsive composition through `LayoutBuilder`:
 | `330–550px` | Normal | provider, alias, primary quotas, reset, status |
 | `> 550px` | Expanded | all quotas, plan, last refresh, stale/error information |
 
-Initial mock data covers the five provider examples from the PRD, but OpenRouter fixture data becomes the actual source after integration. The main reusable components are `AppCard`, `QuotaBar`, `ProviderIcon`, `StatusIndicator`, `AccountHeader`, `QuotaRow`, `CompactAccountRow`, `SectionHeader`, and a named icon-button component that does not shadow Flutter's `IconButton` type.
+Initial mock data covers the five provider examples from the PRD, but OpenRouter fixture data becomes the actual source after integration. The main reusable components are `QuotaBar`, `ProviderIcon`, `StatusIndicator`, `AccountHeader`, `QuotaRow`, `CompactAccountRow`, and a named icon-button component that does not shadow Flutter's `IconButton` type.
+
+**Superseded (audit C-32).** This list originally also named `AppCard` and `SectionHeader`. Both were implemented and never instantiated: the visual system moved to a single card-free container, `WidgetShell`, with accounts grouped by thin dividers ("no nested floating cards", per `TokenDockWidget`). `AppCard` was by then actively misleading, since its own doc claimed to be "the one shell surface in the visual system" while `WidgetShell` was that surface. Both files were removed rather than composed, because composing them would have reintroduced the card chrome the design deliberately dropped.
 
 The native window is frameless, resizable within product-defined minimum/maximum dimensions, draggable, and always-on-top. Closing the window calls `hide()` rather than ending the process. The tray menu exposes Open TokenDock, Refresh All, Always on Top, Connections, and Exit; a double click reveals the widget. Exit explicitly disables the close-to-tray behavior and terminates the process. Advanced edge snapping and stored window geometry remain later work.
 

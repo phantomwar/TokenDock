@@ -31,7 +31,6 @@ class SqliteSettingsRepository implements SettingsRepository {
   final Database _db;
 
   static const String refreshIntervalKey = 'refresh_interval_minutes';
-  static const int defaultRefreshIntervalMinutes = 3;
 
   @override
   Future<String?> get(String key) async {

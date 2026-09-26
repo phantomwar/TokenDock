@@ -8,7 +8,7 @@ import '../../models/connection_status.dart';
 
 /// Account identity header: icon, display name, plan, and live status.
 ///
-/// Content primitive that composes inside [AppCard]; carries no card chrome
+/// Content primitive that composes inside [WidgetShell]; carries no card chrome
 /// of its own. Reuses [Connection] display values without duplicating them.
 class AccountHeader extends StatelessWidget {
   const AccountHeader({
