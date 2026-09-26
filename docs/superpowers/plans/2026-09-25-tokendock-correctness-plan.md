@@ -314,6 +314,10 @@ Uma fase só fecha quando, **tudo** isto é verdade:
 
 **Não faz parte deste plano** (já estava deferred e continua): installer, release 0.1, notificações, grupos, drag-and-drop, auto-start, histórico/gráficos, **OpenCode Zen** (ver nota abaixo), scaling do servidor. Este plano **não adiciona nenhuma dependência**.
 
+> **Actualizado 2026-09-26, depois da nota abaixo: z.ai implementado.** A lição acima generalizou-se e o quinto provider entrou pelo mesmo caminho — `ProviderAdapter` + models internos + testes, **sem tocar em nenhum card**. A regra da Fase D ("verificar roadmap 0.3, cada um sujeito ao mesmo teste: o endpoint de modelos exige a chave?") continua a ser o filtro, e `provider_registry_test.dart` fixa a invariante para que o próximo provider não a quebre em silêncio.
+>
+> `ProviderHttpProbe.getJson` passou a aceitar um header `Authorization` completo, porque a z.ai envia a chave crua sem prefixo `Bearer`. E uma regra transversal que os três providers novos deixaram óbvia: **uma fetch que falhe ou venha incompleta devolve snapshot não-`ok`**, porque `RefreshService` substitui a quota em cache pelo que o snapshot trouxer — "saudável, sem dados" apagaria o cartão.
+
 > **MiniMax e OpenCode — corrigido.** A nota anterior neste ficheiro (commit `9511321`) afirmava que a MiniMax não publica API de uso e que Go e Zen eram impossíveis de registar. **As duas afirmações estavam erradas.** Corrigidas em 2026-09-26:
 >
 > - **MiniMax tem quota real.** `GET /v1/token_plan/remains` devolve as janelas do Token Plan (intervalo + semanal) por bucket de modelo. Implementado em `minimax_usage_response.dart`. A propriedade que torna o parser necessário: **a MiniMax devolve HTTP 200 mesmo para credencial rejeitada** — o sinal real é `base_resp.status_code === 0`, portanto um parser que confiasse no status HTTP mostraria quota intacta para uma chave que não funciona.

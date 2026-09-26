@@ -1,5 +1,9 @@
 # TokenDock Login Adaptation Implementation Plan
 
+> **Status: completed slice, 2026-09-23. Superseded in part, 2026-09-26.** Kept as the point-in-time record; the body is deliberately not rewritten. Its deferral of MiniMax ("bloqueado até existir schema oficial") was correct on the evidence available at the time and wrong in fact: the endpoint exists, its shape was recoverable from `can1357/oh-my-pi`, and `docs/auth-quota-hardening-plan.md` already named it. The rule that supersedes it: *a contract absent from a published OpenAPI is not absent from the API.* See `docs/checkpoints/2026-09-26-correctness-checkpoint.md`.
+>
+> The `AuthKind` / `RefreshableCredential` / loopback infrastructure built here is what the three later api-key providers plug into without modification, which is the main reason it is worth keeping.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement generic login infrastructure (AuthKind + probes, refreshable credentials, loopback OAuth, redaction, Migration003) plus the user-approved Antigravity appendices: local read-only quota (A) and per-account remote OAuth (B).

@@ -1,5 +1,11 @@
 # TokenDock OpenRouter First Functional Goal Implementation Plan
 
+> **Status: completed slice, 2026-09-22. Superseded in part, 2026-09-26.** Kept as the point-in-time record; the body is deliberately not rewritten, because its scope exclusions were *correct for this slice* and editing them would falsify what this plan actually decided.
+>
+> What did change: three of the providers this plan deferred are now implemented, all with real quota — **OpenCode Go** (`GET /zen/go/v1/usage`), **MiniMax** (`GET /v1/token_plan/remains`) and **z.ai** (`GET /api/monitor/usage/quota/limit`). OpenCode Zen remains deferred, now for a measured reason rather than an absence of investigation. The "private OpenCode Console routes" exclusion still stands and was never crossed: the route used is first-party, and its being *undocumented* is recorded as a risk rather than treated as permission to infer anything.
+>
+> See `docs/checkpoints/2026-09-26-correctness-checkpoint.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the Windows TokenDock widget that securely tracks, caches, and refreshes three independent OpenRouter API-key limits from the system tray.

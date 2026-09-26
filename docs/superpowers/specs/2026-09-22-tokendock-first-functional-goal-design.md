@@ -1,5 +1,12 @@
 # TokenDock First Functional Goal Design
 
+> **Superseded in part, 2026-09-26.** This document is kept as the point-in-time record of the first slice and its body is deliberately **not** rewritten. Two of its forward-looking statements are now wrong, and both were wrong for the same reason — see `docs/checkpoints/2026-09-26-correctness-checkpoint.md`:
+>
+> - It excludes "OpenCode live quota monitoring" on the grounds that no public subscription-quota API exists. **OpenCode Go is now implemented** against `GET /zen/go/v1/usage`, which enforces the key (401 invalid, 403 valid key with no plan) and returns three windowed quotas. The earlier "no API exists" conclusion generalised from the *model listing* returning 200 for a garbage key, which is correct behaviour for a static catalog.
+> - It excludes MiniMax for want of a response schema. **MiniMax is now implemented** against `GET /v1/token_plan/remains`.
+>
+> The rest of the exclusions still stand. Its architectural claims are load-bearing and were confirmed: five providers are now registered with no change to any card, which is the validation this document set out to obtain.
+
 **Goal:** Deliver a Windows desktop widget that securely tracks and refreshes any number of independent OpenRouter API-key connections, keeps a usable cached view offline, and remains available through the system tray.
 
 **Source:** `PRD.txt`, sections 1–41, 67–71, 83–90, and 94–97.

@@ -6,12 +6,26 @@
 **Arquitetura:** aplicação local, processo único
 **Objetivo:** widget leve para monitorar múltiplas assinaturas, contas e API keys de serviços de IA.
 
-> **Status da primeira meta funcional: implementada e mesclada. Auditoria de corretude e acessibilidade de 2026-09-26 CONCLUÍDA: 36 de 36 achados fechados, cada um com o commit que o fechou. Verificação atual: `flutter test --no-pub` 465/465 (`9511321`) em três execuções consecutivas, `flutter analyze` 0 erros/0 warnings/31 infos, `flutter build windows --release` **bem-sucedido** e `integration_test` **3/3 + 3/3** no device `windows-x64`. Providers: OpenRouter, Antigravity e MiniMax (credencial verificada por `GET /v1/models` → 401 em chave inválida; sem API de uso publicada, mostra só saúde da ligação). **OpenCode Zen/Go deliberadamente ausentes**: os seus endpoints `/models` devolvem 200 para chave inválida, logo não sustentam um gate test-before-save. Segredos: encriptados em disco por `flutter_secure_storage` (**não** é DPAPI), agora em `%APPDATA%\TokenDock\tokendock\` após migração do placeholder `com.example`. **Continuam por verificar: integração real com Google/OpenRouter, browser externo e processo Antigravity** (todos os testes usam fixtures sanitizadas). Roadmap 0.2+ (histórico/gráficos, OpenRouter Management API, notificações, drag-and-drop, autodetecção, mais providers) permanece por iniciar, por decisão de âmbito. Checkpoint: `docs/checkpoints/2026-09-26-correctness-checkpoint.md`.**
+> **Status da primeira meta funcional: implementada e mesclada. Auditoria de corretude e acessibilidade de 2026-09-26 CONCLUÍDA: 36 de 36 achados fechados, cada um com o commit que o fechou. Verificação atual: `flutter test --no-pub` **542/542**, `flutter analyze` **sem nenhum diagnóstico** (eram 0 erros/0 warnings/31 infos), `flutter build windows --release` **bem-sucedido** e `integration_test` **3/3** no device `windows-x64`.**
+>
+> **Providers registados: cinco, todos com quota real — OpenRouter, Antigravity (OAuth Google remoto + local keyless), MiniMax, OpenCode Go e z.ai.** Todos os quatro formatos de resposta não documentados foram portados de uma implementação funcional (`can1357/oh-my-pi`), nunca inferidos. Cada um tem gate de credencial real, que é o que torna o test-before-save significativo: MiniMax `/v1/models` → 401; OpenCode Go `/zen/go/v1/usage` → 401/403; z.ai → `success` no body; OpenRouter → `GET /api/v1/key`.
+>
+> **Três armadilhas de provider, porque cada uma produz uma resposta errada plausível em vez de um erro:** (1) **a MiniMax devolve HTTP 200 mesmo para credencial rejeitada** — o sinal real é `base_resp.status_code === 0`, e confiar no status mostraria quota intacta para uma chave que não funciona; (2) **`/zen/go/v1/usage` é de primeira parte mas não documentado** e a implementação de referência regista que o formato já mudou uma vez, daí o parse tudo-ou-nada; (3) **a z.ai envia a chave crua em `Authorization`, sem prefixo `Bearer`** — prefixar seria rejeitado e a credencial nunca seria verificada.
+>
+> **Regra transversal:** uma fetch que falhe ou venha incompleta devolve snapshot **não-`ok`**. `RefreshService` substitui a quota em cache pelo que o snapshot trouxer, portanto "saudável, sem dados de uso" apagaria o cartão do utilizador porque um endpoint expirou. Esta regra está fixada por testes em cada provider.
+>
+> Segredos: encriptados em disco por `flutter_secure_storage` (**não** é DPAPI), agora em `%APPDATA%\TokenDock\tokendock\` após migração do placeholder `com.example`.
+>
+> **Continuam por verificar: integração real com Google/OpenRouter/MiniMax/OpenCode Go/z.ai, browser externo e processo Antigravity** (todos os testes usam fixtures sanitizadas). **Continuam por implementar, cada um bloqueado por um fluxo de auth novo, não por um adapter:** GitHub Copilot (entitlement token), Codex, Claude e Gemini CLI (exchange OAuth próprio). O caso Gemini CLI obtém rate limits mais altos apresentando o `User-Agent` oficial do Gemini CLI — decisão de termos de serviço do maintainer, não um detalhe de implementação. Nenhum deles está stubado ou falsificado. Detalhes em `docs/checkpoints/2026-09-26-correctness-checkpoint.md`.
+>
+> **Correção importante registada:** uma revisão anterior afirmava que a MiniMax não publica API de uso e que Go e Zen não podiam ser registados porque `/zen*/v1/models` devolve 200 para chave inválida. A medição estava certa e a conclusão errada: um catálogo de modelos é estático por definição, logo uma resposta independente da conta é comportamento correto, e "o catálogo não valida" não implica "nada valida". Os endpoints que medem a conta nunca foram sondados. Para a MiniMax, a resposta já estava neste repositório, em `docs/auth-quota-hardening-plan.md`.
+>
+> Roadmap 0.2+ (histórico/gráficos, OpenRouter Management API, notificações, drag-and-drop, autodetecção) permanece por iniciar, por decisão de âmbito. Checkpoint: `docs/checkpoints/2026-09-26-correctness-checkpoint.md`.**
 > Funciona hoje: widget Windows 10/11 x64 (compacto/normal/expandido), janela frameless com tray e fechar-para-tray, conexões OpenRouter independentes sem limite configurado de quantidade, seleção de providers, fontes locais Antigravity keyless, login Antigravity Google remoto, cancelamento, reconnect in-place, CRUD com test-before-save para OpenRouter, cache SQLite em `%LOCALAPPDATA%\TokenDock\tokendock.db`, segredos via `flutter_secure_storage` encriptados em disco (não é DPAPI, ver `PRODUCT.md`), refresh manual/periódico com no máximo quatro requisições simultâneas e coalescência por conexão, temas claro/escuro/alto contraste, navegação por teclado e Ctrl+R.
 >
 > Garantias agora verificadas por teste: o custo de leitura é independente da quantidade de contas (`getById`, `getAllWithHealth`, `getAllForAll`); a troca de credencial é single-flight por conexão tanto no serviço quanto no provider; o loopback OAuth é exclusivo em IPv4 e IPv6; transporte OAuth e descoberta de sessão local são ambos limitados no tempo; credencial ilegível é reportada em vez de enviada; migrations são retomáveis; linha de cache corrompida degrada em vez de derrubar todas as conexões; e a copy de erro nunca interpola a exceção, portanto SQL, nomes de tabela e texto com formato de credencial não chegam à UI.
 >
-> Pendências de retomada: integridade de schema (C-23, sem foreign key, índice redundante, coluna morta), paridade entre densidades (C-22), tipografia contra a spec (C-19), o notifier baseado em `Expando` (C-24), código morto e limpeza. Validar ainda uma conta Google real, callback de navegador externo, rotação de refresh token e um processo Antigravity real. Não inferir contratos privados, scraping ou OAuth sem escopo/API oficial.
+> Pendências de retomada: **nenhuma pendência de auditoria.** A lista anterior (integridade de schema C-23, paridade entre densidades C-22, tipografia contra a spec C-19, o notifier baseado em `Expando` C-24, código morto e limpeza) está integralmente fechada, e `flutter analyze` passou a **zero diagnósticos**. O que resta não é código de auditoria: (a) validar uma conta real de cada provider, um callback de navegador externo, rotação de refresh token e um processo Antigravity real; (b) decidir se os providers do roadmap 0.3 que exigem fluxo de auth novo (GitHub Copilot, Codex, Claude, Gemini CLI) valem o custo, e no caso do Gemini CLI decidir explicitamente sobre o `User-Agent` oficial; (c) os três gerados versionados em `windows/flutter/`, que todo build reescreve e produz `M` espúrio por CRLF. Continua vedado: não inferir contratos privados, não fazer scraping, e não usar OAuth sem escopo/API oficial.
 
 ---
 
@@ -1101,9 +1115,14 @@ Não fazer request novo para atualizar countdown.
 
 Segundo adapter.
 
-Status (2026-09-23): bloqueado até a documentação oficial publicar o schema de resposta de quota. O endpoint `GET https://www.minimax.io/v1/token_plan/remains` e a autenticação estão documentados, mas não permitem mapear com segurança os campos de quota.
+Status (2026-09-26): **implementado, com quota real.** Duas fases documentadas contrariam o que esta secção afirmava antes, e ambas ficaram registadas porque o erro é instrutivo:
 
-Implementar:
+1. *"A FAQ não publica o schema JSON da resposta"* era verdade e não implicava ausência. O endpoint existe em `GET /v1/token_plan/remains` e devolve `model_remains[]` com duas janelas por bucket (intervalo + semanal), cada uma com `*_remaining_percent`, contagens e `*_status` (1 normal, 2 esgotado, 3 ilimitado). Além disso, **`docs/auth-quota-hardening-plan.md` já listava este endpoint** — a resposta estava neste repositório e a conclusão foi escrita sem o consultar.
+2. **A MiniMax devolve HTTP 200 mesmo para credencial rejeitada.** O sinal real é `base_resp.status_code === 0`. Um parser que confiasse no status HTTP mostraria quota intacta para uma chave que não funciona.
+
+O gate de credencial continua a ser `GET /v1/models`, que devolve 401 — o endpoint do plano não serve para isso.
+
+Implementado:
 
 ```text
 5h
@@ -1176,7 +1195,9 @@ Isso é melhoria v0.2.
 
 Implementar por último entre os P0.
 
-Status (2026-09-23): bloqueado. A documentação oficial descreve `/usage` (`/quota`) no Antigravity CLI como um painel TUI interativo; não documenta endpoint nem schema de quota para integração externa.
+Status (2026-09-26): **implementado, incluindo multi-account**, que era o objetivo desta fase. O bloqueio registado em 2026-09-23 ("a documentação oficial descreve `/usage` no CLI como um painel TUI interativo; não documenta endpoint nem schema") foi resolvido por uma via explícita e aprovada pelo maintainer: o maintainer **aceitou a superfície privada `v1internal:*`** em `cloudcode-pa.googleapis.com` (`loadCodeAssist`, `onboardUser`, `fetchAvailableModels`, `retrieveUserQuota`, `retrieveUserQuotaSummary`), conforme observado em `steipete/CodexBar`, `NoeFabris/opencode-antigravity-auth` e `abruption/agy-cli-usage`. A política de quebra está definida e é implementada: qualquer alteração de schema ou host desativa o appendix por conexão (tombstone `quota_source_changed`, cache preservado) até ser revalidado, e campos nunca são remapeados silenciosamente.
+
+É a exceção documentada à regra de não inferir endpoints privados, e por isso está escrita aqui e não apenas no código.
 
 Motivo:
 
@@ -1867,6 +1888,19 @@ DeepSeek
 z.ai
 ```
 
+Status (2026-09-26): **z.ai implementado** (quota real em `/api/monitor/usage/quota/limit`, com a chave crua em `Authorization` sem prefixo `Bearer`). O restante está por iniciar, e a distinção relevante não é o vendor mas o **esforço de auth**:
+
+| Provider | Estado | Bloqueio |
+|---|---|---|
+| z.ai | ✅ implementado | — |
+| Gemini API | pendente | O Gemini CLI reutiliza a superfície `v1internal:*` que o Antigravity já consome e a base de código já tem, mas precisa do **seu próprio cliente OAuth** e de um parser de `buckets[]`. Além disso, obtém rate limits mais altos apresentando o `User-Agent` oficial do Gemini CLI — decisão de termos de serviço do maintainer. |
+| GitHub Copilot | pendente | Precisa de um *entitlement token* do GitHub, não de uma API key, e traz o tratamento de GitHub Enterprise e da API de billing. |
+| Codex | pendente | Exchange de token próprio (rotaciona refresh token), com ledger de rotação. |
+| Claude | pendente | Idem, mais o contrato de Boulder/subscription. |
+| OpenAI API, Groq, DeepSeek | pendente | Sem usage provider na implementação de referência; exigiria sondar o endpoint e confirmar que não consome quota. |
+
+Nenhum destes está stubado ou falsificado. Regra inalterada: um provider só entra com gate de credencial real — `GET /models`-like que exija a chave e não consuma quota.
+
 ---
 
 # 81. Roadmap 0.4
@@ -2021,9 +2055,9 @@ Resultado:
 
 sem mudança arquitetural significativa.
 
-Status atual: meta não atingida. O produto tem um provider vivo (OpenRouter); as conexões adicionais não contam como providers. Permanecem os alvos de 7 conexões e 3 providers, sem substituir OpenCode Go por uma integração não verificada.
+Status atual: **atingida.** A meta pedia 2 MiniMax + 2 OpenRouter, 7 conexões e 3 providers "sem mudança arquitetural significativa". Hoje há **cinco providers registados** (OpenRouter, Antigravity, MiniMax, OpenCode Go, z.ai), todos com quota real, e o quinto provider foi adicionado sem tocar em nenhum card — o que era o ponto da meta. A "mudança arquitetural significativa" que a meta usava como teste de falência não foi necessária: `ProviderStatus`, `ProviderHttpProbe` e a convenção de quota em percentagem/absoluto absorveram os três adapters novos. `provider_registry_test.dart` fixa essa invariante para que não se perca ao adicionar o próximo.
 
-Se for necessário remodelar o sistema para isso, a primeira arquitetura estava errada.
+Se for necessário remodelar o sistema para isso, a primeira arquitetura estava errada. Não foi.
 
 ---
 
@@ -2037,7 +2071,7 @@ Antigravity multi-account
 
 Somente após os providers simples estarem estáveis.
 
-Status atual: não implementada; depende de uma integração Antigravity baseada em contrato oficial de quota.
+Status atual: **implementada.** Antigravity suporta multi-account, cada conta como `Connection` separada, com login Google remoto, quota real, reconnect in-place e cache preservado. A dependência de "contrato oficial de quota" foi substituída pela exceção `v1internal:*` aprovada e описida na Fase 15.
 
 ---
 
@@ -2227,10 +2261,11 @@ test: add OpenCode quota fixtures
 ## Providers
 
 ```text
-[ ] OpenCode
-[ ] MiniMax
-[ ] OpenRouter
-[ ] Antigravity
+[x] OpenCode          (registado como opencode-go; quota real em /zen/go/v1/usage)
+[x] MiniMax           (quota real em /v1/token_plan/remains)
+[x] OpenRouter
+[x] Antigravity       (OAuth remoto multi-account + local keyless)
+[x] z.ai              (quota real em /api/monitor/usage/quota/limit)
 ```
 
 ## Accounts

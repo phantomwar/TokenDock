@@ -1,5 +1,9 @@
 # TokenDock Login Adaptation Design — AuthKind + Refreshable + Loopback
 
+> **Superseded in part, 2026-09-26.** Kept as the point-in-time record; the body is deliberately not rewritten. Its out-of-scope note reads "MiniMax adapter (no response schema)", and **that reason turned out to be wrong** — MiniMax is implemented, and the answer was already written in this repository at `docs/auth-quota-hardening-plan.md`. The general rule that supersedes it: *a contract absent from a published OpenAPI is not absent from the API, and "I did not find it" is not a reason to close a door.* Check a working third-party implementation before declaring a provider unsupported. See `docs/checkpoints/2026-09-26-correctness-checkpoint.md`.
+>
+> Its core policy — official contracts, with Appendix B as the single user-approved exception — is unchanged and was not weakened by adding providers. No new private surface was inferred.
+
 **Date:** 2026-09-23. **Status:** approved design and implementation merged in `master` (`b03190e`). **Scope:** generic login infrastructure adapted from `can1357/oh-my-pi` and `decolua/9router`, provider-neutral OAuth loopback, local read-only Antigravity Appendix A, and user-approved per-account remote Antigravity Appendix B. The core policy still requires official contracts; Appendix B is the explicit exception for the unofficial Antigravity surface, with the mitigations and quarantine behavior below.
 
 **Source:** `PRD.txt` (multi-account roadmap, second functional goal §85), `PRODUCT.md` (single process, single SQLite, DPAPI secrets, cache-first, official contracts only), `docs/auth-research-oh-my-pi-9router.md` (reference patterns), `docs/auth-quota-hardening-plan.md` (phases 0–6, implemented through hardening at `17d489e`).

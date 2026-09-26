@@ -230,11 +230,14 @@ cleared it.
 - **`saveAll` can now raise where it used to succeed.** With
   `PRAGMA foreign_keys` on, caching a quota for a connection that no longer
   exists is rejected with SQLite error 787 instead of silently writing an
-  orphan. The refresh path already wraps the call (`refresh_service.dart`) and
-  degrades to `ConnectionStatus.error` with "Local storage unavailable", so a
-  delete landing mid-refresh surfaces as that message rather than a crash. This
-  is a product decision, not a schema one, and it is still open: the race is
-  narrow and the outcome is transient, but the wording is wrong for the cause.
+  orphan. **This was resolved** by `RefreshService._connectionStillExists`,
+  which runs only on the failure path and distinguishes the two reasons a write
+  can fail, because they need opposite responses: a connection deleted while the
+  refresh was in flight ends the refresh quietly (the write has nothing to
+  attach to), while a genuine storage fault still reports "Local storage
+  unavailable". A failure to answer the existence question is treated as "still
+  there", since guessing "gone" would swallow a real fault and leave a stale
+  number with no explanation.
 - **The Windows build needs Developer Mode.** `flutter build windows` and any
   `integration_test` on `windows-x64` fail at CMake with "add_subdirectory given
   source ... which is not an existing directory" unless the plugin symlinks can
@@ -388,3 +391,53 @@ implementation is the strongest available evidence, and it was free.
 - **Both providers are unverified against a live key.** Every test uses recorded
   fixtures. The shapes were ported from a working implementation, which is
   strong evidence but is not the same as a live response.
+
+### Third provider: z.ai, and what the pattern proved
+
+z.ai was added after the two above, and it needed no change to any card, no new
+abstraction, and no edit outside `lib/providers/`. That is the PRD's rule for a
+new provider ("apenas `ProviderAdapter` + models específicos internos + tests.
+Nunca exigir mudança nos cards principais"), and it is now asserted by
+`provider_registry_test.dart` so the next provider cannot quietly break it.
+
+What it contributed, beyond one more quota:
+
+- **A second auth scheme.** z.ai sends the raw key in `Authorization` with no
+  `Bearer` prefix. `ProviderHttpProbe.getJson` now takes a full header value for
+  this. Prefixing would have been rejected, and the failure mode is vicious: a
+  credential that is never actually verified, reported to the user as broken.
+- **A scale bug the tests caught.** z.ai reports absolute meters *and* a
+  server-rounded `percentage`. Deriving `remaining` from that percentage beside
+  an absolute `limit` rendered `88/12000`. `limit` and `remaining` must share a
+  scale; only a percent-only payload uses 0-100. Two tests failed on the first
+  implementation for exactly this.
+- **A shared rule, extracted.** Three providers each hand-rolled
+  "ProbeResult → snapshot error", which is how a timeout gets reported as a dead
+  credential or a 403 revokes a working key. It is now
+  `ProviderStatus.fromProbeResult`, and the load-bearing rules stay in one place.
+
+### What is left, and why each item is blocked
+
+Not everything in the PRD's 0.3 roadmap is an adapter-shaped task. The honest
+split:
+
+| Provider | Blocker |
+|---|---|
+| Gemini API / Gemini CLI | Reuses the `v1internal:*` surface Antigravity already consumes, but needs **its own OAuth client** and a `buckets[]` parser. It also obtains higher rate limits by presenting the official Gemini CLI `User-Agent` — a terms-of-service decision for the maintainer, not an implementation detail. **Not decided, therefore not built.** |
+| GitHub Copilot | Needs a GitHub *entitlement token*, not an API key, plus Enterprise and billing-API handling. 426 lines in the reference implementation for a reason. |
+| Codex, Claude | Each needs its own token exchange with refresh-token rotation and a rotation ledger. |
+| OpenAI API, Groq, DeepSeek | No usage provider in the reference implementation. Would require probing for a documented, key-enforcing, non-billable endpoint — the same gate that had to be applied to MiniMax and OpenCode Go. |
+
+None of these is stubbed or faked. The rule is unchanged: a provider enters only
+with a real credential gate — a `GET /models`-like route that requires the key
+and does not spend quota.
+
+### Two smaller open items
+
+- **Three generated files under `windows/flutter/` are versioned** and are
+  rewritten by every build, producing spurious CRLF `M` status. Restored with
+  `git checkout --` each time. Offered twice and not taken: `git rm --cached`
+  plus an ignore entry. It is a repository-hygiene decision, not a code one.
+- **36 pre-existing files remain unformatted** and were deliberately left alone.
+  The lint sweep that took `flutter analyze` from 31 diagnostics to zero was
+  lint-specific and applied per file, so it did not reformat any of them.

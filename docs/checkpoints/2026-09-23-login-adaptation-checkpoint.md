@@ -26,7 +26,15 @@
 ## Resume checklist
 
 1. Validate one real Google account, external browser callback, refresh-token rotation, and one real Antigravity process.
-2. Keep MiniMax blocked until an official response schema is published.
+2. ~~Keep MiniMax blocked until an official response schema is published.~~
+   **Superseded 2026-09-26 — this was the wrong call.** The schema was never
+   published, and it was not needed: the endpoint exists at
+   `GET /v1/token_plan/remains`, its response shape was recovered from
+   `can1357/oh-my-pi`, and MiniMax now reports real quota. Worse, this
+   repository's own `docs/auth-quota-hardening-plan.md` already listed that
+   endpoint. The rule that follows: absence from a published OpenAPI is not
+   absence from the API, and "I did not find it" is not a reason to close a
+   door. See § Addendum in `2026-09-26-correctness-checkpoint.md`.
 3. Decide separately whether to implement adaptive polling, sibling-account fallback, groups, notifications, installer, and release 0.1.
 
 

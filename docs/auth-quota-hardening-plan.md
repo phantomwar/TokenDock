@@ -17,7 +17,10 @@ adivinhados; cache-first (falha nunca apaga valor); SQLite só com `secret_ref`.
 - OpenRouter hardening remains implemented: 401/402/403/429/503 classification, `Retry-After` seconds/HTTP-date for 429/503, per-connection cooldown/health persistence, cache preservation, and named credential-field redaction.
 - Antigravity is now UI-exposed: local `language-server`/`agy-cli` mode is explicit and keyless; remote mode uses per-account Google OAuth with external browser, PKCE, offline refresh-token request, form-encoded token exchange, least scopes, selected-account guard, quota retrieval, onboarding, per-connection operation locking, rotated-token reuse revocation, bounded `Retry-After` + Full Jitter retries, durable schema quarantine, cancellation, and reconnect while preserving cache. Access, refresh, ID, and CSRF values never enter SQLite; stable identity/project/tier metadata may be persisted in `provider_data`.
 - Connections are uncapped. Refresh and token/reconnect work share same-ID coordination with at most four concurrent connection operations. The current focused suites cover 20 AppState, 24 RefreshService, 27 ConnectionsScreen, and 21 provider OAuth tests; full `flutter test --no-pub` passes 227 tests. Windows integration passes 3/3 when run in isolation and the release build succeeds. `flutter analyze` has 0 errors, 0 warnings, and 33 informational diagnostics. No real Google integration, external browser launch, or Antigravity process was exercised; fixtures are sanitized.
-- MiniMax remains blocked because its official FAQ does not publish a response schema. OpenCode Go remains deferred because no verified public subscription-quota API exists. The three-provider product target remains unmet because only OpenRouter and Antigravity are registered.
+- MiniMax is **no longer blocked**. This document's own § 2 line below already named `GET /v1/token_plan/remains` as the official Token Plan endpoint, so the endpoint was identified here and still declared missing elsewhere. It is implemented: quota is read from that route, the credential gate stays on `GET /v1/models` (which 401s), and the parser treats `base_resp.status_code === 0` as the success signal because the plan route answers HTTP 200 for a rejected key.
+- OpenCode Go is **no longer deferred**. `GET /zen/go/v1/usage` returns 401 for a bad key and 403 for a valid key with no Go plan, and carries three windowed quotas. The earlier reasoning generalised from the model listing, which returns 200 for a garbage key — correct behaviour for a static catalog, and not evidence that nothing can gate a credential. Go is registered, with an all-or-nothing parse because the route is undocumented and its shape has already changed once. OpenCode Zen stays deferred: it is pay-as-you-go against a console balance with no documented endpoint, and the reference implementation registers no Zen usage provider either.
+- **z.ai is implemented** on `GET /api/monitor/usage/quota/limit`. It is the one provider that sends the raw key in `Authorization` with no `Bearer` prefix, so the shared probe takes a full header value.
+- The provider target is now **five registered providers, all reporting quota**: `openrouter`, `antigravity`, `minimax`, `opencode-go`, `zai`. Adding the fifth required no change to any card, which is the PRD's rule for a new provider and is now pinned by `provider_registry_test.dart`.
 
 ### Checkpoint de retomada (2026-09-24)
 
@@ -160,8 +163,17 @@ persistência quando aplicável + teste + UI final.
   "aguardar reset de janela" (5h/semanal); monitorar via
   `GET /v1/token_plan/remains`. Implementação do adapter MiniMax é item PRD
   próprio; aqui fica o contrato de auth/erro + fixtures.
+  **Estado 2026-09-26: feito.** O gate de credencial ficou em `GET /v1/models`
+  (401), porque o endpoint do plano **responde 200 mesmo para chave
+  rejeitada** — a rejeição vive em `base_resp.status_code`. Um modelo fora do
+  plano é reportado com as duas janelas "unlimited", totais a zero e 100%
+  restante, forma que seria indistinguível de quota perfeita; é descartado em
+  vez de desenhado.
 - Aceite: matriz de probe por `AuthKind` com HTTP fake; fixtures MiniMax
   sanitizadas; save continua exigindo `test()==ok`.
+  **Estado 2026-09-26: feito**, e a matriz vive em `provider_status_test.dart`
+  como regra partilhada em vez de ser repetida por vendor — repetir a mesma
+  tabela por fornecedor é como um mapeamento se desvia sem ninguém notar.
 
 ### Fase 4 — Single-flight total + interface `Refreshable` (M)
 
