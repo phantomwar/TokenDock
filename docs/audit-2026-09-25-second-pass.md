@@ -335,8 +335,12 @@ Cada item foi feito em RED→GREEN, com o teste visto falhar antes do fix.
 | C-05 | P0 | `c95b584` | compensação não mascara mais o cancelamento |
 | C-14 | P1 | `daf4af0` | loopback IPv6 exclusivo |
 | C-08 | P1 | `b1ba687` | idade do cache passa a contar |
+| C-12 | P1 | `ca749bf` | copy de erro nunca interpola a exceção |
+| C-15 | P1 | `ca749bf` | exceções SQLite não chegam à UI |
+| C-10 | P1 | `44bcf25` | credencial ilegível é reportada, não enviada |
+| C-11 | P1 | `44bcf25` | classificação por status, não por regex |
 
-**Baseline:** 235/235 → **324/324**. `flutter analyze` 0 erros / 0 warnings / 33 infos (inalterado).
+**Baseline:** 235/235 → **341/341**. `flutter analyze` 0 erros / 0 warnings / **31 infos** (caiu de 33: os condicionais reescritos dispensam `if` de uma linha).
 
 ### O que a execução revelou e a auditoria tinha omitido
 
@@ -387,6 +391,29 @@ O que restou de verdadeiro e verificável:
 
 O cancelamento passou a ser observado uma vez por fronteira de commit,
 imediatamente após um `await` real, que é onde a ordem é garantida.
+
+6. **C-11 tinha três instâncias, não uma.** Além do classificador, o fallback
+   prod→daily testava `error.message.contains('HTTP 404')` e o mapper de
+   snapshot testava `normalized.contains('http 403')`. Elas só apareceram
+   quando o status tipado substituiu o sentinela de string — a regressão
+   quebrou o teste e expôs o segundo e o terceiro usos.
+
+7. **Um teste fixava o vazamento como comportamento correto.**
+   `connections_screen_test.dart` afirmava
+   `find.textContaining('Database write failed')` sob o comentário "Safe error
+   message is displayed" — o texto só chegava à UI por interpolação.
+
+8. **`redactSecret` não cobre token solto.** O teste de um escape hatch que
+   introduzi mostrou que `"Rejected token sk-or-v1-..."` (sem `:` ou `=`) não é
+   redigido. Em vez de deixar uma API com garantia best-effort não provada,
+   removi o escape hatch: toda string de erro visível ao usuário é um literal
+   em tempo de compilação escolhido no call site.
+
+9. **Erro meu de higiene de commit, corrigido.** Um `git add -A` seguido de
+   commit misturou C-12/C-15 com C-10/C-11 sob uma mensagem que descrevia só
+   metade, e um `dart format` introduce ~230 linhas de churn de whitespace em
+   `tombstone_test.dart`. Refiz os dois commits e o churn caiu de 242 para 18
+   linhas. Verifico cada commit isolado com `flutter test` antes de seguir.
 
 ---
 
