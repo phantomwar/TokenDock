@@ -600,6 +600,50 @@ the existing DPAPI correction note. Neither change touches the contrast
 guarantees, and `figure_scale_test.dart` asserts both floors so a future size
 change cannot quietly break C-19 or C-20.
 
+### The widget had no way to close the program
+
+`main` applies `TitleBarStyle.hidden`, so the window is frameless and the native
+close button does not exist. PRD section 10 specifies a close affordance, and it
+had nothing to attach itself to; the only route to a finished process was a
+right-click on a tray icon. The app looked like a dashboard with no off switch.
+
+The header now carries a third action: an 18px `Icons.close`, rightmost, the
+same size as refresh and settings, wired through `WindowController
+.exitApplication` — the same path the tray's `Exit` takes, tray cleanup included.
+Verified end to end against the running Debug binary, not only in tests: the
+process terminates when the button is clicked.
+
+Three decisions inside that, each of which a future change could quietly undo:
+
+1. **It quits rather than hiding, which deviates from PRD section 10's letter.**
+   Section 10's `X` hides to tray, and the native close already does precisely
+   that. A second button that only hid the window would close the *window* and
+   leave the program running with nothing on screen to say so — the one outcome
+   a close button must never produce. `close_button_test.dart` asserts `hide` is
+   never called.
+2. **It is unconditional, and that was the actual defect.** The header actions
+   were gated on `accounts.isNotEmpty`, so a first-run user with no connections —
+   and anyone during loading — had *no* header actions at all. On a frameless,
+   always-on-top window that is no way out but the tray. Refresh and settings
+   keep their gate, because with no connections there is nothing to refresh and
+   nowhere to configure; a test pins that they stay gated, so the close button
+   cannot quietly drag them back.
+3. **No `Tooltip`, against the first instinct.** `RawTooltip` requires an
+   `Overlay` ancestor, and the header is deliberately the part of the widget
+   that still mounts in a bare standalone pump. Adding one broke every test that
+   mounts `TokenDockWidget` on its own. The `Semantics` label is what a screen
+   reader announces, and it needs no overlay.
+
+`TokenDockApp.windowController` was declared and wired from `main` but never
+read — no click anywhere in the app could reach a finished process. It now has a
+purpose, which is also why the field had survived: nothing referenced it, and
+nothing failed when it stayed empty.
+
+**PRD section 10's hide-to-tray is still unimplemented as an in-window action.**
+Hide remains reachable from the tray only. Recorded rather than fixed: the ask
+was a way to close the program, and a second header button is not the place to
+add scope.
+
 ## Open items, consolidated
 
 Everything still outstanding as of `0977e39`, in one place. The earlier

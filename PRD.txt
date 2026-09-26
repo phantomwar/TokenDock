@@ -6,7 +6,7 @@
 **Arquitetura:** aplicação local, processo único
 **Objetivo:** widget leve para monitorar múltiplas assinaturas, contas e API keys de serviços de IA.
 
-> **Status da primeira meta funcional: implementada e mesclada. Auditoria de corretude e acessibilidade de 2026-09-26 CONCLUÍDA: 36 de 36 achados fechados, cada um com o commit que o fechou. Verificação atual: `flutter test --no-pub` **620/620**, `flutter analyze` **sem nenhum diagnóstico** (eram 0 erros/0 warnings/31 infos), `flutter build windows --release` **bem-sucedido** e `integration_test` **3/3** no device `windows-x64`.**
+> **Status da primeira meta funcional: implementada e mesclada. Auditoria de corretude e acessibilidade de 2026-09-26 CONCLUÍDA: 36 de 36 achados fechados, cada um com o commit que o fechou. Verificação atual: `flutter test --no-pub` **632/632**, `flutter analyze` **sem nenhum diagnóstico** (eram 0 erros/0 warnings/31 infos), `flutter build windows --release` **bem-sucedido** e `integration_test` **3/3** no device `windows-x64`.**
 >
 > **Providers registados: cinco, todos com quota real — OpenRouter, Antigravity (OAuth Google remoto + local keyless), MiniMax, OpenCode Go e z.ai.** Todos os quatro formatos de resposta não documentados foram portados de uma implementação funcional (`can1357/oh-my-pi`), nunca inferidos. Cada um tem gate de credencial real, que é o que torna o test-before-save significativo: MiniMax `/v1/models` → 401; OpenCode Go `/zen/go/v1/usage` → 401/403; z.ai → `success` no body; OpenRouter → `GET /api/v1/key`.
 >
@@ -35,7 +35,7 @@
 > **A apresentação da quota estava errada, e a primeira correcção expôs um bug de overflow.** A janela de 360px **nunca** tinha renderizado a densidade normal: o `LayoutBuilder` media a largura *depois* do padding de 16px do `WidgetShell`, ou seja 328px, abaixo do limiar 330. Os breakpoints são especificados contra a largura da janela e estavam a ser medidos contra a largura do conteúdo, pelo que **todos** os tamanhos usados mostravam a densidade mais pobre. Só `quotas.first` era desenhado, logo as 3 janelas do OpenCode Go, as 2 da MiniMax e as 3 do z.ai ficavam reduzidas a uma — e a janela que aperta raramente é a primeira. Um percentage aparecia como `remaining/limit` (`88/100 %`, redundante e ambíguo, e `100/100 %` lia-se "100% usado" numa conta que não gastou nada) e agora lê `88% used`. "No key cap" era a manchete em corpo maior; passou a nota discreta, porque uma ausência não deve ocupar o maior tipo do cartão. Corrigir a densidade tornou o `QuotaRow` alcançável a 360px pela primeira vez e expôs um **overflow de 140px** latente num valor absoluto largo — o valor agora quebra de linha em vez de transbordar, porque truncá-lo seria uma regressão do C-20. O número desceu de 20px para 15px e o ícone de provider de 32px para 24px; os 20px vinham da spec, pelo que a spec foi emendada e regista o motivo.
 >
 > Roadmap 0.2+ (histórico/gráficos, OpenRouter Management API, notificações, drag-and-drop, autodetecção) permanece por iniciar, por decisão de âmbito. A lista consolidada de tudo o que continua aberto está em § Open items do `docs/checkpoints/2026-09-26-correctness-checkpoint.md`.**
-> Funciona hoje: widget Windows 10/11 x64 (compacto/normal/expandido), janela frameless com tray e fechar-para-tray, **cinco providers** (OpenRouter, Antigravity, MiniMax, OpenCode Go, z.ai) com ligações independentes sem limite configurado de quantidade, seleção de providers, fontes locais Antigravity keyless, login Antigravity Google remoto, cancelamento, reconnect in-place, CRUD com test-before-save, cache SQLite em `%LOCALAPPDATA%\TokenDock\tokendock.db`, segredos via `flutter_secure_storage` encriptados em disco (não é DPAPI, ver `PRODUCT.md`), refresh manual/periódico com no máximo quatro requisições simultâneas e coalescência por conexão, temas claro/escuro/alto contraste, navegação por teclado e Ctrl+R.
+> Funciona hoje: widget Windows 10/11 x64 (compacto/normal/expandido), janela frameless com tray e fechar-para-tray, **botão de fechar o programa no header** (incondicional, mesmo sem conexões), **cinco providers** (OpenRouter, Antigravity, MiniMax, OpenCode Go, z.ai) com ligações independentes sem limite configurado de quantidade, seleção de providers, fontes locais Antigravity keyless, login Antigravity Google remoto, cancelamento, reconnect in-place, CRUD com test-before-save, cache SQLite em `%LOCALAPPDATA%\TokenDock\tokendock.db`, segredos via `flutter_secure_storage` encriptados em disco (não é DPAPI, ver `PRODUCT.md`), refresh manual/periódico com no máximo quatro requisições simultâneas e coalescência por conexão, temas claro/escuro/alto contraste, navegação por teclado e Ctrl+R.
 >
 > Garantias agora verificadas por teste: o custo de leitura é independente da quantidade de contas (`getById`, `getAllWithHealth`, `getAllForAll`); a troca de credencial é single-flight por conexão tanto no serviço quanto no provider; o loopback OAuth é exclusivo em IPv4 e IPv6; transporte OAuth e descoberta de sessão local são ambos limitados no tempo; credencial ilegível é reportada em vez de enviada; migrations são retomáveis; linha de cache corrompida degrada em vez de derrubar todas as conexões; e a copy de erro nunca interpola a exceção, portanto SQL, nomes de tabela e texto com formato de credencial não chegam à UI.
 >
@@ -415,6 +415,36 @@ Não implementar snapping avançado inicialmente.
 ---
 
 # 10. Fechar para tray
+
+> **Emenda 2026-09-26.** Esta secção ficou sem implementação: a janela é
+> `TitleBarStyle.hidden` (frameless), portanto o `X` da barra de título nativa não
+> existe e o `X` aqui especificado não tinha onde se encaixar. O único caminho
+> para sair era clicar com o botão direito no ícone de tray.
+>
+> O que foi implementado, a pedido do maintainer, é um botão de **fechar o
+> programa** no header do widget: `Icons.close` a 18px, à direita, do mesmo
+> tamanho que refresh e settings, ligado a `WindowController.exitApplication` — o
+> mesmo caminho do `Exit` do tray (§11), incluindo a limpeza do ícone de tray.
+>
+> **Desvia-se deliberadamente da letra desta secção:** o botão *finaliza* em vez
+> de esconder. Esconder já é o que o close nativo faz, e um segundo botão que
+> apenas escondesse a janela fecharia a *janela* e deixaria o programa a correr
+> sem nada no ecrã que o indique — o único resultado que um botão de fechar nunca
+> pode produzir. Um teste afirma que `hide` não é chamado, para esta distinção
+> não se diluir com o tempo.
+>
+> **O botão é incondicional, e essa é a parte que era defeito real.** As acções
+> de header estavam condicionadas a `accounts.isNotEmpty`, pelo que um utilizador
+> no primeiro arranque, sem conexões, e qualquer pessoa durante o carregamento,
+> não tinham *nenhuma* acção de header — uma janela frameless sempre no topo sem
+> forma de sair senão o tray. Refresh e settings mantêm a condição, porque sem
+> conexões não há nada para atualizar nem onde configurar; só o botão de fechar a
+> ignora.
+>
+> **O hide-to-tray desta secção continua por implementar como acção dentro da
+> janela.** O hide só é alcançável pelo tray. Registado e não corrigido: pedia-se
+> uma forma de fechar o programa, e um segundo botão de header não é o sítio
+> para alargar âmbito.
 
 Ao clicar:
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/app_state.dart';
@@ -26,6 +28,7 @@ class TokenDockWidget extends StatelessWidget {
     this.onAddConnection,
     this.onOpenConnections,
     this.onRefreshAll,
+    this.onExitApp,
   });
 
   // Not `const`: `state` is a real `ChangeNotifier` now, and a canonicalised
@@ -35,6 +38,7 @@ class TokenDockWidget extends StatelessWidget {
     this.onAddConnection,
     this.onOpenConnections,
     this.onRefreshAll,
+    this.onExitApp,
   }) : state = AppState.loading();
 
   TokenDockWidget.empty({
@@ -42,6 +46,7 @@ class TokenDockWidget extends StatelessWidget {
     this.onAddConnection,
     this.onOpenConnections,
     this.onRefreshAll,
+    this.onExitApp,
   }) : state = AppState.empty();
 
   TokenDockWidget.loaded({
@@ -50,12 +55,25 @@ class TokenDockWidget extends StatelessWidget {
     this.onAddConnection,
     this.onOpenConnections,
     this.onRefreshAll,
+    this.onExitApp,
   }) : state = AppState(accounts: accounts);
 
   final AppState state;
   final VoidCallback? onAddConnection;
   final VoidCallback? onOpenConnections;
   final VoidCallback? onRefreshAll;
+
+  /// Finalises the program.
+  ///
+  /// Deliberately *not* hide-to-tray. The native close already hides to tray
+  /// (PRD 10), so a button that merely hid the window would close the *window*
+  /// and leave the program running with nothing on screen to say so, which is
+  /// the opposite of what a close button is for. This is the tray's `Exit`
+  /// (PRD 11), surfaced where a user can actually find it.
+  ///
+  /// Async because the real exit disposes the tray icon before destroying the
+  /// native window, and that order matters.
+  final Future<void> Function()? onExitApp;
 
   /// Relative cache-age formatting, e.g. `just now`, `5m ago`, `2h ago`.
   ///
@@ -84,40 +102,85 @@ class TokenDockWidget extends StatelessWidget {
     _openConnections(context);
   }
 
+  /// The window's close affordance.
+  ///
+  /// The window is frameless (`TitleBarStyle.hidden` in `main`), so the native
+  /// title bar's close button does not exist. PRD 10 specifies a close button
+  /// and PRD 11 specifies a tray `Exit`; the first had nothing to attach itself
+  /// to, so the only way out was a right-click on a tray icon. The app looked
+  /// like a dashboard with no off switch.
+  ///
+  /// Quits, rather than hiding to the tray. Hiding is what the native close
+  /// already does, and doing it here too would mean the button closed the window
+  /// while the program carried on running headless — the one outcome a close
+  /// button must never produce.
+  static const String closeLabel = 'Close TokenDock';
+
   Widget? _buildHeaderActions(BuildContext context) {
-    if (state.isLoading || state.accounts.isEmpty) {
-      return null;
-    }
     final colors = TokenDockTheme.colorsOf(context);
+    final bool hasAccounts = !state.isLoading && state.accounts.isNotEmpty;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Semantics(
-          label: 'Refresh All',
-          button: true,
-          child: IconButton(
-            key: const Key('headerRefreshButton'),
-            icon: Icon(Icons.refresh, size: 18, color: colors.mutedInk),
-            onPressed: () {
-              if (onRefreshAll != null) {
-                onRefreshAll!();
-              } else {
-                state.refreshAll();
-              }
-            },
-          ),
-        ),
-        Semantics(
-          label: 'Connections',
-          button: true,
-          child: IconButton(
-            key: const Key('headerSettingsButton'),
-            icon: Icon(
-              Icons.settings_outlined,
-              size: 18,
-              color: colors.mutedInk,
+        // Refresh and settings stay gated on there being something to act on:
+        // with no connections there is nothing to refresh and nowhere to
+        // configure, and offering them anyway is two dead controls.
+        if (hasAccounts) ...<Widget>[
+          Semantics(
+            label: 'Refresh All',
+            button: true,
+            child: IconButton(
+              key: const Key('headerRefreshButton'),
+              icon: Icon(Icons.refresh, size: 18, color: colors.mutedInk),
+              onPressed: () {
+                if (onRefreshAll != null) {
+                  onRefreshAll!();
+                } else {
+                  state.refreshAll();
+                }
+              },
             ),
-            onPressed: () => _openConnections(context),
+          ),
+          Semantics(
+            label: 'Connections',
+            button: true,
+            child: IconButton(
+              key: const Key('headerSettingsButton'),
+              icon: Icon(
+                Icons.settings_outlined,
+                size: 18,
+                color: colors.mutedInk,
+              ),
+              onPressed: () => _openConnections(context),
+            ),
+          ),
+        ],
+        // Unconditional, and last.
+        //
+        // Unconditional because the gate above used to cover the whole header,
+        // which left a first-run user with no connections and no loading state
+        // with *no* header actions at all: on a frameless always-on-top window,
+        // that is a widget with no way to close it except the tray.
+        //
+        // Last because refresh is the most-pressed button here and this one ends
+        // the process. Windows puts close at the far right for the same reason.
+        Semantics(
+          label: closeLabel,
+          button: true,
+          // No Tooltip, matching the two actions above it. A `Tooltip` needs an
+          // Overlay ancestor, and the header is deliberately the one piece of
+          // the widget that still works in a bare standalone pump; adding one
+          // here broke every test that mounts `TokenDockWidget` on its own. The
+          // semantics label is the part that actually matters — it is what a
+          // screen reader announces — and it needs no overlay.
+          child: IconButton(
+            key: const Key('headerCloseButton'),
+            icon: Icon(Icons.close, size: 18, color: colors.mutedInk),
+            onPressed: () {
+              final exit = onExitApp;
+              if (exit == null) return;
+              unawaited(exit());
+            },
           ),
         ),
       ],

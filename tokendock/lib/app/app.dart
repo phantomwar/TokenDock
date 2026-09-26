@@ -57,13 +57,20 @@ class TokenDockApp extends StatelessWidget {
     this.windowController,
     this.navigatorKey,
     this.child,
-  })  : // Built once, in the constructor, rather than inside `build`. Creating
-        // a fresh AppState per build would look correct and silently drop the
-        // ListenableBuilder's subscription every time an ancestor rebuilt.
-        _fallbackState = appState ?? AppState.loading();
+  }) : // Built once, in the constructor, rather than inside `build`. Creating
+       // a fresh AppState per build would look correct and silently drop the
+       // ListenableBuilder's subscription every time an ancestor rebuilt.
+       _fallbackState = appState ?? AppState.loading();
 
   final AppState? appState;
   final AppState _fallbackState;
+
+  /// Supplies the header's close button.
+  ///
+  /// This field was declared and wired from `main` but never read, so no click
+  /// anywhere in the app could reach a finished process — the frameless window
+  /// has no title-bar close button to fall back on. See
+  /// [TokenDockWidget.onExitApp].
   final WindowController? windowController;
   final GlobalKey<NavigatorState>? navigatorKey;
   final Widget? child;
@@ -81,6 +88,7 @@ class TokenDockApp extends StatelessWidget {
       highContrastDarkTheme: TokenDockTheme.highContrastTheme(),
       home: _AppRootShell(
         state: effectiveState,
+        windowController: windowController,
         child: child,
       ),
     );
@@ -88,12 +96,10 @@ class TokenDockApp extends StatelessWidget {
 }
 
 class _AppRootShell extends StatelessWidget {
-  const _AppRootShell({
-    required this.state,
-    this.child,
-  });
+  const _AppRootShell({required this.state, this.windowController, this.child});
 
   final AppState state;
+  final WindowController? windowController;
   final Widget? child;
 
   void _openConnections(BuildContext context) {
@@ -110,8 +116,7 @@ class _AppRootShell extends StatelessWidget {
       shortcuts: const <ShortcutActivator, Intent>{
         SingleActivator(LogicalKeyboardKey.keyR, control: true):
             RefreshIntent(),
-        SingleActivator(LogicalKeyboardKey.keyR, meta: true):
-            RefreshIntent(),
+        SingleActivator(LogicalKeyboardKey.keyR, meta: true): RefreshIntent(),
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
@@ -120,7 +125,8 @@ class _AppRootShell extends StatelessWidget {
         child: FocusScope(
           autofocus: true,
           child: Scaffold(
-            body: child ??
+            body:
+                child ??
                 ListenableBuilder(
                   listenable: state,
                   builder: (context, _) {
@@ -129,6 +135,13 @@ class _AppRootShell extends StatelessWidget {
                       onAddConnection: () => _openConnections(context),
                       onOpenConnections: () => _openConnections(context),
                       onRefreshAll: () => state.refreshAll(),
+                      // Null in a standalone pump, and the button is inert
+                      // rather than absent: a close button that appears and
+                      // disappears depending on wiring is harder to reason
+                      // about than one that is always in the same place.
+                      onExitApp: windowController == null
+                          ? null
+                          : () => windowController!.exitApplication(),
                     );
                   },
                 ),
