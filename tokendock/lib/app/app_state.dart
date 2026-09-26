@@ -20,6 +20,28 @@ import '../storage/quota_cache_repository.dart';
 import '../storage/secret_store.dart';
 import '../storage/settings_repository.dart';
 
+/// Records a login cancellation so it can be checked at commit boundaries.
+///
+/// The flag is set by a microtask queued when the caller's completer resolves.
+/// Checking it immediately after a real `await` is deterministic, because that
+/// continuation is queued after the cancellation's and microtasks run in FIFO
+/// order. Yielding on an already-completed future was not: it drains the queue
+/// exactly once and cannot be relied on to observe a cancel that has not
+/// happened yet.
+class _CancellationWatch {
+  _CancellationWatch(Future<void>? cancellation) {
+    cancellation?.then((_) => _requested = true);
+  }
+
+  bool _requested = false;
+
+  bool get isRequested => _requested;
+
+  void throwIfCancelled() {
+    if (_requested) throw const AntigravityLoginCancelled();
+  }
+}
+
 /// One account pairing a [Connection] with its latest [ProviderSnapshot].
 ///
 /// Immutable value holder for the widget surface. Never performs persistence
@@ -438,7 +460,9 @@ class AppState implements ChangeNotifier {
         await quotaCacheRepository!.saveAll(connection.id, initialQuotas);
       }
     } catch (error, stackTrace) {
-      try { await repo.delete(connection.id); } catch (_) {}
+      try {
+        await repo.delete(connection.id);
+      } catch (_) {}
       Error.throwWithStackTrace(error, stackTrace);
     }
     await load();
@@ -487,7 +511,9 @@ class AppState implements ChangeNotifier {
         await quotaCacheRepository!.saveAll(updated.id, newQuotas);
       }
     } catch (error, stackTrace) {
-      try { await repo.save(existing); } catch (_) {}
+      try {
+        await repo.save(existing);
+      } catch (_) {}
       Error.throwWithStackTrace(error, stackTrace);
     }
     await load();
@@ -519,8 +545,12 @@ class AppState implements ChangeNotifier {
     }
     final id = generateSecretRef();
     final ref = generateSecretRef();
-    var cancellationRequested = false;
-    cancellation?.then((_) => cancellationRequested = true);
+    // Cancellation is observed only immediately after a genuinely asynchronous
+    // step, where the completer's callback has provably already run. The
+    // previous implementation interleaved `await Future<void>.value()` no-ops
+    // between the checks, which yield the microtask queue exactly once and
+    // therefore cannot be relied on to observe a macrotask-sourced cancel.
+    final cancelWatch = _CancellationWatch(cancellation);
     final provisional = Connection(
       id: id,
       provider: 'antigravity',
@@ -543,25 +573,11 @@ class AppState implements ChangeNotifier {
         provisional,
         cancellation: cancellation,
       );
-      await Future<void>.value();
-      if (cancellationRequested) throw const AntigravityLoginCancelled();
-      await Future<void>.value();
-      await Future<void>.value();
-      if (cancellationRequested) {
-        try {
-          await store.delete(ref);
-        } catch (_) {}
-        throw const AntigravityLoginCancelled();
-      }
-      if (cancellationRequested) throw const AntigravityLoginCancelled();
+      cancelWatch.throwIfCancelled();
+
       await store.write(ref, result.secret);
-      await Future<void>.value();
-      if (cancellationRequested) {
-        try {
-          await store.delete(ref);
-        } catch (_) {}
-        throw const AntigravityLoginCancelled();
-      }
+      cancelWatch.throwIfCancelled();
+
       final connection = Connection(
         id: id,
         provider: 'antigravity',
@@ -579,26 +595,42 @@ class AppState implements ChangeNotifier {
         }),
       );
       await repo.save(connection);
-      await Future<void>.value();
-      if (cancellationRequested) {
-        try {
-          await repo.delete(id);
-        } finally {
-          await store.delete(ref);
-        }
-        throw const AntigravityLoginCancelled();
-      }
+      cancelWatch.throwIfCancelled();
+
       await load();
-      await Future<void>.value();
-      if (cancellationRequested) throw const AntigravityLoginCancelled();
+      cancelWatch.throwIfCancelled();
       return connection;
-    } catch (error) {
-      try {
-        await repo.delete(id);
-      } finally {
-        await store.delete(ref);
-      }
+    } catch (_) {
+      // Every exit path, cancellation or failure alike, unwinds through here,
+      // so a partially committed connection can never survive. Cleanup is
+      // best-effort and must never replace the error that triggered it.
+      await _discardPartialConnection(
+        repo: repo,
+        store: store,
+        id: id,
+        ref: ref,
+      );
       rethrow;
+    }
+  }
+
+  /// Removes a connection row and its credential without letting a cleanup
+  /// failure mask the original error.
+  static Future<void> _discardPartialConnection({
+    required ConnectionRepository repo,
+    required SecretStore store,
+    required String id,
+    required String ref,
+  }) async {
+    try {
+      await repo.delete(id);
+    } catch (_) {
+      // Reported through the original failure, not this one.
+    }
+    try {
+      await store.delete(ref);
+    } catch (_) {
+      // Reported through the original failure, not this one.
     }
   }
 
@@ -655,12 +687,11 @@ class AppState implements ChangeNotifier {
     final locks = _antigravityLocks;
     final previous = locks?[existing.id];
     final gate = Completer<void>();
-    var cancellationRequested = false;
-    cancellation?.then((_) => cancellationRequested = true);
+    final cancelWatch = _CancellationWatch(cancellation);
     if (locks != null) locks[existing.id] = gate.future;
     if (previous != null) await previous;
     try {
-      if (cancellationRequested) throw const AntigravityLoginCancelled();
+      cancelWatch.throwIfCancelled();
       final rows = await repo.getAll();
       final current = rows.where((row) => row.id == existing.id).firstOrNull;
       if (current == null)
@@ -693,12 +724,10 @@ class AppState implements ChangeNotifier {
           provisional,
           cancellation: cancellation,
         );
-        await Future<void>.value();
-        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        cancelWatch.throwIfCancelled();
         await store.write(newRef, result.secret);
         newSecretWritten = true;
-        await Future<void>.value();
-        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        cancelWatch.throwIfCancelled();
         final replacement = Connection(
           id: current.id,
           provider: current.provider,
@@ -717,10 +746,9 @@ class AppState implements ChangeNotifier {
         );
         await repo.save(replacement);
         rowSaved = true;
-        await Future<void>.value();
-        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        cancelWatch.throwIfCancelled();
         await load();
-        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        cancelWatch.throwIfCancelled();
         try {
           await store.delete(current.credentialRef);
           oldSecretDeleted = true;
@@ -731,7 +759,7 @@ class AppState implements ChangeNotifier {
           );
           if (_refreshService == null) rethrow;
         }
-        if (cancellationRequested) throw const AntigravityLoginCancelled();
+        cancelWatch.throwIfCancelled();
         _reconnectConnectionIds?.remove(current.id);
         _effectiveNotifier.notify();
         return replacement;
@@ -741,7 +769,7 @@ class AppState implements ChangeNotifier {
           _effectiveNotifier.notify();
           Error.throwWithStackTrace(error, stackTrace);
         }
-        if (cancellationRequested) {
+        if (cancelWatch.isRequested) {
           _refreshService?.cancelCredentialCleanup(current.credentialRef);
         }
         var rowRestored = !rowSaved;
@@ -904,7 +932,10 @@ class AppState implements ChangeNotifier {
 
     // 2: Delete secret
     String? warning;
-    if (target != null && store != null && target.credentialRef.isNotEmpty && target.authType != 'none') {
+    if (target != null &&
+        store != null &&
+        target.credentialRef.isNotEmpty &&
+        target.authType != 'none') {
       try {
         await store.delete(target.credentialRef);
       } catch (e) {
