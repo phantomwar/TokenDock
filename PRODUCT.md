@@ -1,5 +1,9 @@
 # Product
 
+> **Picking this up again?** `docs/resume-2026-09-26.md` has the current
+> state, the verify commands, the open items in the order they are worth
+> doing, and the two decisions that are genuinely yours.
+
 <!-- impeccable:product-schema 1 -->
 
 ## Platform

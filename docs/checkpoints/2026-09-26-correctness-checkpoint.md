@@ -1,22 +1,36 @@
 # TokenDock checkpoint - correctness and claims integrity
 
-**Date:** 2026-09-26 (audit execution) — **continues through 2026-09-26 provider work**
-**Branch:** `master`, **pushed**. This document is the resume point and it is
-maintained as work lands; the header below describes the *audit session* as it
-stood at `9ae626f`, and later work is recorded in the addenda at the end.
-**Current HEAD:** `0977e39`, pushed to `origin/master`.
-**Status:** all 36 audit findings closed, and `flutter analyze` is clean.
+> **Resuming work? Start with [`docs/resume-2026-09-26.md`](resume-2026-09-26.md).**
+> It carries the current state, the verify commands, the open items in the order
+> they are worth doing, and the two decisions that are genuinely the maintainer's.
+> This document is the long record; that one is the way in.
 
-> **Read this first if you are new.** The numbers in the header and in
-> § Verification below are the audit session's, and they are the numbers that
-> session measured — they are not the current ones. Current state is **586
-> tests, 0 analyzer diagnostics, 5 registered providers, working tree clean, all
-> pushed**. § Addenda at the end records everything that changed after the audit,
+**Date:** 2026-09-26 (audit execution), continuing through the provider and
+Antigravity sign-in work on the same day.
+
+**Branch:** `master`, **ten commits ahead of `origin/master`, none pushed.**
+The push is blocked by GitHub push protection, which flags the embedded
+Antigravity OAuth client secret; only a repository admin can allow it. The
+maintainer chose to allow it on 2026-09-26.
+
+**Current state:** 684 tests passing, `flutter analyze` clean, five registered
+providers, ten Antigravity sign-in attempts recorded.
+
+> **Read this first if you are new.** The numbers further down, in Verification,
+> are the *audit session's* numbers — what that session measured, not the current
+> ones. The addenda at the end record everything that changed afterwards,
 > including two conclusions that were wrong and have since been corrected, so
-> nobody re-derives them from the vendor documentation again.
+> nobody re-derives them from vendor documentation again.
+
 
 **Companion documents**
 
+- `docs/resume-2026-09-26.md` - **start here**: current state, verify
+  commands, and the open items in the order they are worth doing
+- `docs/antigravity-signin-attempts.md` - all ten live sign-in attempts,
+  with what each failure actually was
+- `docs/antigravity-cross-reference.md` - five working implementations
+  compared field by field, with the disagreements marked as open
 - `docs/audit-2026-09-25-second-pass.md` — the 36 findings, with per-item state
 - `docs/superpowers/plans/2026-09-25-tokendock-correctness-plan.md` — the plan
 - `docs/auth-quota-hardening-plan.md` — the original phased auth/quota plan
