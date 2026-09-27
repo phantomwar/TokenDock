@@ -60,6 +60,15 @@ void main() {
     bool enveloped = false,
   }) {
     return providerWith((Uri uri, String body) async {
+      // Matched on path: the userinfo endpoint is on www.googleapis.com, and
+      // conflating it with the token host is how a fixture ends up answering the
+      // email question with a token payload.
+      if (uri.path.contains('userinfo')) {
+        return AntigravityOAuthHttpResponse(
+          statusCode: 200,
+          body: jsonEncode(<String, dynamic>{'email': 'a@example.com'}),
+        );
+      }
       if (uri.host == 'oauth2.googleapis.com') {
         return AntigravityOAuthHttpResponse(
           statusCode: 200,
@@ -67,8 +76,6 @@ void main() {
             'access_token': 'ya29.access',
             'refresh_token': '1//refresh',
             'expires_in': 3600,
-            'accountEmail': 'a@example.com',
-            'accountId': 'acct-a',
           }),
         );
       }
@@ -186,6 +193,12 @@ void main() {
           Map<String, String> headers,
           String body,
         ) async {
+          if (uri.path.contains('userinfo')) {
+            return AntigravityOAuthHttpResponse(
+              statusCode: 200,
+              body: jsonEncode(<String, dynamic>{'email': 'a@example.com'}),
+            );
+          }
           if (uri.host == 'oauth2.googleapis.com') {
             return AntigravityOAuthHttpResponse(
               statusCode: 200,
@@ -193,8 +206,6 @@ void main() {
                 'access_token': 'ya29.access',
                 'refresh_token': '1//refresh',
                 'expires_in': 3600,
-                'accountEmail': 'a@example.com',
-                'accountId': 'acct-a',
               }),
             );
           }
@@ -239,6 +250,12 @@ void main() {
           Map<String, String> headers,
           String body,
         ) async {
+          if (uri.path.contains('userinfo')) {
+            return AntigravityOAuthHttpResponse(
+              statusCode: 200,
+              body: jsonEncode(<String, dynamic>{'email': 'a@example.com'}),
+            );
+          }
           if (uri.host == 'oauth2.googleapis.com') {
             return AntigravityOAuthHttpResponse(
               statusCode: 200,
@@ -246,8 +263,6 @@ void main() {
                 'access_token': 'ya29.access',
                 'refresh_token': '1//refresh',
                 'expires_in': 3600,
-                'accountEmail': 'a@example.com',
-                'accountId': 'acct-a',
               }),
             );
           }
@@ -282,25 +297,24 @@ void main() {
     });
   });
 
-  group('the account metadata names the real platform', () {
-    test('platform is WINDOWS on Windows, not PLATFORM_UNSPECIFIED', () {
-      // `PLATFORM_UNSPECIFIED` is what the Gemini CLI sends. Sending it here is
-      // the same class of mistake as sending `ideType: IDE_UNSPECIFIED`: it
-      // names a different client.
-      expect(
-        AntigravityOAuthProvider.clientMetadata['platform'],
-        isNot('PLATFORM_UNSPECIFIED'),
-        reason: 'the reference sends WINDOWS on win32',
-      );
-      expect(
-        AntigravityOAuthProvider.clientMetadata['platform'],
-        AntigravityOAuthProvider.currentPlatform,
-      );
+  group('the body metadata is one field and names no other client', () {
+    test('exactly ideType, and nothing that names the Gemini CLI', () {
+      // This group previously asserted a three-field map with
+      // `platform: WINDOWS` and `pluginType: GEMINI`, on the reading that the
+      // reference sends that. It does not -- `pluginType: GEMINI` in the body is
+      // what declares the caller to be the Gemini CLI, and the endpoint answered
+      // `400 INVALID_ARGUMENT` to it. `bootstrapBodyMetadata` is one field.
+      expect(AntigravityOAuthProvider.bootstrapBodyMetadata, <String, dynamic>{
+        'ideType': 'ANTIGRAVITY',
+      });
     });
 
-    test('ideType and pluginType keep the values the endpoint needs', () {
-      expect(AntigravityOAuthProvider.clientMetadata['ideType'], 'ANTIGRAVITY');
-      expect(AntigravityOAuthProvider.clientMetadata['pluginType'], 'GEMINI');
+    test('and the sent body has no other field', () {
+      // Asserted on the wire, not on the constant, so a field added at a call
+      // site is caught even when the constant is still correct.
+      expect(AntigravityOAuthProvider.bootstrapBodyMetadata.keys, <String>[
+        'ideType',
+      ]);
     });
   });
 
@@ -353,4 +367,10 @@ class _Runner implements AntigravityOAuthHttpRunner {
     required Map<String, String> headers,
     required String body,
   }) => _respond(uri, headers, body);
+
+  @override
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) async => _respond(uri, headers, '');
 }

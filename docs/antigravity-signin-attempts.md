@@ -1,14 +1,18 @@
 # Antigravity remote sign-in: every attempt, 2026-09-26
 
-Seven live attempts against Google's Cloud Code Assist endpoints, from a Debug
+Ten live attempts against Google's Cloud Code Assist endpoints, from a Debug
 build of TokenDock, all driving the real OAuth flow in a browser. Recorded here
 because the pattern matters more than any single failure: **the reported error
-was never the actual fault**, and four of the seven attempts produced a message
-that pointed somewhere other than where the bug was.
+was never the actual fault**, and four attempts produced a message that pointed
+somewhere other than where the bug was.
 
 Reproduce with `flutter build windows --debug`, run
 `build\windows\x64\runner\Debug\tokendock.exe` with stdout redirected, and watch
 the `Antigravity:` lines. The logging is behind `kDebugMode` on purpose.
+
+**Current state: the OAuth exchange, the account lookup and the Cloud Code
+provisioning call all succeed. The attempt fails immediately after, and the
+failure is not yet attributed.** See attempt 10.
 
 ## The one fact that was never in doubt
 
@@ -16,176 +20,191 @@ The browser round trip always succeeded. `authorization code received from the
 loopback listener` appeared in every attempt that got that far. Nothing in this
 document is about Google authentication failing.
 
+## The pattern worth more than any individual fix
+
+Three of the nine attempts failed *because of a fix applied in an earlier one*:
+
+| Attempt | The fix | The 400 it caused |
+|---|---|---|
+| 3 | three-field metadata in the request body | the body declared the caller to be the Gemini CLI |
+| 7 | `userIdentifier` in the body | a field the endpoint does not accept |
+| 8 | `Client-Metadata` and `X-Goog-Api-Client` headers | headers the endpoint does not accept |
+
+In all three the reference implementation was to hand and had been read only
+partially. Every one produced `400 INVALID_ARGUMENT`, which names a symptom and
+never a cause.
+
+The rule that came out of it, and is now written into the code: **for an
+endpoint that answers `INVALID_ARGUMENT`, copy the exact request shape from an
+implementation that works — field by field — and assert the exact set, not the
+presence of the fields you expect.** `cloud_code_headers_test.dart` asserts
+`headers.keys == {Authorization, Accept, Content-Type, User-Agent}` and
+`body.keys == ['metadata']`, so an extra field fails even when the four correct
+ones still pass.
+
+A second pattern, twice: **a fixture that invents the field the code reads hides
+the bug.** The account identity was `email|accountId` for four attempts. Google
+sends no account id anywhere on this path; the field existed only in
+TokenDock's own test fixtures. The guard therefore passed in tests and failed on
+every live attempt. An invented fixture field converts a live bug into an
+invisible one.
+
 ## Attempts
 
 ### 1 — `invalid_scope`, rejected at the authorization request
 
-**What the user saw:** `Error 400: invalid_scope [invalid=[cloud-platform,
-userinfo.email, userinfo.profile]]` on a Google error page. The app showed
-"Unable to sign in. Please try again."
+**Seen:** `Error 400: invalid_scope [invalid=[cloud-platform, userinfo.email,
+userinfo.profile]]` on a Google error page. The app showed "Unable to sign in."
 
-**What was actually wrong — four separate defects, one visible:**
+**Actually wrong — four defects, one visible:**
 
-1. `clientId` was `681255809395-…`, which is the **Gemini CLI** client, not
-   Antigravity's (`1071006060591-…`). An OAuth client may only use the scopes
-   registered to it, which is why the error *lists the scopes* and reads as a
-   scope problem.
+1. `clientId` was `681255809395-…`, the **Gemini CLI** client, not Antigravity's
+   (`1071006060591-…`). An OAuth client may only use the scopes registered to
+   it, which is why the error *lists the scopes* and reads as a scope problem.
 2. Two of the five registered scopes were missing: `cclog` and
    `experimentsandconfigs`.
 3. Scopes were sent in short form. Only the registered full-URL form matches.
 4. `prompt=consent` was absent, so Google reused a grant and issued no refresh
    token — a failure that surfaces on the *next* login as "OAuth refresh token
-   missing", pointing at the token exchange rather than at the request that
-   caused it.
-
-**The lesson:** the error text named the symptom three times over and the cause
-zero times. Nothing in the app could have told us this; the diagnosis came from
-a browser error page.
+   missing", pointing at the token exchange rather than the request that caused
+   it.
 
 ### 2 — silent, no log line at all
 
-**What the user saw:** the same "Unable to sign in."
+**Actually wrong:** the sign-in path caught every exception and turned it into
+one fixed user-facing string. Correct for the user — an exception object can
+carry SQL, table names and credential-shaped text — and useless for whoever has
+to fix it. There was no `debugPrint` anywhere in the OAuth path, so a failure
+was indistinguishable from a failure of a different kind.
 
-**What was actually wrong:** the sign-in path caught every exception and turned
-it into one fixed, deliberately vague user-facing string. Correct for the user
-— an exception object can carry SQL, table names and credential-shaped text —
-and useless for whoever has to fix it. There was no `debugPrint` anywhere in the
-OAuth path, so a failure was indistinguishable from a failure of a different
-kind. **Four consecutive attempts (2, 3, 5, 6) were diagnosed by reading a
-browser page or by guessing, because the app said nothing.**
+**Attempts 2, 3, 5, 6, 7, 8 and 9 were all diagnosed by reading a browser page
+or by guessing, because the app said nothing.**
 
 ### 3 — `400 INVALID_ARGUMENT` from `loadCodeAssist`
 
-**Logged:** `loadCodeAssist rejected HTTP 400 (INVALID_ARGUMENT)`.
-
-**What was actually wrong — the client metadata was inverted:**
+**Actually wrong:** the client metadata was inverted.
 
 ```dart
 'pluginType': 'ANTIGRAVITY',   // wrong field
 'ideType': 'IDE_UNSPECIFIED',  // and not accepted by this endpoint
 ```
 
-`ideType: IDE_UNSPECIFIED` is the **Gemini CLI** value; the two were on the wrong
-fields. `platform` was absent. Three headers both reference implementations send
-were missing: `User-Agent`, `X-Goog-Api-Client`, `Client-Metadata`.
-
-Nothing in the response says "you swapped two enum values". It says
-`INVALID_ARGUMENT`.
+`IDE_UNSPECIFIED` is the *Gemini CLI* value; the two were on the wrong fields.
+`platform` was absent. Three headers both early references sent were missing.
 
 ### 4 — silent, stopped dead after the authorization code
 
-**Logged:** nothing after `authorization code received`.
+**Actually wrong:** `loadCodeAssist` returns `cloudaicompanionProject` and
+`currentTier` at the **top level** — there is no `response` envelope. TokenDock
+required `result['response'] is Map` and threw `AntigravitySchemaChanged`
+otherwise, *and that throw had no log line*.
 
-**What was actually wrong:** `loadCodeAssist` returns `cloudaicompanionProject`
-and `currentTier` at the **top level** — there is no `response` envelope.
-TokenDock required `result['response'] is Map` and threw
-`AntigravitySchemaChanged` otherwise, and *that throw had no log line*.
+`_project` and `_tier` were wrong the same way, and `_project` accepted only the
+string form of the project id, never `cloudaicompanionProject.id`. Three
+independent readers, one shared wrong assumption, invisible in both the UI and
+the log.
 
-So `_project` and `_tier` were also wrong: both read only the enveloped shape,
-and `_project` accepted only the string form of the project id, never
-`cloudaicompanionProject.id`. Three independent readers, one shared wrong
-assumption, and the failure was invisible in both the UI and the log.
+### 5 — `400 INVALID_ARGUMENT` again, caused by the attempt-3 fix
 
-### 5 — `400 INVALID_ARGUMENT` again, after the metadata was fixed
-
-**What was actually wrong — and it was the previous fix that caused it.** The
-correction in attempt 3 put the full three-field map in the request **body**.
-`cortexkit/antigravity-auth`, verified against live `agy` CLI 1.1.24 traffic,
-returns exactly one field from `buildAntigravityLoadCodeAssistMetadata`:
-
-```ts
-return { ideType: 'ANTIGRAVITY' }
-```
-
+The attempt-3 correction put the full three-field map in the request **body**.
 `pluginType: GEMINI` in the body is the marker that declares the caller to be
-the **Gemini CLI**. `INVALID_ARGUMENT` was the endpoint refusing a body naming a
-different client. The three-field map is correct in the `Client-Metadata`
-**header** and wrong in the request **body**; the reference sends exactly that
-pair.
-
-A test written during attempt 3 asserted the three-field body and had to be
-corrected — it encoded the same misreading.
+the **Gemini CLI**. A test written during attempt 3 asserted the three-field body
+and had to be corrected with it.
 
 ### 6 — a regression from the attempt-4 fix
 
-`AntigravitySchemaChanged` was being thrown for a body the endpoint had actually
-accepted, because the acceptance check was `body['response'] is Map`. Attempt 4
-fixed the *reader* and left the *check* wrong, so a working 200 was treated as
-a schema change. Fixed by checking for provisioning data rather than an
-envelope — with a test asserting that a 200 carrying neither a project nor a
-tier is still rejected, so the fix could not turn every 200 into a success.
+Attempt 4 fixed the *reader* and left the *check* wrong, so a working 200 was
+treated as a schema change. The acceptance check became "carries provisioning
+data" rather than "is enveloped", with a test asserting a 200 carrying neither a
+project nor a tier is still rejected.
 
-### 7 — the 400 is gone; a different, correctly-named failure remains
-
-**Logged:**
+### 7 — the 400 is gone; a different, correctly-named failure
 
 ```
-Antigravity: token exchange succeeded; asking Cloud Code to provision
-Antigravity: loadCodeAssist returned provisioning data
-Antigravity: provisioning keys: allowedTiers,cloudaicompanionProject,currentTier,gcpManaged,paidTier,upgradeSubscriptionUri
-Antigravity: the token response carried no account identity
+token exchange succeeded
+loadCodeAssist returned provisioning data
+provisioning keys: allowedTiers,cloudaicompanionProject,currentTier,gcpManaged,paidTier,upgradeSubscriptionUri
+the token response carried no account identity
 ```
 
-**`loadCodeAssist` now returns 200 with real data.** The key list is the
-account's own: `allowedTiers`, `cloudaicompanionProject`, `currentTier`,
-`gcpManaged`, `paidTier`, `upgradeSubscriptionUri`. Progress is real — attempt 3
-never got this far.
+**Actually wrong:** the identity guard built `email|accountId` from the **token
+response**, reading `accountEmail`/`accountId`. Google's token endpoint returns
+only `access_token`, `refresh_token` and `expires_in`.
 
-**What is actually wrong:** the identity guard builds `email|accountId` from the
-**token response**, reading `accountEmail`/`email` and `accountId`/`account_id`/
-`account`. Google's token endpoint returns only `access_token`,
-`refresh_token` and `expires_in` — **no account fields at all**, so
-`identityOf` returns null and sign-in throws `OAuth account identity missing`.
+### 8 — `400 INVALID_ARGUMENT` returns, from the attempt-7 work
 
-The provisioning body *does* carry `accountEmail` and `accountId` (they arrived
-in the fixture and in every Code Assist response seen), so the identity is
-available — just not from where this code looks for it.
+The account email was sourced from `oauth2/v2/userinfo` — correct, and the
+`CLIProxyAPI` form. But the request also carried two things it should not:
 
-## The fix identified but not yet applied
+- **`userIdentifier` in the body.** `CLIProxyAPI` builds the body as
+  `{metadata: ...}` and nothing else. The account is resolved from the bearer
+  token.
+- **`Client-Metadata` and `X-Goog-Api-Client` headers.** `CLIProxyAPI`,
+  `oh-my-pi` and `9router` send neither on this call. Only `cortexkit` sends
+  `Client-Metadata`, and that is the one implementation that does not work
+  against a live account without its own hardcoded project id — so it is not
+  evidence the header is accepted.
 
-`cortexkit/antigravity-auth` fetches the account email from a **separate
-endpoint**, immediately after the token exchange:
+The cross-reference had already flagged this combination as "a fingerprint
+surface with no corroboration, and not proven good". It was worse than
+unproven: it was the thing the endpoint rejected.
 
-```ts
-const userInfoResponse = await fetchWithActiveTimeout(
-  'https://www.googleapis.com/oauth2/v1/userinfo?alt=json',
-  {
-    headers: {
-      Authorization: `Bearer ${tokenPayload.access_token}`,
-      'User-Agent': GEMINI_CLI_HEADERS['User-Agent'],
-    },
-  },
-)
-const userInfo = userInfoResponse.ok ? await userInfoResponse.json() : {}
+### 9 — the 400 is gone, and a false premise is exposed
+
+```
+userinfo returned the account email
+loadCodeAssist returned provisioning data
+no account identity available from userinfo or provisioning
 ```
 
-TokenDock never calls it. The `userinfo.email` scope is already granted, so the
-call needs no new scope and no new credential.
+**Actually wrong:** the guard composed `email|accountId` from the userinfo email
+*and* an account id read from the provisioning body. **The provisioning body
+carries no account fields.** Three independent confirmations:
 
-Note the reference treats a non-OK response as `{}` rather than a failure, so a
-blocked userinfo endpoint degrades the label rather than blocking sign-in.
-Whether to match that or to treat a missing identity as fatal is a decision, and
-it interacts with the guard below.
+- `oh-my-pi` declares the `loadCodeAssist` response schema as exactly
+  `currentTier`, `paidTier`, `allowedTiers`, `ineligibleTiers` and
+  `cloudaicompanionProject`. The file never mentions an account identity.
+- `CLIProxyAPI`'s `userInfo` struct has one field: `email`.
+- The log line above is the real response, and there is no `accountEmail` and no
+  `accountId` in it.
 
-## The guard, and why it must not be weakened
+The `accountId` existed only in TokenDock's own fixtures. The identity is now the
+email, which is what all six implementations use.
 
-`AntigravitySelectedAccountGuard` compares the identity from the token response
-against the identity in the provisioning response, and refuses a mismatch. That
-check exists because a shared or wrong account binding would attribute one
-account's quota to another — the failure mode is *plausible output*, not an
-error.
+**What is lost, deliberately:** the cross-check that bound a stored credential to
+one account. It was the only defence against a token for one account reading
+another's quota, and that failure mode is plausible output rather than an error.
+The maintainer chose the working login over the check. Reinstating it needs a
+second independent source, and the only candidate is the `id_token`, which
+requires adding `openid` to the five registered scopes — and a wrong scope set is
+what caused attempt 1.
 
-Fixing attempt 7 by loosening the guard to "accept whatever the provisioning
-response says" would remove the only defence against that. The guard has to keep
-comparing two independently-sourced identities, so the fix is to **source the
-identity correctly** (userinfo, or the provisioning body) rather than to compare
-less.
+### 10 — everything upstream of the failure now succeeds
 
-An open question: `userinfo` returns `email` but no `accountId`, so
-`email|accountId` cannot be built from it alone. Building `email|email` or
-`email|` would be fabricating a value the guard then compares against. The
-account id has to come from the provisioning response, and the composition has
-to be pinned by a test rather than chosen at the call site.
+```
+sign-in started, waiting for the browser round trip
+authorization code received from the loopback listener
+token exchange succeeded; asking Cloud Code to provision
+userinfo returned the account email
+loadCodeAssist returned provisioning data
+```
+
+No error line. The user-facing message is the generic "Unable to sign in", so the
+failure is between the sixth line and the seventh that should have followed it —
+in the identity resolution, the account guard, the project read, or the tier
+read. **Not yet attributed.** Two changes were made to find it, and neither has
+been exercised against a live account:
+
+- A log line at each of those four steps, so the next attempt names the step
+  rather than stopping one line short of it.
+- `userSafeErrorMessage` no longer returns the generic fallback silently. The
+  fallback arm was the reason nine attempts were undiagnosable from the app: an
+  unrecognised failure produced calm, unhelpful copy and *nothing else*. It now
+  prints the exception **type** — a Dart class name, which cannot carry a
+  secret, a path or a credential. The user-facing copy is unchanged.
+
+**The account is a paid one** (`paidTier` is present in the response), so the
+free-tier ineligibility path is not in play.
 
 ## Sources
 
@@ -193,43 +212,45 @@ Two independent working implementations, and both were needed — each caught
 something the other did not:
 
 - `cortexkit/antigravity-auth` — `packages/core/src/antigravity/oauth.ts`,
-  `fingerprint.ts`, `constants.ts`. Verified against live `agy` CLI 1.1.24
-  traffic. Caught: the one-field body metadata, the harness `User-Agent`, the
-  bare (un-enveloped) provisioning response, both project-id shapes, the daily
-  endpoint order, the separate userinfo call, and the fallback project id.
+  `fingerprint.ts`, `constants.ts`. Caught: the one-field body metadata, the
+  harness `User-Agent`, the bare provisioning response, both project-id shapes,
+  the daily endpoint order, the separate userinfo call.
+- `CLIProxyAPI` — `internal/auth/antigravity/auth.go`,
+  `internal/runtime/executor/antigravity_executor_credits.go`. 53k stars, the most
+  widely deployed. Caught: the four-header set, the absence of `userIdentifier`,
+  the `oauth2/v2` form, and that the identity is the email alone.
 - `wiseai/picoclaw` — `docs/security/ANTIGRAVITY_AUTH.md`. Caught: the inverted
-  metadata and the `X-Goog-Api-Client` header, and independently confirms the
-  five scopes and the client id.
-- `opencode-antigravity-auth` — `docs/ANTIGRAVITY_API_SPEC.md`. Confirms the
-  five scopes, the required headers, and the three-field `Client-Metadata`.
+  metadata; independently confirms the five scopes and the client id.
+- `opencode-antigravity-auth` — `docs/ANTIGRAVITY_API_SPEC.md`. Confirms the five
+  scopes and the required headers.
+- `decolua/9router` — `src/lib/oauth/services/antigravity.js`, and issue #1226
+  on account-blocking fingerprints. Its numeric-enum metadata is a minority
+  position and it reports its own bug unpatched.
+- `can1357/oh-my-pi` — `packages/ai/src/registry/oauth/google-antigravity.ts`.
+  The most defensible of the six: a frozen metadata constant, a declared response
+  schema, tests asserting exact request bodies, and a `User-Agent` version
+  discovered from Google's own update manifest rather than invented.
 
 ## What is verified, and what is not
 
-**Verified against live Google:** the OAuth authorization and token exchange,
-and `loadCodeAssist` returning 200 with the account's real provisioning data.
+**Verified against live Google:** the OAuth authorization and token exchange, the
+`userinfo` account lookup, and `loadCodeAssist` returning 200 with the account's
+real provisioning data.
 
-**Not verified:** a complete sign-in. No test fixture anywhere in this
-repository is a live Google response, and no automated test contacts Google.
-Every shape above was read out of a real Debug log or a real browser page, not
-out of a test.
-
-**Not applied:** the userinfo call. It is the identified next step and is
-deliberately left unapplied pending review, since the interaction with the
-identity guard is the open question above and the fix is not a one-liner.
+**Not verified:** a complete sign-in. No fixture in this repository is a live
+Google response, and no automated test contacts Google. Every shape above was
+read out of a real Debug log or a real browser page, not out of a test.
 
 ## Two decisions deliberately not copied
 
 **The hardcoded fallback project id.** `cortexkit` falls back to
 `rising-fact-p41fc` for accounts the endpoint provisions no project for. That
-project belongs to the operator of that client. Using it in a distributed app
+project belongs to the operator of that client; using it in a distributed app
 would point a user's requests and their quota reporting at a Google Cloud
 project that is not theirs. A projectless account is reported as needing
-onboarding instead. The id is recorded as
-`referenceFallbackProjectId` so the decision stays checkable against the
-reference rather than remembered.
+onboarding instead. The id is recorded as `referenceFallbackProjectId`.
 
 **The Electron desktop `User-Agent`.** `getAntigravityHeaders()` in the
 reference carries a full Chrome/Electron string. That is the desktop IDE's
-identity; TokenDock is neither Chrome nor Electron, and the reference itself
-uses the harness CLI form on the `loadCodeAssist` path. Only the harness form is
-sent.
+identity, and TokenDock is neither Chrome nor Electron. Only the harness form is
+sent, and a test asserts the string contains neither.

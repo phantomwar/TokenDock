@@ -15,16 +15,20 @@ void main() {
   test('remote provider keeps account tokens isolated', () async {
     final store = _Store();
     final http = _Http([
+      // No accountEmail or accountId here, deliberately. Google's token endpoint
+      // returns only these three fields, and a fixture that invents the other two
+      // is what let the identity guard pass in tests and fail on the seventh
+      // live attempt. The email comes from the userinfo reply below and the
+      // account id from the Cloud Code reply -- where each actually lives.
       _Response(
         200,
         jsonEncode({
           'access_token': 'access-a',
           'refresh_token': 'refresh-a',
           'expires_in': 3600,
-          'accountEmail': 'a@example.com',
-          'accountId': 'acct-a',
         }),
       ),
+      _Response(200, jsonEncode({'email': 'a@example.com'})),
       _Response(
         200,
         jsonEncode({
@@ -164,7 +168,7 @@ void main() {
       final provider = AntigravityProvider(http: http);
       final secret = jsonEncode({
         'accessToken': 'a',
-        'identityKey': 'a@example.com|acct-a',
+        'identityKey': 'a@example.com',
         'projectId': 'p',
       });
 
@@ -191,16 +195,20 @@ void main() {
   test('mismatched selected account is rejected', () async {
     final store = _Store();
     final http = _Http([
+      // No accountEmail or accountId here, deliberately. Google's token endpoint
+      // returns only these three fields, and a fixture that invents the other two
+      // is what let the identity guard pass in tests and fail on the seventh
+      // live attempt. The email comes from the userinfo reply below and the
+      // account id from the Cloud Code reply -- where each actually lives.
       _Response(
         200,
         jsonEncode({
           'access_token': 'access-a',
           'refresh_token': 'refresh-a',
           'expires_in': 3600,
-          'accountEmail': 'a@example.com',
-          'accountId': 'acct-a',
         }),
       ),
+      _Response(200, jsonEncode({'email': 'a@example.com'})),
       _Response(
         200,
         jsonEncode({
@@ -248,10 +256,9 @@ void main() {
           'access_token': 'access',
           'refresh_token': 'refresh',
           'expires_in': 3600,
-          'accountEmail': 'a@example.com',
-          'accountId': 'acct-a',
         }),
       ),
+      _Response(200, jsonEncode({'email': 'a@example.com'})),
       _Response(
         200,
         jsonEncode({
@@ -305,7 +312,7 @@ void main() {
       _connection('a'),
       jsonEncode({
         'accessToken': 'a',
-        'identityKey': 'a@example.com|acct-a',
+        'identityKey': 'a@example.com',
         'projectId': 'p',
       }),
     );
@@ -336,7 +343,7 @@ void main() {
       _connection('a'),
       jsonEncode({
         'accessToken': 'a',
-        'identityKey': 'a@example.com|acct-a',
+        'identityKey': 'a@example.com',
         'projectId': 'p',
       }),
     );
@@ -369,7 +376,7 @@ void main() {
         _connection('a'),
         jsonEncode({
           'accessToken': 'a',
-          'identityKey': 'a@example.com|acct-a',
+          'identityKey': 'a@example.com',
           'projectId': 'p',
         }),
       )).error,
@@ -411,7 +418,7 @@ void main() {
         _connection('a'),
         jsonEncode({
           'accessToken': 'a',
-          'identityKey': 'a@example.com|acct-a',
+          'identityKey': 'a@example.com',
           'projectId': 'p',
         }),
       );
@@ -461,7 +468,7 @@ void main() {
       _connection('a'),
       jsonEncode({
         'accessToken': 'a',
-        'identityKey': 'a@example.com|acct-a',
+        'identityKey': 'a@example.com',
         'projectId': 'p',
       }),
     );
@@ -481,7 +488,7 @@ void main() {
       jsonEncode({
         'accessToken': 'old',
         'refreshToken': 'keep-me',
-        'identityKey': 'a@example.com|acct-a',
+        'identityKey': 'a@example.com',
       }),
     );
     final value = jsonDecode(secret) as Map<String, dynamic>;
@@ -546,7 +553,7 @@ void main() {
           .toUtc()
           .subtract(const Duration(seconds: 1))
           .toIso8601String(),
-      'identityKey': 'a@example.com|acct-a',
+      'identityKey': 'a@example.com',
       'projectId': 'p',
     });
 
@@ -615,10 +622,9 @@ void main() {
             'access_token': 'access-a',
             'refresh_token': 'refresh-a',
             'expires_in': 3600,
-            'accountEmail': 'a@example.com',
-            'accountId': 'acct-a',
           }),
         ),
+        _Response(200, jsonEncode({'email': 'a@example.com'})),
         _Response(
           200,
           jsonEncode({
@@ -641,10 +647,9 @@ void main() {
             'access_token': 'access-b',
             'refresh_token': 'refresh-b',
             'expires_in': 3600,
-            'accountEmail': 'b@example.com',
-            'accountId': 'acct-b',
           }),
         ),
+        _Response(200, jsonEncode({'email': 'b@example.com'})),
         _Response(
           200,
           jsonEncode({
@@ -687,10 +692,9 @@ void main() {
             'access_token': 'a',
             'refresh_token': 'r',
             'expires_in': 3600,
-            'accountEmail': 'a@example.com',
-            'accountId': 'acct-a',
           }),
         ),
+        _Response(200, jsonEncode({'email': 'a@example.com'})),
         _Response(
           200,
           jsonEncode({
@@ -731,7 +735,9 @@ void main() {
 
       final result = await provider.loginWithLoopback(_connection('a'));
 
-      expect(result.identityKey, 'a@example.com|acct-a');
+      // The email, and only the email. Google sends no account id on this path,
+      // so there is no second half to compose -- see identityFrom.
+      expect(result.identityKey, 'a@example.com');
       expect(opened, isNotNull);
       expect(opened!.origin, 'https://accounts.google.com');
       expect(opened!.queryParameters['code_challenge_method'], 'S256');
@@ -761,10 +767,7 @@ void main() {
       // failed at the token endpoint. The secret belongs here and nowhere else:
       // the authorization URL, the userinfo request, and anything that reaches
       // the log must not carry it.
-      expect(
-        tokenBody['client_secret'],
-        AntigravityOAuthProvider.clientSecret,
-      );
+      expect(tokenBody['client_secret'], AntigravityOAuthProvider.clientSecret);
       expect(
         opened!.toString(),
         isNot(contains(AntigravityOAuthProvider.clientSecret)),
@@ -774,8 +777,28 @@ void main() {
         http.requests.first.headers['Content-Type'],
         'application/x-www-form-urlencoded',
       );
-      expect(http.requests[1].headers['Content-Type'], 'application/json');
-      expect(jsonDecode(http.requests[1].body), isA<Map<String, dynamic>>());
+      // The second request is the userinfo lookup, and the third is the first
+      // Cloud Code RPC. Selected by path rather than by index, because the
+      // account-email lookup was added between them and an index here would
+      // silently start asserting about a different endpoint.
+      final rpc = http.requests.firstWhere(
+        (r) => r.uri.path.contains('loadCodeAssist'),
+      );
+      expect(rpc.headers['Content-Type'], 'application/json');
+      expect(jsonDecode(rpc.body), isA<Map<String, dynamic>>());
+
+      // The userinfo call is a GET and carries no JSON content type, which is
+      // the other half of the reason it cannot be routed through the POST path.
+      final userinfo = http.requests.firstWhere(
+        (r) => r.uri.path.contains('userinfo'),
+      );
+      expect(userinfo.body, isEmpty);
+      expect(
+        userinfo.headers.containsKey('Content-Type'),
+        isFalse,
+        reason: 'a GET with no body has no content type to declare',
+      );
+
       expect(await store.read('secret-a'), contains('refreshToken'));
 
       final client = HttpClient();
@@ -790,11 +813,23 @@ void main() {
   );
   test('login rejects token response without refresh token', () async {
     final http = _Http([
-      _Response(200, jsonEncode({'access_token': 'a', 'accountEmail': 'a@example.com', 'accountId': 'acct-a'})),
+      _Response(
+        200,
+        jsonEncode({
+          'access_token': 'a',
+          'accountEmail': 'a@example.com',
+          'accountId': 'acct-a',
+        }),
+      ),
     ]);
     final provider = AntigravityOAuthProvider(http: http);
     await expectLater(
-      provider.login(_connection('a'), code: 'c', codeVerifier: 'v', redirectUri: 'http://127.0.0.1/callback'),
+      provider.login(
+        _connection('a'),
+        code: 'c',
+        codeVerifier: 'v',
+        redirectUri: 'http://127.0.0.1/callback',
+      ),
       throwsA(isA<StateError>()),
     );
   });
@@ -834,9 +869,11 @@ void main() {
             'access_token': 'a',
             'refresh_token': 'r',
             'expires_in': 3600,
-            'accountEmail': 'a@example.com',
-            'accountId': 'acct-a',
           }),
+        ),
+        'https://www.googleapis.com/oauth2/v2/userinfo?alt=json': _Response(
+          200,
+          jsonEncode({'email': 'a@example.com'}),
         ),
         'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist':
             AntigravityTransportFailure(Exception('offline')),
@@ -873,10 +910,9 @@ void main() {
             'access_token': 'a',
             'refresh_token': 'r',
             'expires_in': 3600,
-            'accountEmail': 'a@example.com',
-            'accountId': 'acct-a',
           }),
         ),
+        _Response(200, jsonEncode({'email': 'a@example.com'})),
         _Response(
           200,
           jsonEncode({
@@ -941,7 +977,7 @@ void main() {
     );
     final secret = jsonEncode({
       'accessToken': 'a',
-      'identityKey': 'a@example.com|acct-a',
+      'identityKey': 'a@example.com',
       'projectId': 'p',
     });
 
@@ -962,10 +998,9 @@ void main() {
             'access_token': 'a',
             'refresh_token': 'r',
             'expires_in': 3600,
-            'accountEmail': 'a@example.com',
-            'accountId': 'acct-a',
           }),
         ),
+        _Response(200, jsonEncode({'email': 'a@example.com'})),
         _Response(
           200,
           jsonEncode({
@@ -1006,7 +1041,7 @@ void main() {
       final delays = <Duration>[];
       final secret = jsonEncode({
         'accessToken': 'a',
-        'identityKey': 'a@example.com|acct-a',
+        'identityKey': 'a@example.com',
         'projectId': 'p',
       });
       final seconds = AntigravityOAuthProvider(
@@ -1077,6 +1112,29 @@ class _HostHttp implements AntigravityOAuthHttpRunner {
       retryAfter: response.retryAfter,
     );
   }
+
+  // Added with the account-email lookup. Answers from the same URL table as
+  // POST, so a host with no userinfo entry answers both methods alike -- which is
+  // what a real host does for an endpoint it does not serve. A 404 rather than
+  // a throw, because that is the case the production code degrades through.
+  @override
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) async {
+    final value = responses[uri.toString()];
+    if (value is AntigravityTransportFailure) throw value.cause;
+    if (value == null) {
+      return const AntigravityOAuthHttpResponse(statusCode: 404, body: '');
+    }
+    if (value is Exception) throw value;
+    final response = value as _Response;
+    return AntigravityOAuthHttpResponse(
+      statusCode: response.statusCode,
+      body: response.body,
+      retryAfter: response.retryAfter,
+    );
+  }
 }
 
 Connection _connection(String id, {String? providerData}) => Connection(
@@ -1118,6 +1176,23 @@ class _Http implements AntigravityOAuthHttpRunner {
     required String body,
   }) async {
     requests.add((uri: uri, headers: headers, body: body));
+    final result = responses.removeAt(0);
+    return AntigravityOAuthHttpResponse(
+      statusCode: result.statusCode,
+      body: result.body,
+      retryAfter: result.retryAfter,
+    );
+  }
+
+  // Added with the account-email lookup. Recorded like POST so a test asserting
+  // on the request log sees the GET, and answered from the same queue so the two
+  // methods cannot be reordered independently of each other.
+  @override
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) async {
+    requests.add((uri: uri, headers: headers, body: ''));
     final result = responses.removeAt(0);
     return AntigravityOAuthHttpResponse(
       statusCode: result.statusCode,

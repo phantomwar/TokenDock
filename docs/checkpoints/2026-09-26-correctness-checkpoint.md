@@ -644,6 +644,52 @@ Hide remains reachable from the tray only. Recorded rather than fixed: the ask
 was a way to close the program, and a second header button is not the place to
 add scope.
 
+### Antigravity remote sign-in: ten attempts, and what they taught
+
+Ten live attempts against Google's Cloud Code Assist endpoints are recorded in
+full in `docs/antigravity-signin-attempts.md`, with a field-by-field comparison
+of five working implementations in `docs/antigravity-cross-reference.md`.
+
+**Where it stands: the OAuth exchange, the account lookup and the Cloud Code
+provisioning call all succeed.** Attempt 10 logged the complete success path and
+no error line. The attempt then fails immediately afterwards, in a step that was
+not individually logged at the time and is not yet attributed.
+
+Two things changed so the next attempt can attribute it: a log line at each of
+the four steps between provisioning and the credential write, and
+`userSafeErrorMessage` no longer returning the generic fallback silently.
+
+**The lesson worth more than the provider.** Three of the nine failed attempts
+failed *because of a fix applied in an earlier one* — a three-field body that
+declared the client to be the Gemini CLI, a `userIdentifier` the endpoint does not
+accept, and two headers no implementation sends. In all three the reference was
+to hand and had been read only partially, and in all three the response was
+`400 INVALID_ARGUMENT`, which names a symptom and never a cause. The rule is now
+written into the code and the tests: **assert the exact request shape, not the
+presence of the fields you expect.**
+
+The second lesson, twice: **a fixture that invents the field the code reads hides
+the bug.** The account identity was `email|accountId` for four attempts; Google
+sends no account id anywhere on this path, and the field existed only in
+TokenDock's own fixtures. CI was green because of it.
+
+**What was deliberately given up.** The account-binding cross-check is gone,
+because the second source it compared against does not exist. It was the only
+defence in the ecosystem against a token for one account reading another's quota
+— a failure that produces plausible output rather than an error — and all five
+reference implementations accept the same loss, because none of them ever had the
+check. Restoring it needs the `id_token`, which requires adding `openid` to the
+five registered scopes; a wrong scope set is what caused the very first attempt
+of this sequence, so that is a maintainer's trade rather than a default.
+
+**Also not applied**, and each is a correctness issue rather than a blocker:
+`onboardUser` sends no tier and never polls, and the three implementations
+disagree about the field name (`tierId` vs `tier_id`) and the metadata shape;
+`paidTier` is the real paid-account marker and is ignored, so the tier about to
+be reported is probably wrong; free-tier ineligibility is not surfaced with the
+`validationUrl` the user could act on; and the `User-Agent` version is pinned
+where the two strongest implementations discover it from Google's own manifest.
+
 ## Open items, consolidated
 
 Everything still outstanding as of `0977e39`, in one place. The earlier

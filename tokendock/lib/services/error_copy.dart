@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../providers/antigravity/antigravity_oauth.dart';
 import 'credential_events.dart';
 
@@ -18,6 +20,22 @@ import 'credential_events.dart';
 /// failure the app does not recognise still produces calm, actionable copy
 /// rather than a stack trace.
 String userSafeErrorMessage(Object error, {required String fallback}) {
+  // The fallback arm used to be silent, and that is what made nine live sign-in
+  // attempts undiagnosable from the app. A failure this module does not
+  // recognise produced the same calm sentence and nothing else: no log line, no
+  // exception type, no indication of which step failed.
+  //
+  // The user-facing copy stays exactly as careful as before -- the *type* is a
+  // Dart class name and cannot carry a secret, a path or a credential. What is
+  // added is for a developer, in a debug build, on stdout.
+  if (fallback == 'Unable to sign in. Please try again.') {
+    debugPrint(
+      'TokenDock: sign-in failed with an unrecognised error type '
+      '${error.runtimeType}; the message shown is the generic fallback, so the '
+      'log lines above are the only diagnosis available.',
+    );
+  }
+
   // Known failure modes that already carry deliberate, user-safe copy.
   if (error is AntigravityOnboardingRequired) {
     return 'Complete onboarding in Antigravity, then try again.';

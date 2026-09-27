@@ -130,22 +130,23 @@ void main() {
     });
   });
 
-  group('the header still carries the full client metadata', () {
-    test('Client-Metadata keeps all three fields', () async {
-      // The narrow body and the full header are not a contradiction: the
-      // reference sends exactly this pair. Narrowing the header too would lose
-      // the platform declaration the header exists to carry.
+  group('no client metadata header, because the endpoint rejects it', () {
+    test('loadCodeAssist sends no Client-Metadata header', () async {
+      // Reversed 2026-09-26. This asserted the header "keeps all three fields",
+      // on the reading that a narrow body and a full header were a deliberate
+      // pair a reference sends. `CLIProxyAPI`, `oh-my-pi` and `9router` send no
+      // such header on this call, and the endpoint answered
+      // `400 INVALID_ARGUMENT` while it was present. Only `cortexkit` sends it --
+      // and that is the one implementation that needs a hardcoded project id to
+      // work against a live account, so it is not evidence the header is
+      // accepted.
+      //
+      // `cloud_code_headers_test.dart` now pins the exact header set.
       await signIn();
       final index = sentUris.indexWhere(
         (u) => u.path.contains('loadCodeAssist'),
       );
-      final decoded = jsonDecode(
-        sentHeaders[index]['Client-Metadata']!,
-      ) as Map<String, dynamic>;
-
-      expect(decoded['ideType'], 'ANTIGRAVITY');
-      expect(decoded['platform'], 'WINDOWS');
-      expect(decoded['pluginType'], 'GEMINI');
+      expect(sentHeaders[index].containsKey('Client-Metadata'), isFalse);
     });
   });
 
@@ -193,4 +194,10 @@ class _Recording implements AntigravityOAuthHttpRunner {
     required Map<String, String> headers,
     required String body,
   }) async => _respond(uri, headers, body);
+
+  @override
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) async => _respond(uri, headers, '');
 }

@@ -192,4 +192,13 @@ class _Recording implements AntigravityOAuthHttpRunner {
     required Map<String, String> headers,
     required String body,
   }) => handler(uri, headers: headers, body: body);
+
+  // Added with the account-email lookup. An empty body, because a GET has none,
+  // and the same handler, so the credential-scrubbing assertions in these tests
+  // cover both methods rather than only the one that was there first.
+  @override
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) => handler(uri, headers: headers, body: '');
 }

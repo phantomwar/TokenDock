@@ -32,6 +32,17 @@ abstract interface class AntigravityOAuthHttpRunner {
     required Map<String, String> headers,
     required String body,
   });
+
+  /// A GET, for the userinfo endpoint.
+  ///
+  /// Added with the account-email lookup rather than routing a GET through
+  /// [post]: the method is part of the request, and a runner that has to guess
+  /// it from an empty body is a runner whose tests can pass for the wrong
+  /// reason.
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  });
 }
 
 class AntigravityOnboardingRequired implements Exception {
@@ -96,16 +107,19 @@ class AntigravitySelectedAccountGuard {
     required String? expected,
     required Map<String, dynamic> payload,
   }) => expected == null || expected.isEmpty || identityOf(payload) == expected;
+
+  /// The identity carried by a payload, or `null` when it carries none.
+  ///
+  /// The email alone, and only the email -- see
+  /// [AntigravityOAuthProvider.identityFrom] for why there is no account id.
+  /// Composed as `email|accountId` until the ninth live attempt proved that the
+  /// account id is not sent by any Google response this flow sees.
   static String? identityOf(Map<String, dynamic> payload) {
     final root = payload['response'] is Map
         ? Map<String, dynamic>.from(payload['response'] as Map)
         : payload;
-    final email = (root['accountEmail'] ?? root['email'])?.toString();
-    final account = (root['accountId'] ?? root['account_id'] ?? root['account'])
-        ?.toString();
-    return email == null || email.isEmpty || account == null || account.isEmpty
-        ? null
-        : '$email|$account';
+    final email = (root['accountEmail'] ?? root['email'])?.toString().trim();
+    return email == null || email.isEmpty ? null : email;
   }
 }
 
@@ -230,44 +244,6 @@ class AntigravityOAuthProvider implements ProviderAdapter {
 
   static const String accessType = 'offline';
 
-  /// How this client identifies itself to the Cloud Code Assist endpoints.
-  ///
-  /// These three values were **inverted**, and the endpoint answered
-  /// `400 INVALID_ARGUMENT` with nothing pointing at the cause:
-  ///
-  /// ```
-  /// 'pluginType': 'ANTIGRAVITY',   // wrong field
-  /// 'ideType': 'IDE_UNSPECIFIED',  // and not an accepted value here
-  /// ```
-  ///
-  /// The correct pair is `ideType: ANTIGRAVITY` with `pluginType: GEMINI`. That
-  /// reads like a typo and is not: Antigravity is the *IDE surface*, and the
-  /// plugin that reaches it is the Gemini one. `platform` was missing entirely.
-  ///
-  /// Two independent working implementations agree, which is why this is a
-  /// correction rather than a guess:
-  ///
-  /// - `opencode-antigravity-auth` `docs/ANTIGRAVITY_API_SPEC.md`, verified by
-  ///   direct API testing, lists `Client-Metadata` as
-  ///   `{"ideType":"ANTIGRAVITY","platform":"...","pluginType":"GEMINI"}`.
-  /// - `wiseai/picoclaw` `docs/security/ANTIGRAVITY_AUTH.md` sends
-  ///   `loadCodeAssist` with the same body metadata.
-  ///
-  /// The platform value the endpoint expects, rather than the sentinel.
-  ///
-  /// `PLATFORM_UNSPECIFIED` is what the Gemini CLI sends. Naming it here is the
-  /// same class of mistake as sending `ideType: IDE_UNSPECIFIED`: it declares
-  /// the client to be something it is not.
-  static String get currentPlatform => Platform.isWindows ? 'WINDOWS' : 'MACOS';
-
-  /// One map, built once, because the two call sites previously wrote it
-  /// independently and that is how they came to disagree.
-  static Map<String, String> get clientMetadata => <String, String>{
-    'ideType': 'ANTIGRAVITY',
-    'platform': currentPlatform,
-    'pluginType': 'GEMINI',
-  };
-
   /// The project id a *reference* client falls back to, recorded but not used.
   ///
   /// `cortexkit/antigravity-auth` hardcodes this for accounts the endpoint
@@ -277,32 +253,142 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   /// branch in `login` for the full reasoning.
   static const String referenceFallbackProjectId = 'rising-fact-p41fc';
 
-  /// Sent as the `Client-Metadata` header on Cloud Code calls, alongside the same
-  /// map in the request body.
-  static String get clientMetadataHeader => jsonEncode(clientMetadata);
+  // `Client-Metadata` and `X-Goog-Api-Client` used to be sent on every Cloud
+  // Code call, on the reading that both were required. They are not: none of
+  // `CLIProxyAPI`, `oh-my-pi` or `9router` sends either for `loadCodeAssist`,
+  // and the endpoint answered `400 INVALID_ARGUMENT` while they were present.
+  // `cortexkit` sends `Client-Metadata`, and is the one implementation that
+  // does not work against a live account without its own project id. A header
+  // only one of six sends is a fingerprint, not a contract -- so the constants
+  // are gone rather than merely unused, and a test asserts the header set is
+  // exactly the four that work.
 
-  /// `X-Goog-Api-Client`, required by both reference implementations and absent
-  /// here until a live sign-in failed.
-  static const String apiClientHeader = 'X-Goog-Api-Client';
+  /// The account profile endpoint, used only to source the account email.
+  ///
+  /// `oauth2/**v2**/userinfo`, matching `CLIProxyAPI`. `9router` and `cortexkit`
+  /// send `oauth2/v1/userinfo`; v2 is the endpoint Google documents and the one
+  /// the most widely deployed implementation uses. The `userinfo.email` scope is
+  /// already granted, so this needs no new scope and no new credential.
+  static const String userInfoEndpoint =
+      'https://www.googleapis.com/oauth2/v2/userinfo?alt=json';
 
-  static const String apiClientValue =
-      'google-cloud-sdk vscode_cloudshelleditor/0.1';
+  /// The account email, or `null` when it cannot be obtained.
+  ///
+  /// Degrades rather than fails, and that is the norm: `cortexkit` treats a
+  /// non-OK response as an empty object and continues, and the same reasoning
+  /// applies here. The credential is already proven — the provisioning call that
+  /// follows is made *with* this access token, so a successful
+  /// `loadCodeAssist` is itself the authentication. A Google-side outage on an
+  /// unrelated endpoint must not lock users out of the provider.
+  ///
+  /// Never fabricates a value. A missing email is `null`, and the caller decides
+  /// what an unknown identity means; inventing one would put a value into the
+  /// account-binding guard that the guard then "verifies" against, which is the
+  /// exact failure the guard exists to prevent.
+  Future<String?> _fetchAccountEmail(String access) async {
+    try {
+      final response = await _get(
+        Uri.parse(userInfoEndpoint),
+        stage: 'userinfo',
+        headers: <String, String>{
+          'Authorization': 'Bearer $access',
+          'Accept': 'application/json',
+          'User-Agent': userAgent,
+        },
+      );
+      final email = response['email']?.toString().trim();
+      if (email == null || email.isEmpty) {
+        _logStage('userinfo returned no email');
+        return null;
+      }
+      // The email itself is an account identifier and is never logged, only
+      // that one arrived.
+      _logStage('userinfo returned the account email');
+      return email;
+    } on AntigravityTransportFailure {
+      _logStage('userinfo transport failure; continuing without an email');
+      return null;
+    } on AntigravityTransientFailure catch (error) {
+      // A 429 or 5xx after the retry ladder is spent. Worth naming separately
+      // from a plain rejection because it is a rate limit on an endpoint whose
+      // answer this login does not actually need, and the credential is fine.
+      _logStage(
+        'userinfo throttled or unavailable; continuing without an email',
+        status: error.statusCode,
+      );
+      return null;
+    } on AntigravityHttpStatus catch (error) {
+      // Not fatal, and not silent. A 403 here means the scope was not granted
+      // or the endpoint is blocked, which is worth knowing and is not worth
+      // failing a working credential over.
+      _logStage(
+        'userinfo rejected; continuing without an email',
+        status: error.statusCode,
+        reason: rejectionReasonOf(''),
+      );
+      return null;
+    } on AntigravitySchemaChanged {
+      _logStage('userinfo returned an unexpected shape; continuing');
+      return null;
+    }
+  }
+
+  // The account email and account id used to be read off the provisioning
+  // response, and there is a whole pair of helpers for it here that are now gone.
+  // They were reading fields Google does not send on this call: the ninth live
+  // attempt logged the real response keys and the `oh-my-pi` schema declares the
+  // same five. What the flow still needs is the email, and that comes from
+  // userinfo. See [identityFrom].
+
+  /// The account identity: the email, and only the email.
+  ///
+  /// This used to be `email|accountId`, composed from two sources. **The
+  /// `accountId` does not exist.** It was in TokenDock's own test fixtures and in
+  /// nothing else:
+  ///
+  /// - `oh-my-pi` declares the `loadCodeAssist` response schema as exactly
+  ///   `currentTier`, `paidTier`, `allowedTiers`, `ineligibleTiers` and
+  ///   `cloudaicompanionProject`. No account fields. The file does not mention an
+  ///   account identity at all.
+  /// - `CLIProxyAPI`'s `userInfo` struct has one field, `email`.
+  /// - The ninth live sign-in attempt logged the real response keys —
+  ///   `allowedTiers, cloudaicompanionProject, currentTier, gcpManaged,
+  ///   paidTier, upgradeSubscriptionUri` — and no `accountEmail`, no
+  ///   `accountId`.
+  ///
+  /// So the identity is the email, which is what all six implementations use.
+  ///
+  /// **What is lost, stated plainly:** the cross-check that bound a stored
+  /// credential to one account is gone. It was the only defence against a token
+  /// for one account reading another's quota, and that failure mode is plausible
+  /// output rather than an error. Reinstating it needs a second independent
+  /// source, and the only candidate is the `id_token`, which requires adding
+  /// `openid` to the five registered scopes — and a wrong scope set is what
+  /// caused the very first failure of this whole sequence. That trade is the
+  /// maintainer's to make, not a default to assume.
+  static String? identityFrom({required String? email}) {
+    if (email == null || email.isEmpty) return null;
+    return email;
+  }
 
   /// The metadata the **request body** carries on the provisioning calls.
   ///
-  /// One field, and the other two are deliberately absent.
+  /// One field, and nothing else goes in the body at all.
   ///
-  /// `cortexkit/antigravity-auth`, verified against live `agy` CLI 1.1.24
-  /// traffic, returns exactly `{ ideType: 'ANTIGRAVITY' }` from
-  /// `buildAntigravityLoadCodeAssistMetadata`. TokenDock was sending the full
-  /// three-field map here too, and `pluginType: GEMINI` is the marker that
-  /// declares the caller to be the **Gemini CLI**. `INVALID_ARGUMENT` is the
-  /// endpoint refusing a body that names a different client.
+  /// TokenDock got this wrong three times, and each error produced
+  /// `400 INVALID_ARGUMENT` with nothing pointing at the cause:
   ///
-  /// This is not a contradiction with [clientMetadata], which is three fields:
-  /// the reference sends exactly this pair -- a narrow body and a full
-  /// `Client-Metadata` header. The header exists to carry the platform
-  /// declaration; narrowing it too would lose that.
+  /// 1. `pluginType: 'ANTIGRAVITY'` with `ideType: 'IDE_UNSPECIFIED'` — the two
+  ///    values on the wrong fields. `IDE_UNSPECIFIED` is the *Gemini CLI* value.
+  /// 2. The corrected three-field map, which sends `pluginType: GEMINI` — the
+  ///    marker that declares the caller to be the Gemini CLI.
+  /// 3. A `userIdentifier` field, which the endpoint does not accept at all. The
+  ///    account is resolved from the bearer token.
+  ///
+  /// `CLIProxyAPI`, `oh-my-pi` and `cortexkit` all build this body as exactly
+  /// `{metadata: {ideType: ANTIGRAVITY}}`. See also
+  /// `docs/antigravity-signin-attempts.md` for the eight attempts and
+  /// `docs/antigravity-cross-reference.md` for the field-by-field comparison.
   static Map<String, dynamic> get bootstrapBodyMetadata => <String, dynamic>{
     'ideType': 'ANTIGRAVITY',
   };
@@ -649,22 +735,45 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     // used to be able to fail with *no log line at all*, which is how a live
     // attempt could stop dead after the authorization code and leave nothing to
     // diagnose. The step names are logged as they are entered.
-    final identity =
-        AntigravitySelectedAccountGuard.identityOf(token) ??
-        connection.identityKey;
+
+    // The email, from the only place it exists at this point. Google's token
+    // response carries no account fields at all -- reading the identity from it
+    // is what made the seventh live attempt fail with "OAuth account identity
+    // missing", and it is why three of the five reference implementations call a
+    // userinfo endpoint instead.
+    final email = await _fetchAccountEmail(access);
+
+    // A previously stored identity, when reconnecting, so a reconnecting
+    // connection keeps the identity it was bound to rather than re-deriving one
+    // from whatever the account reports now.
+    var identity =
+        connection.identityKey ??
+        AntigravitySelectedAccountGuard.identityOf(token);
+
     var provisioning = await _loadCodeAssist(
       access,
-      identity: identity,
+      identity: email,
       projectId: _providerData(connection)['projectId']?.toString(),
     );
     _logStage('loadCodeAssist returned provisioning data');
+
+    // The provisioning response carries no account fields at all -- see
+    // [identityFrom] -- so there is nothing here to cross-check the email
+    // against. The identity is the email, and the guard below degrades to
+    // accepting a body that simply has no identity to compare.
+    if (identity == null && email != null) {
+      identity = identityFrom(email: email);
+    }
+    _logStage('identity resolved');
     _requireProvisioningIdentity(provisioning, identity);
+    _logStage('account guard passed');
     var project = _projectOf(provisioning);
+    _logStage('project read from the response');
     if (_tier(provisioning) == null) {
       _logStage('no tier on the account, onboarding');
       provisioning = await _onboardUser(
         access,
-        identity: identity,
+        identity: email,
         projectId: project,
       );
       _requireProvisioningIdentity(provisioning, identity);
@@ -696,10 +805,17 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       throw const AntigravityOnboardingRequired();
     }
     final identityKey =
-        identity ?? AntigravitySelectedAccountGuard.identityOf(provisioning);
+        identity ??
+        AntigravitySelectedAccountGuard.identityOf(provisioning) ??
+        identityFrom(email: email);
     if (identityKey == null) {
-      _logStage('the token response carried no account identity');
-      throw StateError('OAuth account identity missing');
+      // Only reachable when userinfo failed *and* the token response carried no
+      // stored identity. The credential itself works at this point -- the
+      // provisioning calls above succeeded with it -- so this is reported as
+      // needing onboarding rather than as a failed sign-in, because the user has
+      // something they can actually do about it.
+      _logStage('no account identity available from userinfo or provisioning');
+      throw const AntigravityOnboardingRequired();
     }
     final secret = jsonEncode({
       'accessToken': access,
@@ -738,13 +854,17 @@ class AntigravityOAuthProvider implements ProviderAdapter {
           if (projectId case final project? when project.isNotEmpty)
             'cloudaicompanionProject': project,
         };
-        if (identity != null) payload['userIdentifier'] = identity;
+        // Deliberately no `userIdentifier`. The account is resolved from the
+        // bearer token; `CLIProxyAPI` and `cortexkit` both send `{metadata}`
+        // alone. TokenDock sent one and the endpoint answered 400
+        // INVALID_ARGUMENT, so the field is not merely redundant here -- it is
+        // rejected. The identity is still checked, against what the response
+        // says, after this call returns.
         final result = await _postJson(
           Uri.parse('$host/v1internal:loadCodeAssist'),
           payload,
           bearer: access,
           stage: 'loadCodeAssist',
-          clientMetadata: true,
         );
         if (_hasProvisioning(result)) return result;
         // The silent one, and where a live sign-in actually stopped. Key *names*
@@ -776,13 +896,12 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       if (projectId case final project? when project.isNotEmpty)
         'cloudaicompanionProject': project,
     };
-    if (identity != null) payload['userIdentifier'] = identity;
+    // No `userIdentifier` here either, for the same reason as loadCodeAssist.
     final result = await _postJson(
       Uri.parse('$prodHost/v1internal:onboardUser'),
       payload,
       bearer: access,
       stage: 'onboardUser',
-      clientMetadata: true,
     );
     if (!_hasProvisioning(result)) {
       _logStage(
@@ -1323,23 +1442,50 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     Map<String, dynamic> body, {
     String? bearer,
     String stage = 'request',
-    bool clientMetadata = false,
   }) {
+    // Exactly the four headers `CLIProxyAPI` sets on a Cloud Code call, and
+    // nothing else.
+    //
+    // TokenDock also sent `Client-Metadata` and `X-Goog-Api-Client`, on the
+    // reading that both were required. `CLIProxyAPI`, `oh-my-pi` and `9router`
+    // send neither for this call, and the endpoint answered
+    // `400 INVALID_ARGUMENT` while they were present. `cortexkit` does send
+    // `Client-Metadata` -- and is the one implementation that does not work
+    // against a live account without its own hardcoded project id, so it is not
+    // evidence that the header is accepted.
+    //
+    // A header only one of six implementations sends is a fingerprint, not a
+    // contract. The cross-reference already flagged it as unproven; it turned
+    // out to be the thing the endpoint rejects.
     return _post(
       uri,
       stage: stage,
-      headers: {
+      headers: <String, String>{
         if (bearer != null && bearer.isNotEmpty)
           'Authorization': 'Bearer $bearer',
+        'Accept': '*/*',
         'Content-Type': 'application/json',
-        // Both reference implementations send these on every Cloud Code call,
-        // not only on loadCodeAssist. They identify the client surface; without
-        // them the endpoint is free to answer INVALID_ARGUMENT.
         'User-Agent': userAgent,
-        apiClientHeader: apiClientValue,
-        if (clientMetadata) 'Client-Metadata': clientMetadataHeader,
       },
       body: jsonEncode(body),
+    );
+  }
+
+  /// A GET, sharing [_\u0063ommonExchange]'s classification and retry ladder.
+  ///
+  /// The userinfo endpoint is a GET, so it cannot go through [_\u0070ost]. The
+  /// classification is identical to every other call, so it is factored out
+  /// rather than duplicated -- a second copy is how the two error shapes started
+  /// diverging in the first place.
+  Future<Map<String, dynamic>> _get(
+    Uri uri, {
+    required Map<String, String> headers,
+    String stage = 'request',
+  }) {
+    return _commonExchange(
+      uri,
+      stage: stage,
+      send: () => _http.get(uri, headers: headers),
     );
   }
 
@@ -1348,11 +1494,29 @@ class AntigravityOAuthProvider implements ProviderAdapter {
     required Map<String, String> headers,
     required String body,
     String stage = 'request',
+  }) {
+    return _commonExchange(
+      uri,
+      stage: stage,
+      send: () => _http.post(uri, headers: headers, body: body),
+    );
+  }
+
+  /// The single place a Cloud Code or Google response is classified.
+  ///
+  /// One implementation on purpose: the retry ladder, the status classification
+  /// and the logging were previously spread across the callers, and a request
+  /// shape that behaves differently from its neighbours is exactly how the
+  /// error-shape divergence started.
+  Future<Map<String, dynamic>> _commonExchange(
+    Uri uri, {
+    required String stage,
+    required Future<AntigravityOAuthHttpResponse> Function() send,
   }) async {
     for (var attempt = 0; attempt < _maximumTransientAttempts; attempt++) {
       AntigravityOAuthHttpResponse response;
       try {
-        response = await _http.post(uri, headers: headers, body: body);
+        response = await send();
       } catch (error) {
         _logStage('$stage transport failure on attempt ${attempt + 1}');
         throw AntigravityTransportFailure(error);
@@ -1594,12 +1758,37 @@ class AntigravityHttpClientRunner implements AntigravityOAuthHttpRunner {
     Uri uri, {
     required Map<String, String> headers,
     required String body,
+  }) {
+    return _send(uri, headers: headers, method: 'POST', body: body);
+  }
+
+  @override
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) {
+    return _send(uri, headers: headers, method: 'GET');
+  }
+
+  /// One request path for both methods.
+  ///
+  /// Shared so the GET cannot drift from the POST on the things that matter for
+  /// safety: the connection timeout, the response timeout, the byte cap and the
+  /// `retryAfter` capture. A second copy of that is a second copy to forget one
+  /// of them.
+  Future<AntigravityOAuthHttpResponse> _send(
+    Uri uri, {
+    required Map<String, String> headers,
+    required String method,
+    String? body,
   }) async {
     final client = HttpClient()..connectionTimeout = connectionTimeout;
     try {
-      final request = await client.postUrl(uri).timeout(connectionTimeout);
+      final request =
+          await (method == 'GET' ? client.getUrl(uri) : client.postUrl(uri))
+              .timeout(connectionTimeout);
       headers.forEach(request.headers.set);
-      request.write(body);
+      if (body != null) request.write(body);
       final response = await request.close().timeout(responseTimeout);
       return AntigravityOAuthHttpResponse(
         statusCode: response.statusCode,

@@ -6,7 +6,7 @@
 **Arquitetura:** aplicação local, processo único
 **Objetivo:** widget leve para monitorar múltiplas assinaturas, contas e API keys de serviços de IA.
 
-> **Status da primeira meta funcional: implementada e mesclada. Auditoria de corretude e acessibilidade de 2026-09-26 CONCLUÍDA: 36 de 36 achados fechados, cada um com o commit que o fechou. Verificação atual: `flutter test --no-pub` **632/632**, `flutter analyze` **sem nenhum diagnóstico** (eram 0 erros/0 warnings/31 infos), `flutter build windows --release` **bem-sucedido** e `integration_test` **3/3** no device `windows-x64`.**
+> **Status da primeira meta funcional: implementada e mesclada. Auditoria de corretude e acessibilidade de 2026-09-26 CONCLUÍDA: 36 de 36 achados fechados, cada um com o commit que o fechou. Verificação atual: `flutter test --no-pub` **684/684**, `flutter analyze` **sem nenhum diagnóstico** (eram 0 erros/0 warnings/31 infos), `flutter build windows --release` **bem-sucedido** e `integration_test` **3/3** no device `windows-x64`.**
 >
 > **Providers registados: cinco, todos com quota real — OpenRouter, Antigravity (OAuth Google remoto + local keyless), MiniMax, OpenCode Go e z.ai.** Todos os quatro formatos de resposta não documentados foram portados de uma implementação funcional (`can1357/oh-my-pi`), nunca inferidos. Cada um tem gate de credencial real, que é o que torna o test-before-save significativo: MiniMax `/v1/models` → 401; OpenCode Go `/zen/go/v1/usage` → 401/403; z.ai → `success` no body; OpenRouter → `GET /api/v1/key`.
 >

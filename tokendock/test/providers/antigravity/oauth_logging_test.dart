@@ -387,6 +387,12 @@ class _Runner implements AntigravityOAuthHttpRunner {
     required Map<String, String> headers,
     required String body,
   }) async => _respond(uri);
+
+  @override
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) async => _respond(uri);
 }
 
 class _RecordingSecretStore implements SecretStore {

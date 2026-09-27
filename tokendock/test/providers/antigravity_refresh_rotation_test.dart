@@ -161,4 +161,16 @@ class _GateHttp implements AntigravityOAuthHttpRunner {
     logs.add((uri: uri, body: body));
     return handler(uri);
   }
+
+  // Added with the account-email lookup. Recorded like POST so a test asserting
+  // on the request log sees the GET, and answered through the same handler so
+  // the two methods cannot be made to disagree.
+  @override
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) {
+    logs.add((uri: uri, body: ''));
+    return handler(uri);
+  }
 }

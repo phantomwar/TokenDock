@@ -3,21 +3,40 @@
 Four implementations read side by side, because each got a piece of the flow
 wrong or right that the others do not. Sources are pinned at the end.
 
-| | TokenDock | oh-my-pi | 9router | cortexkit |
-|---|---|---|---|---|
-| language | Dart | TypeScript | JavaScript | TypeScript |
-| body metadata | `{ideType: "ANTIGRAVITY"}` | `{ideType: "ANTIGRAVITY"}` | `{ideType: 9, platform: N, pluginType: 2}` | `{ideType: "ANTIGRAVITY"}` |
-| `Client-Metadata` header | 3 string fields | **not sent** | **not sent** | 3 string fields |
-| `X-Goog-Api-Client` | sent | **not sent** | **not sent** | not sent |
-| `User-Agent` | `antigravity/cli/1.1.24 (aidev_client; os_type=windows; arch=amd64; auth_method=consumer)` | `antigravity/hub/2.8.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)` | `antigravity/1.107.0` | `antigravity/cli/1.1.24 (…)` |
-| endpoint | daily, then prod | **daily only** | config value | daily, then prod |
-| response envelope | accepted either | flat (`cloudaicompanionProject` at top level) | flat | flat |
-| project shapes | string + `.id` | string only | string + `.id` | string + `.id` |
-| account identity | `email\|accountId` **from the token response** | **never read** | `userinfo` endpoint, `email` only | `userinfo` endpoint, `email` only |
-| cross-check identity | yes, guard | **none** | **none** | **none** |
-| `onboardUser` | no `tierId`, no polling | `tierId: "free-tier"`, polls `/v1internal/{name}` | `tierId`, polls 10×5s | no `tierId` |
-| free-tier eligibility | not checked | `ineligibleTiers` → reason + `validationUrl` | not checked | not checked |
-| fallback project | none (deliberate) | none | none | `rising-fact-p41fc` |
+| | TokenDock | CLIProxyAPI | oh-my-pi | 9router | cortexkit |
+|---|---|---|---|---|---|
+| stars | — | 53k | 33k | 30k | — |
+| language | Dart | Go | TypeScript | JavaScript | TypeScript |
+| body metadata | `{ideType: "ANTIGRAVITY"}` | `{ideType: "ANTIGRAVITY"}` | `{ideType: "ANTIGRAVITY"}` | `{ideType: 9, platform: N, pluginType: 2}` | `{ideType: "ANTIGRAVITY"}` |
+| body `userIdentifier` | **not sent** | **not sent** | not sent | not sent | not sent |
+| `Client-Metadata` hdr | **not sent** | **not sent** | **not sent** | **not sent** | 3 string fields |
+| `X-Goog-Api-Client` | **not sent** | **not sent** | **not sent** | **not sent** | not sent |
+| `Accept` on Cloud Code | `*/*` | `*/*` | not sent | not sent | `gzip` |
+| `User-Agent` | `antigravity/cli/1.1.24 (aidev_client; os_type=windows; arch=amd64; auth_method=consumer)` | `antigravity/hub/{v} {os}/{arch}` + `google-api-nodejs-client/10.3.0` on onboard | `antigravity/hub/2.8.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)` | `antigravity/1.107.0` | `antigravity/cli/1.1.24 (…)` |
+| UA version source | pinned | **discovered from Google's update manifest** | **discovered from Google's update manifest** | pinned | pinned |
+| endpoint | daily, then prod | prod, configurable per account | **daily only** | config value | daily, then prod |
+| response envelope | accepted either | flat | flat | flat | flat |
+| project shapes | string + `.id` | string + `.id` | string only | string + `.id` | string + `.id` |
+| account email | `oauth2/**v2**/userinfo` | `oauth2/**v2**/userinfo` | **never fetched** | `oauth2/**v1**/userinfo` | `oauth2/**v1**/userinfo` |
+| account identity | **email only** | email only | **none** | email, as a label | email, as a label |
+| cross-check identity | **none** (given up, see below) | **none** | **none** | **none** | **none** |
+| `onboardUser` tier | **not sent** | `tier_id` (snake_case) | `tierId: "free-tier"` | `tierId` | not sent |
+| `onboardUser` polling | **none** | 5 × 2s on `done` | `GET /v1internal/{name}` every 1s, 30s cap | 10 × 5s | none |
+| `onboardUser` metadata | 1 field | **3 fields, snake_case**: `ide_type`, `ide_version`, `ide_name` | 1 field | 3 numeric fields | 1 field |
+| free-tier eligibility | not checked | not checked | `ineligibleTiers` → reason + `validationUrl` | not checked | not checked |
+| `paidTier` read | **no** | **yes** | **yes** (the paid marker) | no | no |
+| fallback project | none (deliberate) | none | none | none | `rising-fact-p41fc` |
+
+`CLIProxyAPI` was added after the first version of this table was written, and it
+changed the answer on two rows: the `Accept` header, and the fact that **none** of
+the five send `Client-Metadata` or `X-Goog-Api-Client` for `loadCodeAssist` —
+`cortexkit` alone sends the former, and is the one implementation that does not
+work against a live account without its own project id.
+
+`onboardUser`'s metadata differs again between implementations, and the three
+observed shapes are incompatible with each other. That is recorded as open, not
+resolved: no live account has reached `onboardUser` in this project's testing,
+because every account tried already carries a tier.
 
 ## The three findings that matter
 
@@ -73,122 +92,168 @@ Two ways it can go, and they are not equivalent:
 `cortexkit` already takes the second option by default, so following it is not
 unprecedented — it is the norm.
 
-### 3. String vs numeric metadata enums — and a documented account-blocking risk
+### 3. Nobody sends `Client-Metadata` or `X-Goog-Api-Client` on `loadCodeAssist`
 
-`9router` uses **numeric** enums: `ideType: 9, pluginType: 2`, with
-`platform` as `5` on win32, `1`/`2` on darwin by arch, `3`/`4` on linux by arch.
-`oh-my-pi` and `cortexkit` use the **strings** `"ANTIGRAVITY"`.
+This row has changed since the first version of this document, and it changed
+because `CLIProxyAPI` was read afterwards.
 
-`9router` issue #1226 is titled *"Antigravity OAuth metadata mismatch causes
-Google account blocking"*. Its claim: inconsistent fingerprints between the
-token phase and the API phase let Google correlate and flag accounts, and the
-fix is to use the numeric enums everywhere. It reports the bug as **unpatched**
-in v0.4.52 and originally found in March 2026, with a related issue auto-closed
-for inactivity.
+`CLIProxyAPI` sets exactly four headers on a Cloud Code call:
 
-**TokenDock's situation is the inverse of the one described.** The three-field
-string map is consistent: the same values go in the `Client-Metadata` header on
-every Cloud Code call, and the body carries only `ideType: ANTIGRAVITY` — the
-`oh-my-pi` and `cortexkit` form, adopted after attempt 5. There is no mismatch
-between phases to correlate.
+```go
+httpReq.Header.Set("Authorization", "Bearer "+token)
+httpReq.Header.Set("Accept", "*/*")
+httpReq.Header.Set("Content-Type", "application/json")
+httpReq.Header.Set("User-Agent", userAgent)
+```
 
-Two things remain true regardless:
+`oh-my-pi` sends three of those four and no extras. `9router` sends two.
+`cortexkit` sends `Client-Metadata` — and is the one implementation that does
+not work against a live account without its own hardcoded project id, so it is
+not evidence the header is accepted.
 
-- **The numeric/strings question is unresolved across the ecosystem.** Three
-  implementations use strings, one uses numbers, and the one that argues for
-  numbers has an open bug report about it. Nobody has settled this with evidence.
-- **TokenDock sends a third header combination** that no reference sends:
-  `Client-Metadata` *and* `X-Goog-Api-Client` together. `cortexkit` sends both;
-  `oh-my-pi` and `9router` send neither. This is a fingerprint surface with no
-  corroboration, and the 400 in attempts 3–6 came from the body/header
-  interaction, so the combination is not proven good — only untested against a
-  working account.
+TokenDock was sending six, including both extra headers, and the endpoint answered
+`400 INVALID_ARGUMENT` on the sixth and eighth live attempts. The first version
+of this table called that combination "a fingerprint surface with no
+corroboration". It was worse than unproven: it was the thing the endpoint
+rejected.
 
-That last point is the uncomfortable one. Attempt 7 got a 200 with the account's
-real data, so the combination is **not** currently rejected. But a single
-successful `loadCodeAssist` is not proof the fingerprint is clean, and #1226 is
-specifically about fingerprints that work and get accounts blocked later.
+The 9router account-blocking issue (#1226) is about a *different* fingerprint
+problem — inconsistent identity between the token phase and the API phase — and
+does not apply to TokenDock, whose identity is now consistent across every call.
+Its numeric-enum position remains a minority view with an unpatched bug report
+behind it, and is recorded as unresolved rather than settled.
 
-## What TokenDock is missing that `oh-my-pi` has
+### 4. The account id does not exist, and four attempts assumed it did
 
-Not needed for sign-in, but real gaps found by reading it:
+This is the most consequential row, and it was invisible until a live response
+was logged.
 
-- **`onboardUser` is a long-running operation.** `oh-my-pi` sends
-  `tierId: "free-tier"`, then polls `GET /v1internal/{operationName}` every
-  second for 30s until `done: true`. `9router` polls 10× at 5s. TokenDock sends
-  **no `tierId` and never polls** — it treats the response as final. On an
-  account that needs onboarding, TokenDock will read an unfinished operation as
-  a completed one.
+The identity was `email|accountId` for four attempts. The email comes from
+`userinfo`; the account id was read from the provisioning body. **The
+provisioning body carries no account fields.**
+
+- `oh-my-pi` declares the response schema as exactly `currentTier`, `paidTier`,
+  `allowedTiers`, `ineligibleTiers`, `cloudaicompanionProject`. The file never
+  mentions an account identity at all.
+- `CLIProxyAPI`'s `userInfo` struct has one field, `email`.
+- The ninth live attempt logged the real keys: `allowedTiers,
+  cloudaicompanionProject, currentTier, gcpManaged, paidTier,
+  upgradeSubscriptionUri`. No `accountEmail`, no `accountId`.
+
+The `accountId` existed only in TokenDock's own test fixtures. A fixture that
+invents the field the code reads is not a neutral convenience — it converts a
+live bug into an invisible one, and four attempts passed in CI because of it.
+
+**What was given up.** The cross-check that bound a stored credential to one
+account is gone. It was the only defence in the entire ecosystem against a token
+for one account reading another's quota, and that failure mode is plausible
+output rather than an error. All five references accept the same loss, because
+none of them ever had the check.
+
+**How it could come back.** The `id_token` is a JWT whose payload carries the
+subject and the email — a genuinely independent second source. It requires adding
+`openid` to the five registered scopes, and a wrong scope set is what caused
+attempt 1. That is a maintainer's trade, not a default.
+
+## What TokenDock is missing that `oh-my-pi` and `CLIProxyAPI` have
+
+Not blocking sign-in, but real gaps found by reading them:
+
+- **`onboardUser` is a long-running operation, and the three implementations
+  disagree about how to call it.** `oh-my-pi` sends `tierId: "free-tier"`, then
+  polls `GET /v1internal/{name}` every second for 30s until `done: true`.
+  `CLIProxyAPI` sends **`tier_id`** — snake_case, which is not the same field
+  name — and polls the same endpoint 5 times at 2s. TokenDock sends **no tier
+  and never polls**, so it reads an unfinished operation as a finished one.
+
+  The metadata differs again: `CLIProxyAPI` sends three snake_case fields
+  (`ide_type`, `ide_version`, `ide_name`) where the others send one. Three
+  incompatible shapes, and no live account has reached this path in this
+  project's testing because every account tried already carries a tier. Recorded
+  as open rather than guessed at.
+
+- **`paidTier` is the real paid-account marker and TokenDock ignores it.**
+  `oh-my-pi` tests `hasMessageField(payload, "paidTier")`; `CLIProxyAPI` reads
+  `paidTier.id` and `paidTier.availableCredits` for its balance report. The
+  account used in testing **has** a `paidTier`, so the tier TokenDock is about to
+  report — from `currentTier` alone — is probably wrong.
+
 - **Free-tier eligibility is a first-class check.** `oh-my-pi` inspects
-  `ineligibleTiers` for `free-tier` and surfaces `reasonMessage` plus
-  `validationUrl` — a link the user can act on. TokenDock has no equivalent and
-  would report a generic failure for an account that is simply not eligible.
+  `ineligibleTiers` and surfaces `reasonMessage` plus a `validationUrl` the user
+  can act on. TokenDock would report a generic failure for an account that is
+  simply not eligible.
+
 - **The second `loadCodeAssist`.** When `paidTier` is absent but a project
   exists, `oh-my-pi` re-calls `loadCodeAssist` with the project. TokenDock calls
   it once.
-- **`paidTier` is the real tier signal.** `oh-my-pi` treats
-  `hasMessageField(payload, "paidTier")` as the paid-account marker.
-  TokenDock reads only `currentTier`. Attempt 7's log shows `paidTier` in the
-  response, so the account may be paid and TokenDock is reporting the wrong tier.
 
-Attempt 7's captured keys were
-`allowedTiers, cloudaicompanionProject, currentTier, gcpManaged, paidTier,
-upgradeSubscriptionUri` — which is `oh-my-pi`'s schema almost field for field,
-confirming the response is the one it expects.
+- **The `User-Agent` version can be discovered rather than pinned.** Both
+  `oh-my-pi` and `CLIProxyAPI` fetch it from Google's own update manifest
+  (`antigravity-hub-auto-updater-974169037036.us-central1.run.app`). TokenDock,
+  `cortexkit` and `9router` pin a constant, which goes stale silently. A pinned
+  version that the server stops accepting would be a `400` with no explanation,
+  which is precisely the failure mode the other two are defending against.
 
-## Correlation across all four
+## Correlation across all five
 
-**Universal agreement, four for four:**
+**Universal agreement, five for five:**
 
 - the Antigravity client id `1071006060591-…` and its secret
 - the five scopes, full-URL form
 - `prompt=consent` for a refresh token
-- the `antigravity` family of `User-Agent`, `aidev_client` in the string
+- the `antigravity` family of `User-Agent`
 - `ideType` must be `ANTIGRAVITY` — the Gemini CLI's `IDE_UNSPECIFIED` is wrong
   here, which is what attempt 1's `invalid_scope` was really about
+- **no `userIdentifier` on `loadCodeAssist`** — the account comes from the bearer
+  token, and TokenDock learned that by having the endpoint reject it
+- **the email alone is the identity**, and the account id is nowhere to be found
 
 **Universal disagreement:**
 
-- numeric vs string enums (1 vs 3)
-- `User-Agent` version: `2.8.0` / `1.107.0` / `1.1.24` / `1.1.24` — and
-  `oh-my-pi` fetches it live from Google's update manifest rather than pinning
-- daily-only vs daily-then-prod
-- whether the harness `User-Agent` should be `antigravity/cli` or
-  `antigravity/hub` — `oh-my-pi` says `hub`, captured from the real
-  `antigravity/hub` client, and `cortexkit` says `cli`
+- numeric vs string enums (1 vs 4)
+- `User-Agent` version: `2.8.0` / `1.107.0` / `1.1.24` / `1.1.24` / live
+- `antigravity/cli` vs `antigravity/hub` vs bare `antigravity/1.107.0`
+- daily-only vs daily-then-prod vs prod-only
+- `tierId` vs `tier_id` vs no tier, and one-field vs three-field onboard metadata
 
-**Nobody agrees on, and nobody implements:**
+**Nobody implements:**
 
-- an account identity cross-check
-- `Client-Metadata` on the provisioning call as a *string* map plus a numeric
-  body (only `cortexkit` sends the header at all)
+- an account identity cross-check. All five accept the same loss, because none
+  of them ever had the check — TokenDock is the only one that had it and gave it
+  up deliberately, having proved the second source does not exist.
 
 ## What this means for the next attempt
 
-The `oh-my-pi` implementation is the most defensible of the four, on the
-evidence: its metadata is a single frozen constant, its response schema is
-declared with a validator, its tests assert exact request bodies, and its
-`User-Agent` version is discovered rather than invented. `9router` has an open
-bug report about its own metadata. `cortexkit` has the correct shape but a
-hardcoded project id that is not portable.
+`CLIProxyAPI` is the most defensible of the five on the evidence: 53k stars, the
+four-header set confirmed by a second call site, the identity reduced to what
+actually exists, and a `User-Agent` version it does not have to guess. `oh-my-pi`
+is the most rigorous in its testing — frozen constants, a declared response
+schema, exact request-body assertions.
 
-The three changes that follow from this cross-reference, in order:
+The remaining work, in order:
 
-1. **Source the account identity correctly** — `userinfo` for the email, the
-   provisioning body for the account id — and decide whether the guard stays.
-   This is attempt 7's blocker and needs a decision, not more reading.
-2. **Add `tierId` and operation polling to `onboardUser`**, matching
-   `oh-my-pi`. Only reached for accounts without a tier, so it is not blocking
-   sign-in today.
-3. **Read `paidTier`, and surface free-tier ineligibility** with its
-   `validationUrl`. Attempt 7's account has a `paidTier`, so the tier TokenDock
-   reports is probably wrong right now.
+1. **Attribute the attempt-10 failure.** Every step between
+   `loadCodeAssist returned provisioning data` and the next log line is now
+   individually named, and an unrecognised error type prints its name. This is a
+   run, not a design question.
+2. **Read `paidTier`**, and surface free-tier ineligibility with its
+   `validationUrl`. The account in testing is paid, so the tier about to be
+   reported is likely wrong.
+3. **`onboardUser`: tier and polling.** The three field names disagree, so this
+   needs a decision rather than a copy — and it is unreachable for any account
+   that already has a tier.
+4. **Discover the `User-Agent` version** from Google's update manifest, as the two
+   strongest implementations do.
 
-Change 1 is the only one that unblocks sign-in. 2 and 3 are correctness issues
-that would surface as wrong quota data afterwards.
+Only (1) blocks sign-in. The rest are correctness issues that would surface as
+wrong quota data afterwards.
 
 ## Sources
 
+- `router-for-me/CLIProxyAPI` — `internal/auth/antigravity/auth.go`,
+  `internal/auth/antigravity/constants.go`,
+  `internal/runtime/executor/antigravity_executor_credits.go`,
+  `internal/misc/antigravity_version.go`
 - `can1357/oh-my-pi` — `packages/ai/src/registry/oauth/google-antigravity.ts`,
   `packages/catalog/src/wire/gemini-headers.ts`,
   `packages/ai/test/google-antigravity-oauth.test.ts`

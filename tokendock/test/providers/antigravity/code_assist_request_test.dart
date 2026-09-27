@@ -47,6 +47,14 @@ void main() {
         sentUris.add(uri);
         sentHeaders.add(headers);
         sentBodies.add(body);
+        // The userinfo endpoint is on www.googleapis.com, matched on path so it
+        // cannot be confused with the token host.
+        if (uri.path.contains('userinfo')) {
+          return AntigravityOAuthHttpResponse(
+            statusCode: 200,
+            body: jsonEncode(<String, dynamic>{'email': 'a@example.com'}),
+          );
+        }
         if (uri.host == 'oauth2.googleapis.com') {
           return AntigravityOAuthHttpResponse(
             statusCode: 200,
@@ -54,8 +62,6 @@ void main() {
               'access_token': 'ya29.access',
               'refresh_token': '1//refresh',
               'expires_in': 3600,
-              'accountEmail': 'a@example.com',
-              'accountId': 'acct-a',
             }),
           );
         }
@@ -130,43 +136,37 @@ void main() {
   });
 
   group('the required headers are sent', () {
-    test('X-Goog-Api-Client, which both implementations send', () async {
-      await signIn();
-      for (final headers in sentHeaders.where(
-        (h) => h.containsKey('Authorization'),
-      )) {
-        expect(
-          headers['X-Goog-Api-Client'],
-          isNotNull,
-          reason: 'missing on ${sentUris[sentHeaders.indexOf(headers)]}',
-        );
+    // The Cloud Code calls, identified by path rather than by "has a bearer":
+    // the userinfo lookup also carries a bearer and is a different endpoint
+    // with a different header contract.
+    List<Map<String, String>> cloudCodeHeaders() {
+      final out = <Map<String, String>>[];
+      for (var i = 0; i < sentUris.length; i++) {
+        if (sentUris[i].host.endsWith('googleapis.com') &&
+            !sentUris[i].path.contains('userinfo') &&
+            !sentUris[i].path.contains('token')) {
+          out.add(sentHeaders[i]);
+        }
       }
-    });
+      return out;
+    }
 
-    test('a User-Agent, which both implementations send', () async {
+    test('a User-Agent, which every implementation sends', () async {
       await signIn();
-      for (final headers in sentHeaders.where(
-        (h) => h.containsKey('Authorization'),
-      )) {
+      for (final headers in cloudCodeHeaders()) {
         expect(headers['User-Agent'], isNotNull);
       }
     });
 
-    test('Client-Metadata on loadCodeAssist, matching the body', () async {
+    test('Accept, which CLIProxyAPI sends and TokenDock did not', () async {
       await signIn();
-      final index = sentUris.indexWhere(
-        (u) => u.path.contains('loadCodeAssist'),
-      );
-      expect(index, isNot(-1), reason: 'loadCodeAssist was never called');
-      final header = sentHeaders[index]['Client-Metadata'];
-      expect(header, isNotNull);
-      final decoded = jsonDecode(header!) as Map<String, dynamic>;
-      expect(decoded['ideType'], 'ANTIGRAVITY');
-      expect(decoded['pluginType'], 'GEMINI');
+      for (final headers in cloudCodeHeaders()) {
+        expect(headers['Accept'], '*/*');
+      }
     });
 
     test(
-      'the token endpoint is not given a bearer or client metadata',
+      'the token endpoint is not given a bearer or the Cloud Code headers',
       () async {
         // The token request is a plain form post to Google OAuth. Sending it
         // Cloud Code headers would be meaningless at best and a misrouted
@@ -186,20 +186,36 @@ void main() {
     );
   });
 
-  group('the identity is still sent when there is one', () {
-    test('userIdentifier reaches the body', () async {
+  group('the body carries only what the endpoint accepts', () {
+    test('loadCodeAssist sends no userIdentifier', () async {
+      // Corrected 2026-09-26, twice. The first version asserted a composed
+      // `email|accountId`; the second asserted the plain email. Both were wrong,
+      // and both produced `400 INVALID_ARGUMENT`.
+      //
+      // The field is not part of this request at all. `CLIProxyAPI` builds the
+      // body as `{metadata: ...}` and nothing else, and `cortexkit` does the
+      // same. Neither sends a user identifier to `loadCodeAssist`: the endpoint
+      // resolves the account from the bearer token, so naming one is redundant
+      // at best and an unrecognised field at worst.
       await signIn();
       final body = jsonDecode(
         sentBodies.firstWhere((b) => b.contains('ideType')),
       ) as Map<String, dynamic>;
       expect(
-        body['userIdentifier'],
-        'a@example.com|acct-a',
-        reason:
-            'the guard composes the identity as email|accountId, so asserting the '
-            'exact shape is what catches a half-built identity being sent as a '
-            'valid-looking string',
+        body.containsKey('userIdentifier'),
+        isFalse,
+        reason: 'the account comes from the bearer token, not from the body',
       );
+    });
+
+    test('and the body is metadata plus nothing else', () async {
+      await signIn();
+      final body = jsonDecode(
+        sentBodies.firstWhere((b) => b.contains('ideType')),
+      ) as Map<String, dynamic>;
+      expect(body.keys, <String>[
+        'metadata',
+      ], reason: 'CLIProxyAPI builds this request as {metadata: ...} exactly');
     });
   });
 }
@@ -220,4 +236,10 @@ class _Recording implements AntigravityOAuthHttpRunner {
     required Map<String, String> headers,
     required String body,
   }) async => _respond(uri, headers, body);
+
+  @override
+  Future<AntigravityOAuthHttpResponse> get(
+    Uri uri, {
+    required Map<String, String> headers,
+  }) async => _respond(uri, headers, '');
 }
