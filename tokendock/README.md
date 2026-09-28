@@ -31,6 +31,17 @@ flutter run -d windows
 flutter build windows --release
 ```
 
+Antigravity login needs its OAuth credentials from the build environment —
+they are never stored in the repository (GitHub push protection refuses the
+pattern). Pass them on every build/run/test that exercises the login:
+
+```powershell
+flutter run -d windows --dart-define=ANTIGRAVITY_CLIENT_ID=... --dart-define=ANTIGRAVITY_CLIENT_SECRET=...
+```
+
+Without the defines the provider falls back to obviously-fake placeholders, so
+the unit suite stays green while a real login fails at the token endpoint.
+
 - `flutter test --no-pub`: **684/684 passed**, re-confirmed on two consecutive runs. The 366-test gate was met on three consecutive runs at `9ae626f`; 379, 386, 389, 399, 409, 410, 417, 430, 465, 507, 542, 576, 586, 597, 615, 620 and 632 were each re-confirmed before the next change. Baseline before the 2026-09-26 session was 235.
 - **Providers:** OpenRouter, Antigravity, MiniMax, OpenCode Go, z.ai — all with a real credential gate and real quota. Each of the four ported response shapes was taken from a working implementation in `can1357/oh-my-pi` rather than inferred. OpenCode Zen stays absent: its pay-as-you-go balance has no documented endpoint, and the reference implementation registers a Go usage provider and no Zen one.
 - `flutter analyze --no-pub`: **no issues found**. This was 31 informational diagnostics before the lint sweep; it is now zero across errors, warnings and informational. The sweep was lint-specific and scoped per file, so no pre-existing unformatted file was reformatted as a side effect.

@@ -31,16 +31,19 @@ import 'package:tokendock/providers/antigravity/antigravity_oauth.dart';
 void main() {
   group('the client is the Antigravity one', () {
     test('not the Gemini CLI client that produced invalid_scope', () {
+      // The full Gemini CLI client id cannot appear here: GitHub push
+      // protection refuses the credential pattern, so the negative check keys
+      // on the id prefix, which is not itself a credential.
       expect(
         AntigravityOAuthProvider.clientId,
-        'UNCONFIGURED.apps.googleusercontent.com',
+        isNot(startsWith('681255809395-')),
+        reason:
+            'that prefix is the Gemini CLI client and it rejects these scopes',
       );
       expect(
         AntigravityOAuthProvider.clientId,
-        isNot(
-          'GEMINI_CLI_CLIENT_ID.apps.googleusercontent.com',
-        ),
-        reason: 'that is the Gemini CLI client and it rejects these scopes',
+        endsWith('.apps.googleusercontent.com'),
+        reason: 'the client id is a Google OAuth client, shaped like one',
       );
     });
 

@@ -169,17 +169,25 @@ class AntigravityOAuthProvider implements ProviderAdapter {
       'https://accounts.google.com/o/oauth2/v2/auth';
   static const revokeEndpoint = 'https://oauth2.googleapis.com/revoke';
 
-  /// The Antigravity OAuth client.
+  /// The Antigravity OAuth client id.
   ///
-  /// This was **wrong**, and login could not work. The previous value
-  /// (`GEMINI_CLI_CLIENT_ID.apps.googleusercontent.com`) is the *Gemini CLI* client, and an OAuth client is
-  /// only permitted the scopes registered to it. Asking the Gemini CLI client
-  /// for Antigravity's scopes produced Google's
+  /// Read from the build environment so the credential never lives in the
+  /// repository: pass `--dart-define=ANTIGRAVITY_CLIENT_ID=...` (and
+  /// `ANTIGRAVITY_CLIENT_SECRET=...`) to `flutter build`, `flutter run` and
+  /// `flutter test`. Without them this falls back to an obviously-fake
+  /// placeholder, so a build that forgets the defines fails at the token
+  /// endpoint instead of silently using the wrong client.
+  ///
+  /// This was previously the *Gemini CLI* client (`681255809395-...`), and an
+  /// OAuth client is only permitted the scopes registered to it. Asking the
+  /// Gemini CLI client for Antigravity's scopes produced Google's
   /// `Error 400: invalid_scope ... [invalid=[cloud-platform, userinfo.email,
   /// userinfo.profile]]`, which lists the scopes and so looks like a scope
   /// problem rather than a client problem.
-  static const clientId =
-      'UNCONFIGURED.apps.googleusercontent.com';
+  static const clientId = String.fromEnvironment(
+    'ANTIGRAVITY_CLIENT_ID',
+    defaultValue: 'UNCONFIGURED.apps.googleusercontent.com',
+  );
 
   /// The client secret for [clientId].
   ///
@@ -188,20 +196,21 @@ class AntigravityOAuthProvider implements ProviderAdapter {
   /// endpoint rather than at the consent screen, which is why it presents as a
   /// different fault from the one it actually is.
   ///
-  /// ## The cost of embedding this, stated plainly
-  ///
-  /// A desktop binary is readable, so anyone determined can extract this. It
-  /// does not by itself grant access to an account — the user still completes
-  /// consent interactively — but it does allow minting tokens for the
-  /// Antigravity client. The reference implementation this value came from
-  /// ships the same secret, base64-encoded, which is obfuscation and not
+  /// Like [clientId] this comes from `--dart-define=ANTIGRAVITY_CLIENT_SECRET`
+  /// and is deliberately not embedded in the source: a desktop binary is
+  /// readable, so anyone determined can extract an embedded secret, and GitHub
+  /// push protection refuses to store one. The reference implementation this
+  /// value came from ships it base64-encoded, which is obfuscation and not
   /// encryption.
   ///
   /// The alternative is to run the maintainer's own Google Cloud OAuth
   /// credentials, so the exposed secret is theirs rather than Google's. That is
   /// the supported route for a distributed desktop app, and it is a product
   /// decision rather than a code one.
-  static const clientSecret = 'UNCONFIGURED_ANTIGRAVITY_CLIENT_SECRET';
+  static const clientSecret = String.fromEnvironment(
+    'ANTIGRAVITY_CLIENT_SECRET',
+    defaultValue: 'UNCONFIGURED_ANTIGRAVITY_CLIENT_SECRET',
+  );
 
   /// The five scopes Antigravity registers.
   ///

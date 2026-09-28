@@ -120,9 +120,9 @@ void main() {
     });
 
     test('anything that could be a credential is refused, not sanitised', () {
-      for (final hostile in const <String>[
+      for (final hostile in <String>[
         '{"error":"ya29.a0AfH6SMabcdefghijklmnopqrs"}',
-        '{"error":"UNCONFIGURED_ANTIGRAVITY_CLIENT_SECRET"}',
+        '{"error":"${AntigravityOAuthProvider.clientSecret}"}',
         '{"error":"1//0eXyZ-token-value-here"}',
         // The case that forced the allow-list. This passes every shape rule a
         // filter could reasonably write -- lowercase, digits, dashes, 26
